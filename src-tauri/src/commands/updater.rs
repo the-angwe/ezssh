@@ -1,9 +1,16 @@
+use ezssh_core::error::{AppError, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+use tauri::async_runtime::Mutex;
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::error::{AppError, Result};
-use crate::state::AppState;
+/// The `Update` produced by the most recent `updater_check`, held so a
+/// subsequent `updater_download_install` can act on the exact release the
+/// user reviewed (stable or pre-release channel). Single-slot: a fresh
+/// check overwrites it. Managed Tauri state of its own (the core knows
+/// nothing about tauri-plugin-updater).
+#[derive(Default)]
+pub struct PendingUpdate(Mutex<Option<tauri_plugin_updater::Update>>);
 
 /// GitHub repo the updater channels resolve against. Kept in one place so the
 /// stable endpoint and the pre-release API query can't drift apart.
@@ -88,7 +95,7 @@ async fn prerelease_manifest_url() -> Result<String> {
 
 /// Check for an update on the requested channel. `pre_release` selects the
 /// beta channel (newest release including pre-releases); false uses the stable
-/// channel. The resulting `Update`, if any, is stashed in `AppState` so
+/// channel. The resulting `Update`, if any, is stashed in `PendingUpdate` so
 /// `updater_download_install` can act on the exact release the user reviewed.
 ///
 /// Not gated on `require_unlocked`: the updater surfaces on the unlock screen
@@ -96,7 +103,7 @@ async fn prerelease_manifest_url() -> Result<String> {
 #[tauri::command]
 pub async fn updater_check(
     app: AppHandle,
-    state: State<'_, AppState>,
+    pending: State<'_, PendingUpdate>,
     pre_release: bool,
 ) -> Result<Option<UpdateInfo>> {
     let endpoint = if pre_release {
@@ -134,7 +141,7 @@ pub async fn updater_check(
         pre_release,
     });
 
-    *state.pending_update.lock().await = found;
+    *pending.0.lock().await = found;
     Ok(info)
 }
 
@@ -143,9 +150,12 @@ pub async fn updater_check(
 /// success the caller is expected to relaunch (via `plugin-process`). Errors
 /// if no check has run or the last check found nothing.
 #[tauri::command]
-pub async fn updater_download_install(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    let update = state
-        .pending_update
+pub async fn updater_download_install(
+    app: AppHandle,
+    pending: State<'_, PendingUpdate>,
+) -> Result<()> {
+    let update = pending
+        .0
         .lock()
         .await
         .take()

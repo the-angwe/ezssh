@@ -164,7 +164,7 @@ If you must use `cargo run`, build the UI first:
 ### Tests + linters
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo test -p ezterm -p ezssh-core
 npm --prefix ui run typecheck
 npm --prefix ui run lint
 npm --prefix ui test
@@ -181,7 +181,11 @@ cargo build --release    # raw self-contained binary in target/release/
 
 ```
 ezTerm/
-├── src-tauri/       Rust: Tauri commands, SSH/SFTP, vault, local PTY, X server mgmt
+├── crates/
+│   ├── ezssh-core/  Rust: SSH/SFTP, vault, DB, local PTY, forwards, sync, backup, X server mgmt
+│   ├── ezssh-term/  native terminal widget (rework, not shipped yet)
+│   └── ezssh-spike/ native test window (rework phase 1)
+├── src-tauri/       Tauri shell: thin #[tauri::command] wrappers over ezssh-core
 ├── ui/              Next.js app (static export embedded into the Rust binary)
 ├── migrations/      sqlx migrations (SQLite)
 └── .github/         release workflow

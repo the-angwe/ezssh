@@ -1,21 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod backup;
-mod commands;
-mod db;
-mod error;
-mod import;
-mod local;
-mod log_redacted;
-mod sftp;
-mod ssh;
-mod state;
-mod sync;
-mod vault;
-mod wslfs;
-mod xserver;
+//! Tauri shell around `ezssh-core`: registers the command wrappers, maps
+//! core events onto Tauri events and owns the updater and splash window.
+//! Shipping build until the native app replaces it (rework phase 8).
 
-use state::AppState;
+mod commands;
+mod events;
+mod output;
+
+use std::sync::Arc;
+
+use ezssh_core::state::{default_db_path, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -23,16 +18,9 @@ async fn main() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let db_path = resolve_db_path();
-    let pool = db::init_pool(&db_path).await.expect("init db");
-    let initialized = vault::is_initialized(&pool).await.expect("vault check");
-    let initial_state = if initialized {
-        vault::VaultState::Locked
-    } else {
-        vault::VaultState::Uninitialized
-    };
-    let app_state = AppState::new(pool);
-    *app_state.vault.write().await = initial_state;
+    let db_path = default_db_path().expect("resolve data directory");
+    let events = Arc::new(events::TauriEvents::default());
+    let app_state = AppState::open(&db_path, events.clone()).await.expect("init db");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -40,6 +28,12 @@ async fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(app_state)
+        .manage(commands::updater::PendingUpdate::default())
+        .manage(commands::splash::Startup::now())
+        .setup(move |app| {
+            events.attach(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::folders::folder_list,
             commands::folders::folder_create,
@@ -133,10 +127,4 @@ async fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running ezTerm");
-}
-
-fn resolve_db_path() -> std::path::PathBuf {
-    let dirs = directories::ProjectDirs::from("com", "ZerosAndOnes", "ezTerm")
-        .expect("failed to resolve platform data directory");
-    dirs.data_local_dir().join("ezterm.sqlite")
 }

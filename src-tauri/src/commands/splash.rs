@@ -27,21 +27,29 @@
 //! close it and focus the main window. Idempotent — subsequent calls
 //! (e.g. from a hot-reload) are no-ops because `get_webview_window`
 //! returns `None` after the splash closes.
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use ezssh_core::error::Result;
 use tauri::{AppHandle, Manager, State};
 
-use crate::error::Result;
-use crate::state::AppState;
+/// Roughly process start: captured in `main` right after the core state
+/// opens. Floors the splash's visible duration.
+pub struct Startup(Instant);
+
+impl Startup {
+    pub fn now() -> Self {
+        Self(Instant::now())
+    }
+}
 
 /// How long the splash stays visible at minimum, counted from
-/// `AppState::started_at`. ~2 s lets the logo register as a branded
+/// `Startup`. ~2 s lets the logo register as a branded
 /// splash on fast hardware without feeling sluggish.
 const SPLASH_MIN_VISIBLE: Duration = Duration::from_millis(2000);
 
 #[tauri::command]
-pub async fn ui_ready(state: State<'_, AppState>, app: AppHandle) -> Result<()> {
-    let elapsed = state.started_at.elapsed();
+pub async fn ui_ready(startup: State<'_, Startup>, app: AppHandle) -> Result<()> {
+    let elapsed = startup.0.elapsed();
     if elapsed < SPLASH_MIN_VISIBLE {
         tokio::time::sleep(SPLASH_MIN_VISIBLE - elapsed).await;
     }

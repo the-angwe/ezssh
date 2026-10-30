@@ -1,9 +1,10 @@
 # ezssh-spike
 
 Phase 1 of the native rework (`docs/design/native-rework-plan.md` §5, results
-in §9): the `ezssh-term` widget in a bare eframe window, over a local PTY and
-one SSH session. It is a test bench, not the product. No vault, no saved
-sessions, no settings.
+in §9), kept as the hands-on bench for the `ezssh-term` widget (phase 3, §11):
+the widget in a bare eframe window, over a local PTY and one SSH session. It
+is a test bench, not the product. No vault, no saved sessions; the
+`terminal.*` settings are command-line flags (`--help`).
 
 ## Build and run
 
@@ -14,6 +15,7 @@ cargo build --release -p ezssh-spike
 ./target/release/ezssh-spike --ssh user@host:2222 --password --trust-new-host
 ./target/release/ezssh-spike --renderer warp          # force the software adapter
 ./target/release/ezssh-spike --bench                  # 8 MiB throughput / frame-rate bench
+./target/release/ezssh-spike --palette solarized-dark --cursor bar --bell visual --right-click paste
 ./target/release/ezssh-spike --help
 ```
 
@@ -34,13 +36,18 @@ renderer.
 | Keys | Action |
 |---|---|
 | Ctrl+Shift+C, Ctrl+Insert | Copy selection |
-| Ctrl+Shift+V, Shift+Insert, right-click | Paste (bracketed when the app asks) |
+| Ctrl+Shift+V, Shift+Insert | Paste (bracketed when the app asks; multi-line pastes ask first) |
+| Right-click | Context menu: Copy, Paste, Select All, Find…, Font…, Clear scrollback (`--right-click paste` pastes instead; Ctrl+right-click still opens the menu) |
+| Ctrl+Shift+F | Find bar: Enter / Shift+Enter next / previous, `Aa` case, `.*` regex, Esc closes |
+| Click on a link | Opens `http(s)` URLs and OSC 8 links in the browser |
 | Shift+PageUp / PageDown / Home / End | Scroll history (not in full-screen apps) |
-| Ctrl+wheel | Zoom 8–48 pt |
+| Ctrl+wheel | Zoom this tab, 8–48 pt |
 | Shift+drag | Select even when the app has mouse reporting on |
 | Double / triple click | Word / line selection |
 
-Everything else, including Ctrl+C, goes to the shell.
+Everything else, including Ctrl+C, goes to the shell. The top bar switches
+the colour palette live. A tab whose shell exited shows the Disconnected card
+with Reconnect.
 
 ## Manual gate checklist
 
@@ -65,3 +72,9 @@ have). Tick them in §9 of the plan.
    layout (`@`, `{`, `\`), dead keys.
 9. **Live SSH**: `--ssh user@host`, `cat` a large file, resize the window,
    run 1–3 there.
+10. **Phase 3 widget by hand**: right-click menu items, find bar, link hover
+    and click, Ctrl+wheel zoom step size, multi-line paste prompt, bell modes,
+    cursor blink, italic text, Nerd Font icons (`ls` with eza / lsd icons).
+
+`cargo test -p ezssh-term --test ui` runs the same widget flows headless;
+`EZSSH_UI_SHOTS=<dir>` also renders them to PNG.

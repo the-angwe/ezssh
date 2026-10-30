@@ -7,13 +7,19 @@
 
 pub mod boxdraw;
 pub mod fonts;
+mod hook;
 pub mod keys;
+pub mod links;
 pub mod mouse;
+pub mod osc52;
 pub mod palette;
+pub mod search;
 pub mod terminal;
 pub mod view;
 
 pub use alacritty_terminal::event::WindowSize;
 pub use palette::Palette;
 pub use terminal::{Feeder, Pty, TermOptions, Terminal};
-pub use view::{TermStyle, TerminalView};
+pub use view::{BellMode, Overlay, RightClick, TermAction, TermOutput, TermStyle, TerminalView};
+pub use fonts::{Faces, FontRegistry};
+pub use terminal::CursorKind;

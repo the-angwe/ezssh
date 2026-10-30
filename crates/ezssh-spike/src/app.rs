@@ -9,19 +9,34 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use eframe::egui::{self, Color32, RichText};
-use ezssh_term::fonts::{self, TermFonts};
 use ezssh_term::view::ImeLoopFilter;
-use ezssh_term::{Pty, TermOptions, TermStyle, Terminal, TerminalView, WindowSize};
+use ezssh_term::{
+    Faces, FontRegistry, Overlay, Pty, TermAction, TermOptions, TermStyle, Terminal, TerminalView, WindowSize, palette,
+};
 use zeroize::Zeroizing;
 
 use crate::{Args, TabSpec, local, ssh};
 
-const DEFAULT_FONTS: &[&str] = &["Cascadia Mono", "JetBrains Mono", "Consolas", "Menlo", "DejaVu Sans Mono"];
 const BENCH_BYTES: usize = 8 * 1024 * 1024;
 
 struct Tab {
     label: String,
+    /// How to open it again (Reconnect). `None` for the bench tab.
+    spec: Option<TabSpec>,
     term: Terminal,
+}
+
+/// A multi-line paste waiting for the user's yes.
+struct PendingPaste {
+    tab: usize,
+    text: String,
+    lines: usize,
+}
+
+/// The context menu's Font… window.
+struct FontPicker {
+    tab: usize,
+    family: String,
 }
 
 /// Discards input; the bench tab has no process behind it.
@@ -105,15 +120,27 @@ pub struct SpikeApp {
     tabs: Vec<Tab>,
     active: usize,
     style: TermStyle,
-    fonts: TermFonts,
+    fonts: FontRegistry,
+    faces: Faces,
+    font_size: f32,
     options: TermOptions,
+    pending_paste: Option<PendingPaste>,
+    font_picker: Option<FontPicker>,
     focus_next: bool,
     renderer: String,
     started: Instant,
     pending_run: Option<String>,
+    /// `--find` / `--menu`, applied once the `--run` command had time to print.
+    pending_find: Option<String>,
+    pending_menu: bool,
     screenshot: Option<(PathBuf, Duration)>,
     screenshot_requested: bool,
     screenshot_done: Arc<std::sync::atomic::AtomicBool>,
+    /// Throw-away screenshots taken first. A hidden window renders only the
+    /// frames a screenshot forces, and a popup's first frame is egui's
+    /// invisible sizing pass.
+    screenshot_warmups: u8,
+    warmup_done: Option<Arc<std::sync::atomic::AtomicBool>>,
     exit_after: Option<Duration>,
     bench: Option<Bench>,
     // Status-line measurements over one-second windows.
@@ -157,16 +184,24 @@ impl SpikeApp {
             .build()
             .context("tokio runtime")?;
 
-        let candidates: Vec<&str> =
-            if args.fonts.is_empty() { DEFAULT_FONTS.to_vec() } else { args.fonts.iter().map(String::as_str).collect() };
-        let term_fonts = fonts::install(&ctx, &candidates);
+        let mut fonts = FontRegistry::new();
+        let font_value = args.fonts.join(", ");
+        let faces = fonts.faces(&ctx, &font_value);
         let style = TermStyle {
-            font_size: args.size,
-            family: term_fonts.family.clone(),
-            bold_family: term_fonts.bold_family.clone(),
+            palette: palette::by_id(&args.palette).clone(),
+            copy_on_select: args.copy_on_select,
+            right_click: args.right_click,
+            warn_multiline_paste: args.paste_warning,
+            bell: args.bell,
+            ligatures: args.ligatures,
             ..TermStyle::default()
         };
-        let options = TermOptions { scrollback: args.scrollback, ..TermOptions::default() };
+        let options = TermOptions {
+            scrollback: args.scrollback,
+            osc52_write: args.osc52,
+            cursor: args.cursor,
+            cursor_blink: args.cursor_blink,
+        };
 
         let renderer = match cc.wgpu_render_state.as_ref() {
             Some(rs) => {
@@ -175,22 +210,30 @@ impl SpikeApp {
             }
             None => "glow (OpenGL)".to_string(),
         };
-        tracing::info!(%renderer, font = ?term_fonts.loaded, "spike.window");
+        tracing::info!(%renderer, font = ?faces.loaded, palette = style.palette.id, "spike.window");
 
         let mut app = SpikeApp {
             rt,
             tabs: Vec::new(),
             active: 0,
             style,
-            fonts: term_fonts,
+            fonts,
+            faces,
+            font_size: args.size,
             options,
+            pending_paste: None,
+            font_picker: None,
             focus_next: true,
             renderer,
             started: Instant::now(),
             pending_run: args.run.clone(),
+            pending_find: args.find.clone(),
+            pending_menu: args.menu,
             screenshot: args.screenshot.clone().map(|p| (p, Duration::from_secs_f32(args.screenshot_after))),
             screenshot_requested: false,
             screenshot_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            screenshot_warmups: if args.find.is_some() || args.menu { 1 } else { 0 },
+            warmup_done: None,
             exit_after: args.exit_after.map(Duration::from_secs_f32),
             bench: None,
             window_start: Instant::now(),
@@ -212,20 +255,127 @@ impl SpikeApp {
         Ok(app)
     }
 
-    fn open_tab(&mut self, ctx: &egui::Context, spec: &TabSpec, password: Option<Zeroizing<String>>) {
+    fn spawn(&mut self, ctx: &egui::Context, spec: &TabSpec, password: Option<Zeroizing<String>>) -> Option<(String, Terminal)> {
         let palette = self.style.palette.clone();
-        match spec {
+        let (label, mut term) = match spec {
             TabSpec::Local(shell) => match local::spawn(ctx, shell.as_deref(), self.options.clone(), palette) {
-                Ok(term) => self.tabs.push(Tab { label: shell.clone().unwrap_or_else(|| "local".into()), term }),
-                Err(e) => tracing::error!("spike: local shell failed: {e:#}"),
+                Ok(term) => (shell.clone().unwrap_or_else(|| "local".into()), term),
+                Err(e) => {
+                    tracing::error!("spike: local shell failed: {e:#}");
+                    return None;
+                }
             },
             TabSpec::Ssh(target) => {
                 let term = ssh::spawn(self.rt.handle(), ctx, target.clone(), password, self.options.clone(), palette);
-                self.tabs.push(Tab { label: target.label(), term });
+                (target.label(), term)
             }
+        };
+        term.set_faces(self.faces.clone());
+        term.set_font_size(self.font_size);
+        Some((label, term))
+    }
+
+    fn open_tab(&mut self, ctx: &egui::Context, spec: &TabSpec, password: Option<Zeroizing<String>>) {
+        if let Some((label, term)) = self.spawn(ctx, spec, password) {
+            self.tabs.push(Tab { label, spec: Some(spec.clone()), term });
         }
         self.active = self.tabs.len().saturating_sub(1);
         self.focus_next = true;
+    }
+
+    fn reconnect(&mut self, ctx: &egui::Context, i: usize) {
+        let Some(spec) = self.tabs.get(i).and_then(|t| t.spec.clone()) else {
+            tracing::warn!(tab = i, "spike: this tab cannot reconnect");
+            return;
+        };
+        tracing::info!(tab = i, ?spec, "spike: reconnect");
+        if let Some((_, mut term)) = self.spawn(ctx, &spec, None) {
+            let old = &self.tabs[i].term;
+            term.set_faces(old.faces().clone());
+            term.set_font_size(old.font_size());
+            self.tabs[i].term = term;
+            self.focus_next = true;
+        }
+    }
+
+    fn handle_actions(&mut self, ctx: &egui::Context, tab: usize, actions: Vec<TermAction>) {
+        for action in actions {
+            tracing::debug!(tab, ?action, "spike.action");
+            match action {
+                TermAction::Reconnect => self.reconnect(ctx, tab),
+                TermAction::ConfirmPaste { text, lines } => self.pending_paste = Some(PendingPaste { tab, text, lines }),
+                TermAction::OpenUrl(url) => {
+                    if let Err(e) = open::that_detached(&url) {
+                        tracing::error!(%url, "spike: opening link failed: {e}");
+                    }
+                }
+                TermAction::Bell => tracing::info!(tab, "spike: bell (sound mode; the app plays it)"),
+                TermAction::OpenFontPicker => {
+                    let family = self.tabs[tab].term.faces().loaded.clone().unwrap_or_default();
+                    self.font_picker = Some(FontPicker { tab, family });
+                }
+            }
+        }
+    }
+
+    fn show_modals(&mut self, ctx: &egui::Context) {
+        if let Some(p) = &self.pending_paste {
+            let mut answer = None;
+            egui::Modal::new(egui::Id::unique("paste-confirm")).show(ctx, |ui| {
+                ui.heading("Paste multiple lines?");
+                ui.label(format!("The clipboard holds {} lines. Each one will run as you paste it.", p.lines));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Paste").clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        answer = Some(false);
+                    }
+                });
+            });
+            if let Some(yes) = answer {
+                if let Some(p) = self.pending_paste.take()
+                    && yes
+                    && let Some(t) = self.tabs.get_mut(p.tab)
+                {
+                    t.term.paste(&p.text);
+                }
+                self.focus_next = true;
+            }
+        }
+        if let Some(picker) = &mut self.font_picker {
+            let mut open = true;
+            let mut apply = false;
+            let tab = picker.tab;
+            egui::Window::new("Font").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+                if let Some(t) = self.tabs.get_mut(tab) {
+                    ui.horizontal(|ui| {
+                        ui.label("Size");
+                        let mut size = t.term.font_size();
+                        if ui.add(egui::DragValue::new(&mut size).range(8.0..=48.0).speed(0.2)).changed() {
+                            t.term.set_font_size(size.round());
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Family");
+                        apply = ui.text_edit_singleline(&mut picker.family).lost_focus();
+                        apply |= ui.button("Apply").clicked();
+                    });
+                    ui.label(RichText::new(format!("loaded: {}", t.term.faces().loaded.as_deref().unwrap_or("egui mono"))).small().weak());
+                }
+            });
+            if apply {
+                let faces = self.fonts.faces(ctx, &picker.family);
+                if let Some(t) = self.tabs.get_mut(tab) {
+                    t.term.set_faces(faces);
+                }
+            }
+            if !open {
+                self.font_picker = None;
+                self.focus_next = true;
+            }
+        }
     }
 
     fn open_bench(&mut self, ctx: &egui::Context, file: Option<&Path>) -> Result<()> {
@@ -233,7 +383,9 @@ impl SpikeApp {
             Some(p) => std::fs::read(p).with_context(|| format!("reading bench file {}", p.display()))?,
             None => generated_bench_data(),
         };
-        let (term, feeder) = Terminal::new(ctx, Arc::new(NullPty), self.options.clone(), self.style.palette.clone());
+        let (mut term, feeder) = Terminal::new(ctx, Arc::new(NullPty), self.options.clone(), self.style.palette.clone());
+        term.set_faces(self.faces.clone());
+        term.set_font_size(self.font_size);
         let shared = Arc::new(BenchShared::default());
         shared.bytes_per_pass.store(data.len() as u64, Ordering::Relaxed);
         let epoch = Instant::now();
@@ -262,7 +414,7 @@ impl SpikeApp {
             })
             .context("bench thread")?;
         self.bench = Some(Bench { epoch, shared, samples: Vec::new(), last_frame: None, report: None });
-        self.tabs.push(Tab { label: "bench".into(), term });
+        self.tabs.push(Tab { label: "bench".into(), spec: None, term });
         self.active = self.tabs.len() - 1;
         self.focus_next = true;
         Ok(())
@@ -332,10 +484,46 @@ impl SpikeApp {
                 self.pending_run = None;
             }
         }
+        const POPUP_DELAY: Duration = Duration::from_millis(1800);
+        if (self.pending_find.is_some() || self.pending_menu) && self.pending_run.is_none() {
+            if since < POPUP_DELAY {
+                ctx.request_repaint_after(POPUP_DELAY - since);
+            } else if let Some(tab) = self.tabs.get_mut(self.active) {
+                if let Some(q) = self.pending_find.take() {
+                    tracing::info!(query = %q, "spike: --find");
+                    tab.term.find(&q);
+                }
+                if std::mem::take(&mut self.pending_menu) {
+                    tracing::info!("spike: --menu");
+                    tab.term.open_menu(egui::pos2(300.0, 200.0));
+                }
+                ctx.request_repaint();
+            }
+        }
+        if let Some(flag) = &self.warmup_done {
+            if flag.load(Ordering::SeqCst) {
+                tracing::debug!("spike: warm-up screenshot done");
+                self.warmup_done = None;
+                self.screenshot_warmups -= 1;
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+        }
         if let Some((_, after)) = &self.screenshot
             && !self.screenshot_requested
+            && self.warmup_done.is_none()
         {
-            if since >= *after {
+            if since >= *after && self.screenshot_warmups > 0 {
+                tracing::debug!("spike: warm-up screenshot requested");
+                let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let f = flag.clone();
+                let wake = ctx.clone();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |_| {
+                    f.store(true, Ordering::SeqCst);
+                    wake.request_repaint();
+                })));
+                self.warmup_done = Some(flag);
+            } else if since >= *after {
                 if let Some((path, _)) = self.screenshot.take() {
                     tracing::debug!(path = %path.display(), "spike: screenshot requested");
                     let done = self.screenshot_done.clone();
@@ -355,9 +543,11 @@ impl SpikeApp {
             }
         }
         if let Some(after) = self.exit_after {
-            // A pending screenshot holds the exit, for at most five seconds.
-            let shot_pending = self.screenshot_requested && !self.screenshot_done.load(Ordering::SeqCst);
-            if shot_pending && since < after + Duration::from_secs(5) {
+            // A pending screenshot holds the exit, for at most 45 seconds: a
+            // hidden Wayland window gets a frame only every ~10 s.
+            let shot_pending = (self.screenshot.is_some() || self.screenshot_requested)
+                && !self.screenshot_done.load(Ordering::SeqCst);
+            if shot_pending && since < after + Duration::from_secs(45) {
                 ctx.request_repaint_after(Duration::from_millis(100));
             } else if since >= after {
                 if shot_pending {
@@ -420,6 +610,23 @@ impl eframe::App for SpikeApp {
                 if ui.button("+ local").clicked() {
                     self.open_tab(&ctx, &TabSpec::Local(None), None);
                 }
+                ui.separator();
+                let current = self.style.palette.id;
+                let mut chosen = None;
+                egui::ComboBox::from_id_salt("palette").selected_text(self.style.palette.label).show_ui(ui, |ui| {
+                    for p in palette::PALETTES {
+                        if ui.selectable_label(p.id == current, p.label).clicked() {
+                            chosen = Some(p);
+                        }
+                    }
+                });
+                if let Some(p) = chosen {
+                    tracing::info!(palette = p.id, "spike: palette");
+                    self.style.palette = p.clone();
+                    for t in &self.tabs {
+                        t.term.set_palette(p.clone());
+                    }
+                }
             });
         });
 
@@ -434,8 +641,8 @@ impl eframe::App for SpikeApp {
                         self.worst_frame_ms,
                         paint_ms,
                         self.mib_per_s,
-                        self.fonts.loaded.as_deref().unwrap_or("egui mono"),
-                        self.style.font_size,
+                        self.tabs.get(self.active).and_then(|t| t.term.faces().loaded.clone()).unwrap_or_else(|| "egui mono".into()),
+                        self.tabs.get(self.active).map_or(self.font_size, |t| t.term.font_size()),
                         self.renderer,
                     ))
                     .monospace()
@@ -452,14 +659,27 @@ impl eframe::App for SpikeApp {
             let c = self.style.palette.background;
             Color32::from_rgb(c.r, c.g, c.b)
         };
+        let mut actions = Vec::new();
+        let modal_open = self.pending_paste.is_some() || self.font_picker.is_some();
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| {
             if let Some(tab) = self.tabs.get_mut(self.active) {
-                let focus = std::mem::take(&mut self.focus_next);
-                TerminalView::new(&mut tab.term, &mut self.style).focus(focus).show(ui);
+                let focus = !modal_open && std::mem::take(&mut self.focus_next);
+                // The spike has no connection state machine: an ended byte
+                // source shows the Disconnected card (the bench tab keeps
+                // its last screen).
+                let overlay = tab.term.exit_reason().filter(|_| tab.spec.is_some()).map(|reason| Overlay::Closed {
+                    reason: Some(reason),
+                    summary: tab.label.clone(),
+                });
+                let out = TerminalView::new(&mut tab.term, &self.style).focus(focus).overlay(overlay.as_ref()).show(ui);
+                actions = out.actions;
             } else {
                 ui.centered_and_justified(|ui| ui.label("no tabs"));
             }
         });
+        let active = self.active;
+        self.handle_actions(&ctx, active, actions);
+        self.show_modals(&ctx);
 
         let title = self
             .tabs

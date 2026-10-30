@@ -11,8 +11,10 @@ ezSsh is a free, open-source Windows SSH client that should **look and feel like
 The app is being rebuilt as one native Rust process (egui/eframe 0.37 + alacritty_terminal 0.26), replacing Tauri + Next.js + xterm.js. Plan, phases and results: `docs/design/native-rework-plan.md`.
 
 - Phase 1 (spike) is built: `crates/ezssh-term` (terminal widget) and `crates/ezssh-spike` (test window; see its README). Results and open gate items in §9 of the plan.
+- Phase 2 (core extraction) is built: `crates/ezssh-core` holds the whole backend (DB, vault, SSH/SFTP, local PTY, forwards, sync, backup, import, X server). `ezssh_core::api::*` are the former commands as plain async fns on `&AppState`; output and async events go through `events::OutputSink` / `events::EventSink`. `src-tauri` is a thin adapter (generated `#[tauri::command]` wrappers, Tauri event mapping in `src-tauri/src/events.rs`, updater and splash). New backend code goes in `ezssh-core`, never in `src-tauri`. Details in §10 of the plan.
 - The Tauri app (`src-tauri/`, `ui/`) stays the shipping build until the cut-over (phase 8). Do not touch `ui/` before then. It keeps the ezTerm product name, identifier and data paths so existing installs open the same database.
-- `cargo test -p ezssh-term` runs the widget tests; `cargo clippy -p ezssh-term -p ezssh-spike --all-targets` must stay clean.
+- Phase 3 (terminal widget parity) is built in `crates/ezssh-term`: find, links, context menu, overlays, OSC 52 policy, palettes, fonts. The widget returns `TermAction`s (Reconnect, ConfirmPaste, OpenUrl, Bell, OpenFontPicker) for the app to handle. `hook.rs` forwards vte's `Handler` to alacritty's `Term` and is generated; regenerate it on a vte upgrade. Details in §11 of the plan.
+- `cargo test -p ezterm -p ezssh-core -p ezssh-term` runs the Rust tests (`ezssh-term/tests/ui.rs` drives the widget headless with egui_kittest; `EZSSH_UI_SHOTS=<dir>` renders PNGs); `cargo clippy --workspace --all-targets` must stay clean.
 - Time-based app logic goes in `eframe::App::logic`, not `ui`: eframe skips `ui` while the window is hidden.
 
 ## UX Requirements (non-negotiable for v0.1)
@@ -54,7 +56,7 @@ ezTerm/
 No code has been scaffolded yet. Once `src-tauri/` and `ui/` exist, the expected workflow is:
 
 - `cargo check` — must pass before every commit (see global rules)
-- `cd src-tauri && cargo test` — Rust unit/integration tests
+- `cargo test -p ezterm -p ezssh-core -p ezssh-term` — Rust unit/integration tests
 - `cd ui && npm run lint` — frontend lint (fix properly, no ignores)
 - `cd ui && npm test` — frontend unit tests (vitest)
 - `cargo tauri dev` — run the app in dev mode

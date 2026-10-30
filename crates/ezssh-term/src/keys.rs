@@ -506,6 +506,72 @@ mod tests {
         assert_eq!(encode(Key::Char('a'), Mods::NONE, Action::Press, Some("a"), plain), Some(b"\x1b[97u".to_vec()));
     }
 
+    /// What xterm.js (`common/input/Keyboard.ts`) sends for these keys, so
+    /// muscle memory and remote key bindings carry over from the webview.
+    #[test]
+    fn xterm_js_legacy_table() {
+        const CS: Mods = Mods { shift: true, alt: false, ctrl: true, super_: false };
+        const AS: Mods = Mods { shift: true, alt: true, ctrl: false, super_: false };
+        let app = Modes { app_cursor: true, ..Default::default() };
+        let cases: &[(Key, Mods, Modes, &[u8])] = &[
+            (Key::Down, Mods::NONE, Modes::default(), b"\x1b[B"),
+            (Key::Left, ALT, Modes::default(), b"\x1b[1;3D"),
+            (Key::Right, CS, Modes::default(), b"\x1b[1;6C"),
+            (Key::Left, Mods::NONE, app, b"\x1bOD"),
+            (Key::Left, CTRL, app, b"\x1b[1;5D"),
+            (Key::Home, Mods::NONE, Modes::default(), b"\x1b[H"),
+            (Key::End, Mods::NONE, Modes::default(), b"\x1b[F"),
+            (Key::Home, Mods::NONE, app, b"\x1bOH"),
+            (Key::End, CTRL, Modes::default(), b"\x1b[1;5F"),
+            (Key::Insert, Mods::NONE, Modes::default(), b"\x1b[2~"),
+            (Key::PageDown, Mods::NONE, Modes::default(), b"\x1b[6~"),
+            (Key::Delete, CS, Modes::default(), b"\x1b[3;6~"),
+            (Key::F(2), Mods::NONE, Modes::default(), b"\x1bOQ"),
+            (Key::F(4), Mods::NONE, Modes::default(), b"\x1bOS"),
+            (Key::F(1), SHIFT, Modes::default(), b"\x1b[1;2P"),
+            (Key::F(4), CTRL, Modes::default(), b"\x1b[1;5S"),
+            (Key::F(6), Mods::NONE, Modes::default(), b"\x1b[17~"),
+            (Key::F(7), Mods::NONE, Modes::default(), b"\x1b[18~"),
+            (Key::F(8), Mods::NONE, Modes::default(), b"\x1b[19~"),
+            (Key::F(9), Mods::NONE, Modes::default(), b"\x1b[20~"),
+            (Key::F(10), Mods::NONE, Modes::default(), b"\x1b[21~"),
+            (Key::F(11), Mods::NONE, Modes::default(), b"\x1b[23~"),
+            (Key::F(12), Mods::NONE, Modes::default(), b"\x1b[24~"),
+            (Key::F(5), ALT, Modes::default(), b"\x1b[15;3~"),
+            (Key::Escape, Mods::NONE, Modes::default(), b"\x1b"),
+            (Key::Escape, ALT, Modes::default(), b"\x1b\x1b"),
+            (Key::Enter, ALT, Modes::default(), b"\x1b\r"),
+            (Key::Tab, ALT, Modes::default(), b"\x1b\t"),
+            (Key::Char('z'), CTRL, Modes::default(), &[0x1a]),
+            (Key::Char('2'), CTRL, Modes::default(), &[0x00]),
+            (Key::Char('3'), CTRL, Modes::default(), &[0x1b]),
+            (Key::Char('4'), CTRL, Modes::default(), &[0x1c]),
+            (Key::Char('5'), CTRL, Modes::default(), &[0x1d]),
+            (Key::Char('6'), CTRL, Modes::default(), &[0x1e]),
+            (Key::Char('7'), CTRL, Modes::default(), &[0x1f]),
+            (Key::Char('8'), CTRL, Modes::default(), &[0x7f]),
+            (Key::Char('\\'), CTRL, Modes::default(), &[0x1c]),
+            (Key::Char(']'), CTRL, Modes::default(), &[0x1d]),
+            (Key::Char('/'), CTRL, Modes::default(), &[0x1f]),
+            (Key::Char('-'), CTRL, Modes::default(), &[0x1f]),
+            (Key::Char('a'), AS, Modes::default(), b"\x1bA"),
+            (Key::Char('.'), ALT, Modes::default(), b"\x1b."),
+        ];
+        let mut bad = Vec::new();
+        for &(key, mods, modes, want) in cases {
+            let text = match key {
+                Key::Char(c) if mods.shift => Some(c.to_ascii_uppercase().to_string()),
+                Key::Char(c) => Some(c.to_string()),
+                _ => None,
+            };
+            let got = encode(key, mods, Action::Press, text.as_deref(), modes);
+            if got.as_deref() != Some(want) {
+                bad.push(format!("{key:?} {mods:?} app={}: want {:?} got {:?}", modes.app_cursor, want.escape_ascii().to_string(), got.map(|g| g.escape_ascii().to_string())));
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
     #[test]
     fn egui_key_mapping() {
         assert_eq!(Key::from_egui(egui::Key::A), Some(Key::Char('a')));

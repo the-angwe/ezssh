@@ -1,34 +1,24 @@
+//! Tauri adapter for `ezssh_core::api::settings`. Each command forwards to the
+//! core function of the same name; argument names are the frontend's
+//! `invoke()` keys and must not change.
+
 use tauri::State;
 
-use crate::commands::require_unlocked;
-use crate::db::settings;
-use crate::error::Result;
-use crate::state::AppState;
-
-/// Settings keys that may be read without unlocking the vault.
-///
-/// The unlock screen needs the active theme before the user authenticates.
-/// Every other settings key is gated behind `require_unlocked`.
-const PUBLIC_SETTINGS_KEYS: &[&str] = &["theme"];
+use ezssh_core::api;
+use ezssh_core::error::Result;
+use ezssh_core::state::AppState;
 
 #[tauri::command]
 pub async fn settings_get(state: State<'_, AppState>, key: String) -> Result<Option<String>> {
-    if !PUBLIC_SETTINGS_KEYS.contains(&key.as_str()) {
-        require_unlocked(&state).await?;
-    }
-    settings::get(&state.db, &key).await
+    api::settings::settings_get(&state, key).await
 }
 
-/// Every stored key/value pair. Used once at unlock to hydrate the
-/// frontend settings store instead of one round trip per key.
 #[tauri::command]
 pub async fn settings_list(state: State<'_, AppState>) -> Result<Vec<(String, String)>> {
-    require_unlocked(&state).await?;
-    settings::list_all(&state.db).await
+    api::settings::settings_list(&state).await
 }
 
 #[tauri::command]
 pub async fn settings_set(state: State<'_, AppState>, key: String, value: String) -> Result<()> {
-    require_unlocked(&state).await?;
-    settings::set(&state.db, &key, &value).await
+    api::settings::settings_set(&state, key, value).await
 }

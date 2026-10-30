@@ -1,6 +1,8 @@
 # ezSsh native rework: dropping the webview
 
-Status: phase 1 (spike) built 2026-10-30, results in §9. Proposal written
+Status: phase 1 (spike) built 2026-10-30, results in §9; go decision
+confirmed by hand (tmux, Claude Code). Phase 2 (core extraction) built
+2026-10-30, §10. Phase 3 (terminal widget parity) built 2026-10-30, §11. Proposal written
 2026-10-29 against ezTerm v1.14.0 (`feat/176-terminal-palettes` on top of
 v1.13.1).
 
@@ -243,8 +245,8 @@ until phase 7 because phase 1 makes the core a library both shells use.
 |---|---|---|---|
 | 0 | ~~RFC upstream~~ | Closed 2026-10-30: permanent fork, renamed ezSsh | — |
 | 1 | Spike | `ezssh-term` prototype over a local PTY and one SSH session in a bare eframe window (`ezssh-spike`). Pass the gate in 4.1 plus: WARP fallback on a Windows VM over RDP, IME input, 60 fps on `cat` of 8 MB, binary size. Go / no-go. **Built 2026-10-30, §9** | 1 week |
-| 2 | Core extraction | `crates/ezssh-core` without Tauri types; `src-tauri` becomes a thin adapter; all Rust tests green; no behaviour change | 1 week |
-| 3 | Terminal widget | full 4.1 parity, Rust tests for osc52 policy, palettes, paste normalisation, key encoding table | 1–2 weeks |
+| 2 | Core extraction | `crates/ezssh-core` without Tauri types; `src-tauri` becomes a thin adapter; all Rust tests green; no behaviour change. **Built 2026-10-30, §10** | 1 week |
+| 3 | Terminal widget | full 4.1 parity, Rust tests for osc52 policy, palettes, paste normalisation, key encoding table. **Built 2026-10-30, §11** | 1–2 weeks |
 | 4 | Shell | unlock, main shell, sidebar + DnD + menus, tab strip, six view modes incl. cascade, status bar, toasts, settings, theme, layout persistence | 2–3 weeks |
 | 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, update, find, font picker | 2 weeks |
 | 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress | 1 week |
@@ -459,3 +461,164 @@ and throughput is bound by the PTY and vsync, not by the widget. The
 remaining unknowns are Windows-specific (WARP over RDP, AltGr, the Windows
 IME) and should be run before phase 3 starts in earnest; phase 2 (core
 extraction) does not depend on them and can start now.
+
+## 10. Phase 2 results (2026-10-30)
+
+Branch `native/phase-2-core` (from `native/phase-1-spike`).
+
+### 10.1 Layout
+
+- `crates/ezssh-core` holds everything that was in `src-tauri/src` except
+  the window shell: `db`, `vault`, `ssh` (client, forwards, known hosts),
+  `sftp`, `wslfs`, `local`, `sync`, `backup`, `import`, `xserver`,
+  `error`, `log_redacted`, `state`. Files were moved with `git mv`; only
+  the four that carried Tauri types changed (`ssh/client.rs`,
+  `local/spawn.rs`, `sftp/transfer.rs`, `wslfs/transfer.rs`).
+- `ezssh_core::api::*` are the former commands as plain async functions,
+  `fn(state: &AppState, <same params>) -> Result<same type>`. Same names
+  and parameters as the `invoke()` surface, so the native shell can port
+  each frontend call one-to-one.
+- `src-tauri` is the adapter: 85 generated one-line `#[tauri::command]`
+  wrappers, plus the Tauri-only commands that stay there until the
+  cut-over: `ui_ready` (splash window), `terminal_output_sent` (webview
+  stall watchdog) and `updater_check` / `updater_download_install`
+  (tauri-plugin-updater; the pending `Update` is its own managed state
+  now). A script check compared all 89 commands against the pre-move
+  source: identical frontend parameters, return types and registration.
+
+### 10.2 The seam
+
+- `events::OutputSink` (one per connection, `send(&[u8]) -> bool`)
+  replaces the Tauri IPC `Channel`. Tauri wraps the channel
+  (`src-tauri/src/output.rs`); the native shell will feed `ezssh-term`'s
+  `Term` directly from it.
+- `events::EventSink` + `enum Event { Closed { connection_id, reason },
+  WriteFailed, ForwardStatus, Transfer }` replaces `AppHandle::emit`.
+  `AppState` holds the sink (`state.events`), so no API function takes an
+  app handle. `CloseReason` is `Exit(u32) | Signal(name) | Ended`.
+- `src-tauri/src/events.rs` maps events back onto the historic names and
+  payloads (`ssh:close:{id}` with the exit code / `"killed by SIG…"` /
+  null, `ssh:error:{id}`, `forwards:status:{id}`,
+  `sftp:transfer:{tid}`); unit tests pin each payload, including the
+  hand-built auto-start failure shape. The app handle is attached in
+  `setup`, because `AppState` is still built before the Tauri app so the
+  runtime arrangement does not change.
+- `events::channel(wake)` is the sink the native app will use: a std
+  queue drained once per frame, `wake` = `ctx.request_repaint()`.
+- `AppState::open(path, events)` opens the DB, runs migrations and sets
+  the vault state (what `main` used to do inline);
+  `state::default_db_path()` keeps the ezTerm data path.
+
+### 10.3 Verification
+
+- `cargo test -p ezterm -p ezssh-core`: 98 moved tests + 2 event-queue
+  tests + 4 wire-format tests + 1 new end-to-end test
+  (`crates/ezssh-core/tests/api_local.rs`: fresh DB → vault init →
+  local-shell session → `local_connect` → write → output and
+  `Closed { Ended }` arrive → reopen sees a locked vault). Unix only;
+  there is still no SSH server here for an SSH round trip.
+- `cargo clippy --workspace --all-targets` is clean. The backend carried 24
+  clippy warnings before; `clippy --fix` took the mechanical ones and the
+  rest were fixed by hand (a `TcpipDispatch` type alias, a `Driver` struct
+  for the SSH driver task's arguments). CI now runs check / clippy / test
+  on `-p ezterm -p ezssh-core`, clippy with `-D warnings`.
+- The Tauri binary starts, opens a fresh database through the new path
+  and runs without errors (12 s smoke run with a temporary data dir).
+  The webview flows (connect, SFTP, forwards) were not clicked through.
+
+### 10.4 Notes for the next phases
+
+- SSH write failures are now logged at warn as well as emitted.
+- Phase 4 wires `ezssh-core` into a new `ezssh-app` crate: one
+  `AppState` on a background tokio runtime, `api::*` calls through a
+  pending-result inbox, `events::channel` drained in `App::logic`.
+
+## 11. Phase 3 results (2026-10-30)
+
+Same branch as phase 2 (`native/phase-2-core`); phase 3 touches only
+`crates/ezssh-term` and `crates/ezssh-spike`, so the two are separable by
+path.
+
+### 11.1 What the widget does now (§4.1 rows)
+
+| §4.1 row | Native, as built |
+|---|---|
+| Terminal options | `TermOptions { scrollback, osc52_write, cursor: CursorKind, cursor_blink }` (model); `TermStyle { palette, copy_on_select, right_click, warn_multiline_paste, bell, padding, builtin_box_drawing, ligatures }` (app-wide); per tab `set_font_size` / `set_faces`. Live: `set_palette`, `set_osc52_write`, `set_cursor` |
+| fit + resize | unchanged from phase 1 (cols / rows from cell metrics each frame) |
+| search + find overlay | `search.rs`: plain or regex, case toggle (inline `(?i)` / `(?-i)` over alacritty's smart case), the most recent 1 000 matches counted (`n/1000+` past that), current match = selection (Ctrl+Shift+C copies it), others tinted; Enter / Shift+Enter / Esc; recounted on every query change and step |
+| web links | `links.rs`: xterm.js web-links regex (http/https only, same trailing-punctuation rule), OSC 8 hyperlinks; underline + hand cursor on hover; a click without drag returns `TermAction::OpenUrl`. Inactive while a program has mouse reporting on (Shift overrides) |
+| OSC 52 | `osc52.rs` port of `osc52.ts` with its 11 tests, through `hook.rs` (below): lenient base64 (unpadded, whitespace), 4 MiB cap checked before decoding, NUL stripped, reads refused, live on/off |
+| copy / paste / shortcuts | Ctrl+Shift+C/V/F, Shift+Insert, Ctrl+Insert; right-click menu (Copy, Paste, Select All, Find…, Font…, Clear scrollback) or paste per `terminal.rightClick`, Ctrl+right-click always the menu |
+| paste | `Terminal::paste` (CR normalisation, bracketed, end marker stripped); multi-line pastes return `TermAction::ConfirmPaste { text, lines }` while `warn_multiline_paste` is on (the app asks, then calls `paste`) |
+| Ctrl+wheel zoom | per tab, 40 px per step, one wheel notch = 100 px (WebView2's value, so a notch is 2–3 pt as before), 8–48 |
+| bell | `BellMode::Visual` = 120 ms inset ring in the palette's yellow; `Sound` returns `TermAction::Bell` (the app plays it; no audio dependency in the widget) |
+| overlays | `TerminalView::overlay(Overlay::{Connecting, Failed, Closed})` paints the dimmed terminal and the card; Reconnect returns `TermAction::Reconnect`; the terminal takes no input under an overlay. The app owns the state machine (phase 4) |
+| selection, Select All, Clear | `select_all()`; `clear_scrollback()` = xterm.js `clear()` (history dropped, cursor line becomes the first line) |
+| key encoding | unchanged encoder; a 42-row table test against xterm.js's legacy encodings passes as is |
+| rendering | italic and bold-italic faces; cursor shape from the session plus DECSCUSR, 600 ms blink that stops after 5 min idle, hollow when unfocused |
+| palettes | all 17 from `palettes.ts`, same ids, labels say ezSsh; a test parses `palettes.ts` and compares every colour (drop it with `ui/` in phase 8) |
+
+### 11.2 Findings
+
+1. **alacritty's OSC 52 decoder is strict** (padded base64 only), so
+   unpadded payloads from Rust / Go programs would be lost. `hook.rs` wraps
+   `Term` in a `Handler` that overrides `clipboard_store` and
+   `dynamic_color_sequence` and forwards the other 69 methods. The
+   forwarding block is generated from vte 0.15's trait (every method
+   defaults to a no-op, so a hand-written list could silently drop one);
+   regenerate on a vte upgrade.
+2. **Colour queries (§9.3 item 10) fixed** by the same hook: answered with
+   the `Term`'s live colours (OSC 4/10/11 changes included), in order with
+   other replies (a colour query followed by DA1 gets the colour first;
+   tested).
+3. **No OpenType feature control in egui 0.37** (harfrust is called without
+   features), so ligatures cannot be switched off in the shaper. Instead,
+   with `ligatures = false` (default) a run of adjacent ASCII punctuation is
+   painted cell by cell. Cost on a 201×61 screen of dense code: paint p50
+   0.66 ms vs 0.39 ms with ligatures on.
+4. **Fonts follow the webview's stack** instead of bundling Cascadia Mono
+   (§4.3): the session value is parsed as a CSS-like list, then `Cascadia
+   Mono, Menlo, DejaVu Sans Mono, Consolas` (SF Mono first on macOS), then
+   fontconfig's generic monospace. Only "Symbols Nerd Font Mono" (nerd-fonts
+   v3.4.0, MIT, 2.5 MB) is bundled, as the last face of every terminal
+   family. Faces that exist only by synthesis count as missing (egui cannot
+   embolden or slant).
+5. **egui 0.37 ships no fonts by default**; tests enable `default_fonts`
+   as a dev-dependency feature. Its bundled UI font lacks arrows and ⚠, so
+   the find bar says Prev / Next and the overlay uses colour, not icons.
+6. **Popups are egui `Area`s**: their first frame is an invisible sizing
+   pass. With the spike window hidden on Wayland, a forced screenshot frame
+   is that sizing pass and no further frame comes, so popups were verified
+   headless instead (below).
+7. A press and its release usually land in different frames; link hover
+   is kept while a press that started on a link is held, else a click never
+   opened it (found by the headless test).
+
+### 11.3 Verification
+
+- `cargo test -p ezssh-term`: 69 unit tests (osc52 11, palettes 7, search
+  4, links 4, terminal 15, keys 12, view 6, fonts 3, boxdraw 5, mouse 2) and 9
+  headless UI tests (`tests/ui.rs`, egui_kittest: context menu items and
+  actions, Clear scrollback, right-click paste mode, find bar counter /
+  Enter / Shift+Enter / case / Esc, overlays and Reconnect, input blocked
+  under an overlay, multi-line paste confirmation, typing, Ctrl+wheel,
+  link click). `EZSSH_UI_SHOTS=<dir>` renders the states to PNG with wgpu;
+  the menu, find bar and overlay cards were checked that way.
+- Spike screenshots (window hidden): italic / bold-italic, ligatures split,
+  Nerd Font icons and Powerline glyphs, CJK + emoji fallback, box drawing,
+  Campbell palette, find highlights. `cargo clippy --workspace --all-targets`
+  clean.
+- Not verified here: everything in the spike README's manual checklist,
+  plus item 10 (the phase 3 flows by hand), Windows, AltGr, IME.
+
+### 11.4 Left for later phases
+
+- Font picker contents (system font list via fontique) are phase 5; the
+  widget only returns `OpenFontPicker`. The spike has a minimal size /
+  family window.
+- The bell sound (rodio or a platform beep) belongs to the app (phase 4).
+- AccessKit node with the visible text for screen readers (§7) is not
+  done.
+- Find match points go stale while output scrolls; they are recounted on
+  the next keystroke in the find bar.
+

@@ -1,23 +1,20 @@
+//! Tauri adapter for `ezssh_core::api::xserver`. Each command forwards to the
+//! core function of the same name; argument names are the frontend's
+//! `invoke()` keys and must not change.
+
 use tauri::State;
 
-use crate::commands::require_unlocked;
-use crate::error::Result;
-use crate::state::AppState;
-use crate::xserver::{self, XServerStatus};
+use ezssh_core::api;
+use ezssh_core::error::Result;
+use ezssh_core::state::AppState;
+use ezssh_core::xserver::XServerStatus;
 
 #[tauri::command]
 pub async fn xserver_status(state: State<'_, AppState>) -> Result<XServerStatus> {
-    require_unlocked(&state).await?;
-    Ok(state.xserver.status().await)
+    api::xserver::xserver_status(&state).await
 }
 
-/// Download + silent-install VcXsrv into the user's per-user data dir.
-/// Returns the absolute path to the installed `vcxsrv.exe` on success.
-/// Triggered by the "Install VcXsrv" button in the `XServerMissingDialog`
-/// when a session enables X11 forwarding but no VcXsrv is available.
 #[tauri::command]
 pub async fn xserver_install(state: State<'_, AppState>) -> Result<String> {
-    require_unlocked(&state).await?;
-    let path = xserver::install_vcxsrv().await?;
-    Ok(path.to_string_lossy().into_owned())
+    api::xserver::xserver_install(&state).await
 }

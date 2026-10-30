@@ -32,10 +32,20 @@ SSH:
     --password              Ask for a password / key passphrase before the window opens
     --trust-new-host        Accept and remember an unknown host key
 
-LOOK:
-    --font NAME             Terminal font family (repeatable, first installed wins)
+LOOK AND BEHAVIOUR (the terminal.* settings):
+    --font NAME             Terminal font family (repeatable, first installed wins;
+                            default: the webview's stack, Cascadia Mono first)
     --size PT               Font size in points (8–48, default 14)
     --scrollback LINES      Scrollback lines (default 10000)
+    --palette ID            Colour palette (default ezterm-dark; see the top bar)
+    --cursor block|underline|bar
+    --no-blink              Steady cursor
+    --right-click menu|paste
+    --bell none|visual|sound
+    --copy-on-select        Copy the selection on mouse release
+    --no-paste-warning      Do not ask before multi-line pastes
+    --no-osc52              Refuse OSC 52 clipboard writes
+    --ligatures             Let the font draw ligatures
 
 RENDERING:
     --renderer wgpu|warp|glow
@@ -51,6 +61,8 @@ TESTING:
     --screenshot PATH       Save a PNG of the window (needs --screenshot-after)
     --screenshot-after SECS Seconds to wait before the screenshot (default 2)
     --exit-after SECS       Close the window after SECS
+    --find QUERY            Open the find bar with QUERY after --run
+    --menu                  Open the terminal context menu after --run
     -h, --help              Show this help
 
 Logging: RUST_LOG=ezssh_term=debug,ezssh_spike=debug
@@ -78,12 +90,23 @@ pub struct Args {
     pub fonts: Vec<String>,
     pub size: f32,
     pub scrollback: usize,
+    pub palette: String,
+    pub cursor: ezssh_term::CursorKind,
+    pub cursor_blink: bool,
+    pub right_click: ezssh_term::RightClick,
+    pub bell: ezssh_term::BellMode,
+    pub copy_on_select: bool,
+    pub paste_warning: bool,
+    pub osc52: bool,
+    pub ligatures: bool,
     pub renderer: RendererChoice,
     pub run: Option<String>,
     pub bench: Option<Option<PathBuf>>,
     pub screenshot: Option<PathBuf>,
     pub screenshot_after: f32,
     pub exit_after: Option<f32>,
+    pub find: Option<String>,
+    pub menu: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -95,12 +118,23 @@ fn parse_args() -> Result<Args> {
         fonts: Vec::new(),
         size: 14.0,
         scrollback: 10_000,
+        palette: ezssh_term::palette::DEFAULT_PALETTE.to_string(),
+        cursor: ezssh_term::CursorKind::Block,
+        cursor_blink: true,
+        right_click: ezssh_term::RightClick::Menu,
+        bell: ezssh_term::BellMode::None,
+        copy_on_select: false,
+        paste_warning: true,
+        osc52: true,
+        ligatures: false,
         renderer: RendererChoice::Wgpu,
         run: None,
         bench: None,
         screenshot: None,
         screenshot_after: 2.0,
         exit_after: None,
+        find: None,
+        menu: false,
     };
     let mut it = std::env::args().skip(1).peekable();
     let value = |it: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>, flag: &str| {
@@ -124,6 +158,15 @@ fn parse_args() -> Result<Args> {
                 args.size = v.clamp(ezssh_term::view::MIN_FONT_SIZE, ezssh_term::view::MAX_FONT_SIZE);
             }
             "--scrollback" => args.scrollback = value(&mut it, &a)?.parse().context("--scrollback")?,
+            "--palette" => args.palette = value(&mut it, &a)?,
+            "--cursor" => args.cursor = ezssh_term::CursorKind::from_setting(&value(&mut it, &a)?),
+            "--no-blink" => args.cursor_blink = false,
+            "--right-click" => args.right_click = ezssh_term::RightClick::from_setting(&value(&mut it, &a)?),
+            "--bell" => args.bell = ezssh_term::BellMode::from_setting(&value(&mut it, &a)?),
+            "--copy-on-select" => args.copy_on_select = true,
+            "--no-paste-warning" => args.paste_warning = false,
+            "--no-osc52" => args.osc52 = false,
+            "--ligatures" => args.ligatures = true,
             "--renderer" => {
                 args.renderer = match value(&mut it, &a)?.as_str() {
                     "wgpu" => RendererChoice::Wgpu,
@@ -143,6 +186,8 @@ fn parse_args() -> Result<Args> {
             "--screenshot" => args.screenshot = Some(PathBuf::from(value(&mut it, &a)?)),
             "--screenshot-after" => args.screenshot_after = value(&mut it, &a)?.parse().context("--screenshot-after")?,
             "--exit-after" => args.exit_after = Some(value(&mut it, &a)?.parse().context("--exit-after")?),
+            "--find" => args.find = Some(value(&mut it, &a)?),
+            "--menu" => args.menu = true,
             other => bail!("unknown argument {other:?}; see --help"),
         }
     }

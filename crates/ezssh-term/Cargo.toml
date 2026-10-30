@@ -11,4 +11,13 @@ alacritty_terminal = "0.26"
 egui = "0.37"
 fontique = { version = "0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
 arboard = "3.7"
+# Type in vte's `Handler::set_mouse_cursor_icon` (forwarded in hook.rs).
+cursor-icon = { version = "1", default-features = false }
 tracing = "0.1"
+
+[dev-dependencies]
+# Headless UI tests: click the context menu, find bar and overlays, and
+# render them offscreen with wgpu.
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+# egui 0.37 ships no fonts by default; eframe adds the system ones in the app.
+egui = { version = "0.37", features = ["default_fonts"] }
