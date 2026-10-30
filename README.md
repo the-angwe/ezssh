@@ -1,4 +1,10 @@
-# ezTerm
+# ezSsh
+
+> **ezSsh is a permanent fork of [ezTerm](https://github.com/ZerosAndOnesLLC/ezTerm).**
+> It is being rebuilt as a single native Rust app (egui + alacritty_terminal)
+> without the webview; see [the rework plan](docs/design/native-rework-plan.md).
+> Until that lands, the shipped build below is still the Tauri app and still
+> calls itself ezTerm (same binary name, settings and data folder).
 
 A free, open-source Windows SSH client with a MobaXterm-style session manager,
 encrypted credential vault, xterm-compatible terminal, SFTP side-pane, WSL and

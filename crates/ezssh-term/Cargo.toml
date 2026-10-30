@@ -1,0 +1,14 @@
+[package]
+name = "ezssh-term"
+description = "ezSsh terminal widget: alacritty_terminal model, egui painter, input encoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+alacritty_terminal = "0.26"
+egui = "0.37"
+fontique = { version = "0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
+arboard = "3.7"
+tracing = "0.1"

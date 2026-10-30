@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-ezTerm is a free, open-source Windows SSH client that should **look and feel like MobaXterm**. Upstream repo: `github.com/ZerosAndOnesLLC/ezTerm`. Target feature set for v0.1: connection/session manager, encrypted credential vault ("locker"), SSH, SFTP, and an xterm-compatible terminal.
+ezSsh is a free, open-source Windows SSH client that should **look and feel like MobaXterm**. It is a **permanent fork** of ezTerm (`github.com/ZerosAndOnesLLC/ezTerm`); nothing goes upstream. Target feature set: connection/session manager, encrypted credential vault ("locker"), SSH, SFTP, and an xterm-compatible terminal.
+
+### Native rework (in progress)
+
+The app is being rebuilt as one native Rust process (egui/eframe 0.37 + alacritty_terminal 0.26), replacing Tauri + Next.js + xterm.js. Plan, phases and results: `docs/design/native-rework-plan.md`.
+
+- Phase 1 (spike) is built: `crates/ezssh-term` (terminal widget) and `crates/ezssh-spike` (test window; see its README). Results and open gate items in §9 of the plan.
+- The Tauri app (`src-tauri/`, `ui/`) stays the shipping build until the cut-over (phase 8). Do not touch `ui/` before then. It keeps the ezTerm product name, identifier and data paths so existing installs open the same database.
+- `cargo test -p ezssh-term` runs the widget tests; `cargo clippy -p ezssh-term -p ezssh-spike --all-targets` must stay clean.
+- Time-based app logic goes in `eframe::App::logic`, not `ui`: eframe skips `ui` while the window is hidden.
 
 ## UX Requirements (non-negotiable for v0.1)
 
