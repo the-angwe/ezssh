@@ -3,7 +3,8 @@
 Status: phase 1 (spike) built 2026-10-30, results in §9; go decision
 confirmed by hand (tmux, Claude Code). Phase 2 (core extraction) built
 2026-10-30, §10. Phase 3 (terminal widget parity) built 2026-10-30, §11.
-Phase 4 (app shell, `crates/ezssh-app`) built 2026-11-01, §12. Proposal written
+Phase 4 (app shell, `crates/ezssh-app`) built 2026-11-01, §12. Phase 5
+(dialogs; passwords moved onto sessions) built 2026-11-01, §13. Proposal written
 2026-10-29 against ezTerm v1.14.0 (`feat/176-terminal-palettes` on top of
 v1.13.1).
 
@@ -249,9 +250,9 @@ until phase 7 because phase 1 makes the core a library both shells use.
 | 2 | Core extraction | `crates/ezssh-core` without Tauri types; `src-tauri` becomes a thin adapter; all Rust tests green; no behaviour change. **Built 2026-10-30, §10** | 1 week |
 | 3 | Terminal widget | full 4.1 parity, Rust tests for osc52 policy, palettes, paste normalisation, key encoding table. **Built 2026-10-30, §11** | 1–2 weeks |
 | 4 | Shell | unlock, main shell, sidebar + DnD + menus, tab strip, six view modes incl. cascade, status bar, toasts, settings, theme, layout persistence. **Built 2026-11-01, §12** | 2–3 weeks |
-| 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, update, find, font picker | 2 weeks |
+| 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, find, font picker; passwords bound to sessions. **Built 2026-11-01, §13** (update dialog moved to phase 7) | 2 weeks |
 | 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress | 1 week |
-| 7 | Packaging and updater | cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs | 1 week |
+| 7 | Packaging and updater | update dialog (from phase 5), cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs | 1 week |
 | 8 | Cut-over | delete `ui/`, `src-tauri/`, Tauri deps; README, CLAUDE.md, CONTRIBUTING, site docs; release v2.0.0 through the v1 update channel | days |
 
 Total: roughly 10–12 working weeks for one person, less with the current
@@ -738,3 +739,132 @@ CI and the build scripts.
 - Phase 6: the SFTP pane (placeholder of the right width, resizable
   width setting already in `layout.json`).
 - Dialog entry animations (`dialog-in`) are not ported.
+
+## 13. Phase 5 results (2026-11-01)
+
+Same branch (`native/phase-4-shell`, after the user committed phase 4).
+Every dialog of §4.4 except the update dialog is ported into
+`crates/ezssh-app/src/views/`, and session passwords moved from the
+shared credentials list onto their sessions (§13.2), as the user asked.
+
+### 13.1 What was built
+
+| §4.4 row | As built |
+|---|---|
+| `session-dialog.tsx` | `session_dialog.rs`: 760 px modal, side tabs General / Terminal / Advanced / Forwards (SSH), kind and auth radio cards, local-shell dropdown from `list_local_shells` + custom path, font preset dropdown + custom family (`font_presets.rs` = `lib/fonts.ts`), colour swatches, env editor, the TSX validation order and copy; Esc closes, Ctrl+Enter saves unless a dialog is stacked on top. Opened from the toolbar, the empty state, folder menus (New Session) and session menus (Edit). |
+| `credential-picker.tsx` | `cred_picker.rs`: private keys and key passphrases only (no password picker any more), inline "Add new", "Manage credentials" stacks the manager; reads the shared `app.creds` cache (`creds.rs`), which replaces `credential-events.ts`: whoever changes a credential reloads it, every picker sees the new list next frame and clamps a vanished selection. |
+| `credentials-dialog.tsx` | `credentials.rs`: groups SSH keys / Key passphrases with add, rename, rotate, delete with the list of sessions using it; a note that session passwords live on their session; leftover unowned password rows (only the Tauri picker makes them) show delete-only. |
+| `auth-fix-overlay.tsx` | `auth_fix.rs`: painted over the failed tab's terminal (`TermSlot::auth_fix`, set by `conn.rs` on an SSH auth failure); username, method, password or key; saves (env kept), updates the tab's session copy, reconnects. "Close tab" closes the tab, as in the TSX. |
+| `forwards-pane.tsx`, `forward-dialog.tsx` | `forwards.rs`: the 280 px pane with saved and tab-only forwards, live status from `Event::ForwardStatus` (routed by `conn.rs`), start / stop / edit / delete, context menu, the four dialog modes, validation and warnings; also the session dialog's Forwards tab (`forwards::session_tab`). |
+| `change-password`, `recovery-*`, `reset-vault` | `vault_dialogs.rs` + `unlock.rs`: change password (strength meter, snapshot path on success; the webview's page reload becomes "close all tabs and lock", since the core already locked the vault and closed every connection, and unlocking again reloads everything), recovery code generate / replace / copy, recovery unlock and reset-vault (type `DELETE`) on the unlock screen. |
+| `font-picker-popover.tsx` | `font_picker.rs`: popover at the pointer from the terminal menu's Font…; presets + "(custom)", size 8–48, applies live, "Save as session default" writes the session. |
+| `xserver-missing-dialog.tsx` | `xserver.rs`: opened by `conn.rs` on `XServerMissing`; install bundled VcXsrv (Windows) then retry, or continue without X11; no install button off Windows. |
+| `backup-dialog.tsx`, `restore-dialog.tsx` | `backup.rs`, `restore.rs`: reauth → passphrase → native save dialog; restore picks a file (or starts from a sync pull), passphrase, checkbox tree with All / None, "password included" badge on password sessions, key-not-selected warning for key sessions, settings toggle, renamed list. |
+| `sync-dialog.tsx` | `sync.rs`: local / S3 cards, status polled every 3 s while open (`request_repaint_after`), enable / update & push, push now, disable, pull → temp file → restore dialog. |
+| `import-mobaxterm-dialog.tsx` | `import.rs`: picks the file, preview stats, new folders, duplicate strategy, session list, commit, toasts as in the TSX. |
+| `update-dialog.tsx` | **Moved to phase 7.** It drives the updater, which is still Tauri-only (`tauri-plugin-updater`); the dialog lands with the native updater. The status-bar button stays disabled with `UPDATER_HINT`. |
+
+Shared pieces: `form.rs` (Section / Field / IconSlot, `.input`, secret
+field with eye toggle, textarea, select, checkbox, radio cards, side tabs,
+`<kbd>`, `labelled` for AccessKit names), `files.rs` (native open / save /
+folder dialogs through rfd 0.17 on the core runtime; 0.17 rather than the
+Tauri plugin's 0.16 because 0.16's `gtk3` and `xdg-portal` features cannot
+be unified in one workspace build, and the native app should not depend
+on GTK), 27 more Lucide icons.
+
+### 13.2 Passwords belong to their session
+
+Before: a password was a row in the shared `credentials` table, picked
+from a list in the session dialog and possibly shared by several
+sessions. Now:
+
+- `credentials.session_id` (new, `REFERENCES sessions ON DELETE CASCADE`,
+  unique where set) marks a session's own password. `credential_list` /
+  `credential_list_detailed` return shared rows only (private keys, key
+  passphrases); update / delete of an owned row is `NotFound`.
+- `SessionInput.password: Option<Secret>` (`secret.rs`: zeroized,
+  `Debug` prints `***`, deserialize only). For a `password` session a
+  non-empty value is encrypted and stored or replaced in the same
+  transaction as the session row (`db::sessions::{create_with,
+  update_with, PasswordOp, bind_password}`); empty or absent keeps the
+  stored one. Switching to key / agent auth deletes it; duplicate copies
+  it; delete removes it (explicitly, not only through the cascade, as
+  `vault::reset` does). Key and passphrase slots refuse owned rows.
+- Migration `20261101120000_session_owned_passwords`: every session that
+  used a shared password gets its own copy (same ciphertext; the lowest
+  session id keeps the original row), stale references from non-password
+  sessions are cleared, and password rows no session uses are dropped
+  (the app could neither show nor attach them).
+- Backups and sync bundles carry `session_id` on credential entries
+  (absent in old files, `serde(default)`); the preview lists only shared
+  credentials and marks password sessions `has_password`; restore gives
+  each restored password session its own copy, also from old files where
+  one row served several sessions. The bundle version is unchanged.
+- The Tauri app keeps working without touching `ui/`. Its `credential_list`
+  command now returns the shared rows plus every session password
+  (`credential_list_with_session_passwords`, labelled with the session's
+  name), because the webview picker drops a selection it cannot find.
+  Saving a session that names an unowned password row (just created by
+  the picker) claims it, replacing the session's old row; naming another
+  session's password copies it into the session's own row.
+  MobaXterm re-import that flips a password session to key auth drops
+  the old password.
+- Key passphrases stay shared on purpose: a passphrase belongs to its
+  key, and one key usually serves many sessions.
+
+### 13.3 Findings
+
+1. egui 0.37's `TextEdit::desired_width` includes the margins; the first
+   `form.rs` subtracted them again (every field 16–44 px short).
+2. Inside a `Modal`, a `ScrollArea` never grows past last frame's
+   height; `backup.rs`'s shell lays out plainly while the body fits and
+   scrolls at a fixed height once it does not.
+3. A disabled `widgets::primary` button senses hover only and was
+   reported to AccessKit as enabled; it now reports the real state, also
+   during a modal's first (sizing) frame.
+4. Toasts paint above modals and can cover a footer button for a few
+   seconds (tests clear them before clicking there).
+5. Several errors the TSX swallowed (`.catch(() => {})`) are now shown
+   and logged: shell detection, env load, forward list / delete.
+6. The core reports a wrong backup passphrase or recovery code as
+   `BadPassword` ("incorrect master password"); the dialogs translate it.
+
+### 13.4 Verification
+
+- `cargo test -p ezssh-core`: 103 unit tests (one new: the migration on
+  data shaped like an older build's) + `tests/session_passwords.rs`
+  (lifecycle, the webview's create / edit / rotate / pick-another flows,
+  backup round trip, old bundle with a shared password).
+- `cargo test -p ezssh-app`: 88 tests, 22 of them end to end in
+  `src/ui_tests/` (now a directory: `mod.rs` = the phase 4 tests and
+  helpers, plus `sessions.rs`, `credentials.rs`, `vault.rs`, `data.rs`).
+  They drive every dialog on a temp database, check the database after
+  saves (owned password rows, restored passwords bound to the restored
+  session), and render 88 screens with `EZSSH_UI_SHOTS`.
+- `cargo clippy --workspace --all-targets` clean; `ezterm` tests green.
+- An independent review of the merged change found, and this phase
+  fixed: the webview could not save an edit of a password session (its
+  picker lost the own row, and claiming a new row hit the unique index);
+  an auth-fix overlay blocked the keyboard of every tab (now only its
+  own); a second tab missing the X server replaced the first one's
+  dialog (now queued, and an install reconnects all of them); lock kept
+  auth-fix overlays (typed secrets) alive; restore / import were not
+  modal while the native file dialog was open and late results could
+  land in a newer dialog (instance serials, a waiting modal); a sync pull
+  finishing after a lock popped a restore dialog; dead tabs after a
+  master-password change or reset are closed in the success handler;
+  auth-fix pickers of two tabs shared ids; secret fields now drop egui's
+  undo snapshots every frame (`form::forget_history`; freed, not
+  zeroized, since egui edits a plain `String`).
+- Not verified here: native file dialogs (the portal; tests inject the
+  path), SSH logins (no sshd), VcXsrv install (Windows), S3. README
+  checklist.
+
+### 13.5 Left for later
+
+- Two dialog shells (`vault_dialogs::shell`, `backup::shell`) and a few
+  button variants were written in parallel; fold them into `widgets.rs`.
+- `form::option_card` has no minimum height, so cards whose hint wraps
+  are taller than their neighbours (the TSX grid stretched them).
+- "Last sync" shows UTC (no time-zone crate in the app).
+- Update dialog: phase 7.

@@ -1,6 +1,6 @@
 
 use crate::api::require_unlocked;
-use crate::db::sessions::{self, EnvPair, Session, SessionInput};
+use crate::db::sessions::{self, EnvPair, PasswordOp, Session, SessionInput};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 
@@ -30,6 +30,8 @@ const INITIAL_COMMAND_MAX: usize = 4_096;
 // deeply nested nonsense doesn't sneak past — real starting dirs are
 // short.
 const STARTING_DIR_MAX: usize = 1_024;
+/// Same cap as a credential secret.
+const PASSWORD_MAX: usize = 65_536;
 
 fn validate(input: &SessionInput) -> Result<()> {
     if input.name.trim().is_empty() {
@@ -168,10 +170,29 @@ pub async fn session_env_get(state: &AppState, id: i64) -> Result<Vec<EnvPair>> 
     sessions::env_get(&state.db, id).await
 }
 
+/// Encrypt the password typed for a `password` session. Anything else
+/// (no password, an empty one, another auth type) keeps what is stored.
+async fn password_op(state: &AppState, input: &SessionInput) -> Result<PasswordOp> {
+    let Some(pw) = input.password.as_ref().filter(|p| !p.is_empty()) else {
+        return Ok(PasswordOp::Keep);
+    };
+    if input.auth_type != "password" {
+        tracing::debug!(auth = %input.auth_type, "sessions: password ignored for this auth type");
+        return Ok(PasswordOp::Keep);
+    }
+    if pw.expose().len() > PASSWORD_MAX {
+        return Err(AppError::Validation("password too long".into()));
+    }
+    let vault_state = state.vault.read().await;
+    let (nonce, ciphertext) = crate::vault::encrypt_with(&vault_state, pw.expose().as_bytes())?;
+    Ok(PasswordOp::Set { nonce, ciphertext })
+}
+
 pub async fn session_create(state: &AppState, input: SessionInput) -> Result<Session> {
     require_unlocked(state).await?;
     validate(&input)?;
-    let out = sessions::create(&state.db, &input).await?;
+    let op = password_op(state, &input).await?;
+    let out = sessions::create_with(&state.db, &input, &op).await?;
     state.sync.trigger();
     Ok(out)
 }
@@ -183,7 +204,8 @@ pub async fn session_update(
 ) -> Result<Session> {
     require_unlocked(state).await?;
     validate(&input)?;
-    let out = sessions::update(&state.db, id, &input).await?;
+    let op = password_op(state, &input).await?;
+    let out = sessions::update_with(&state.db, id, &input, &op).await?;
     state.sync.trigger();
     Ok(out)
 }

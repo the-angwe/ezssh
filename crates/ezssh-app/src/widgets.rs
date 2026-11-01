@@ -82,10 +82,13 @@ fn primary_sized(ui: &mut Ui, icon: Option<Icon>, text: &str, tone: Tone, enable
             x += icon_w;
         }
         let text_color = if enabled { Color32::WHITE } else { alpha(Color32::WHITE, 0.7) };
-        a11y(&resp, egui::Role::Button, text);
         ui.painter().galley_with_override_text_color(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, text_color);
         focus_ring(ui, &resp, rect);
     }
+    // Outside the visibility check (a modal's sizing pass paints nothing),
+    // and with the real enabled state: a disabled button senses hover only,
+    // which AccessKit would otherwise report as enabled.
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, text));
     resp
 }
 
@@ -289,6 +292,9 @@ pub fn text_input(ui: &mut Ui, value: &mut String, hint: &str, width: f32, passw
         .password(password)
         .background_color(t.surface2);
     let resp = ui.add(edit);
+    if password {
+        crate::form::forget_history(ui, &resp);
+    }
     let stroke = if resp.has_focus() { Stroke::new(1.0, t.accent) } else { Stroke::new(1.0, t.border) };
     ui.painter().rect_stroke(resp.rect, 2.0, stroke, StrokeKind::Inside);
     resp
@@ -327,10 +333,6 @@ impl<A> MenuEntry<A> {
 
     pub fn danger(label: impl Into<String>, action: A) -> Self {
         Self::Item { label: label.into(), action, enabled: true, danger: true, hint: None }
-    }
-
-    pub fn disabled(label: impl Into<String>, action: A, hint: Option<&'static str>) -> Self {
-        Self::Item { label: label.into(), action, enabled: false, danger: false, hint }
     }
 
     pub fn enabled(self, on: bool) -> Self {

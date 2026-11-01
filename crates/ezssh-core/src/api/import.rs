@@ -197,6 +197,12 @@ pub async fn mobaxterm_commit(
                     .execute(&mut *tx)
                     .await?;
                 } else {
+                    // The session's own password (if it was a password
+                    // session) goes with the old auth kind.
+                    sqlx::query("DELETE FROM credentials WHERE session_id = ?")
+                        .bind(id)
+                        .execute(&mut *tx)
+                        .await?;
                     sqlx::query(
                         "UPDATE sessions SET host = ?, port = ?, username = ?, \
                          auth_type = ?, credential_id = ?, \

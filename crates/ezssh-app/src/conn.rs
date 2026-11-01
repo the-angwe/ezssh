@@ -144,6 +144,8 @@ pub struct TermSlot {
     /// at the right size), or at this deadline if it never is.
     pub connect_at: Option<Instant>,
     pub host_key: Option<HostKeyPrompt>,
+    /// Login failed: the auth-fix overlay over this tab.
+    pub auth_fix: Option<crate::views::auth_fix::AuthFix>,
     /// Bell flash / font picker etc. live in the widget; this is only the
     /// "take keyboard focus next frame" request.
     pub focus: bool,
@@ -164,6 +166,7 @@ impl TermSlot {
             generation: Arc::new(AtomicU64::new(0)),
             connect_at: Some(Instant::now() + FIRST_LAYOUT_WAIT),
             host_key: None,
+            auth_fix: None,
             focus: true,
         }
     }
@@ -211,10 +214,9 @@ async fn writer(state: Arc<AppState>, family: Family, mut rx: mpsc::UnboundedRec
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConnectFailure {
     HostKey(HostKeyPrompt),
-    /// X11 forwarding is on but VcXsrv is missing (the install dialog is
-    /// phase 5; the overlay says what to do meanwhile).
+    /// X11 forwarding is on but VcXsrv is missing: the install dialog.
     XServerMissing(String),
-    /// Bad credentials (the auth-fix overlay is phase 5).
+    /// Bad credentials: the auth-fix overlay.
     Auth(String),
     Other(String),
 }
@@ -273,6 +275,7 @@ impl App {
         };
         slot.connect_at = None;
         slot.host_key = None;
+        slot.auth_fix = None;
         let generation = slot.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let (tx, rx) = mpsc::unbounded_channel();
         let (id_tx, id_rx) = oneshot::channel();
@@ -341,12 +344,25 @@ impl App {
                             slot.host_key = Some(prompt);
                         }
                     }
-                    ConnectFailure::XServerMissing(msg) => self.tabs.set_status(
-                        tab,
-                        TabStatus::Error,
-                        Some(format!("{msg}. Install VcXsrv or turn off X11 forwarding for this session.")),
-                    ),
-                    ConnectFailure::Auth(msg) | ConnectFailure::Other(msg) => self.tabs.set_status(tab, TabStatus::Error, Some(msg)),
+                    ConnectFailure::XServerMissing(msg) => {
+                        self.tabs.set_status(
+                            tab,
+                            TabStatus::Error,
+                            Some(format!("{msg}. Install VcXsrv or turn off X11 forwarding for this session.")),
+                        );
+                        match self.dialogs.xserver.as_mut() {
+                            Some(open) => open.add(tab),
+                            None => self.dialogs.xserver = Some(crate::views::xserver::XServerDialog::new(tab, msg)),
+                        }
+                    }
+                    ConnectFailure::Auth(msg) => {
+                        self.tabs.set_status(tab, TabStatus::Error, Some(msg.clone()));
+                        let session = self.tabs.get(tab).map(|t| t.session.clone());
+                        if let (Some(session), Some(slot)) = (session, self.terms.get_mut(&tab)) {
+                            slot.auth_fix = Some(crate::views::auth_fix::AuthFix::new(tab, session, msg));
+                        }
+                    }
+                    ConnectFailure::Other(msg) => self.tabs.set_status(tab, TabStatus::Error, Some(msg)),
                 }
             }
         }
@@ -401,7 +417,8 @@ impl App {
                     self.tabs.set_status(tab, TabStatus::Error, Some(message));
                 }
             }
-            other => tracing::debug!(event = ?other, "conn: event not handled in this build (forwards / transfers)"),
+            ev @ Event::ForwardStatus { .. } => crate::views::forwards::on_event(self, ev),
+            other => tracing::debug!(event = ?other, "conn: event not handled in this build (transfers: phase 6)"),
         }
     }
 }

@@ -147,6 +147,7 @@ pub async fn wsl_autodetect_seed(state: &AppState) -> Result<usize> {
             session_kind: "wsl".into(),
             forward_x11: 0,
             starting_dir: None,
+            password: None,
         };
         crate::db::sessions::create(&state.db, &input).await?;
         created += 1;
@@ -236,6 +237,7 @@ pub async fn local_shells_autodetect_seed(state: &AppState) -> Result<usize> {
             session_kind: "local".into(),
             forward_x11: 0,
             starting_dir: None,
+            password: None,
         };
         crate::db::sessions::create(&state.db, &input).await?;
         created += 1;

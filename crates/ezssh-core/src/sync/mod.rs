@@ -369,7 +369,6 @@ impl WriterTask {
     /// credential, and produces the Bundle struct. Used by both the
     /// local-folder and S3 writers.
     async fn build_bundle(&self) -> Result<backup::Bundle> {
-        use base64::{engine::general_purpose::STANDARD as B64, Engine};
         let folders = db::folders::list(&self.db_pool).await?;
         let sessions_raw = db::sessions::list(&self.db_pool).await?;
         let mut sessions = Vec::with_capacity(sessions_raw.len());
@@ -377,24 +376,13 @@ impl WriterTask {
             let env = db::sessions::env_get(&self.db_pool, s.id).await?;
             sessions.push(backup::SessionEntry { session: s, env });
         }
-        let cred_metas = db::credentials::list(&self.db_pool).await?;
-        let mut credentials = Vec::with_capacity(cred_metas.len());
-        {
+        let credentials = {
             let vs = self.vault_state.read().await;
             if !vs.is_unlocked() {
                 return Err(AppError::VaultLocked);
             }
-            for meta in cred_metas {
-                let row = db::credentials::get(&self.db_pool, meta.id).await?;
-                let pt = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
-                credentials.push(backup::CredentialEntry {
-                    id: meta.id,
-                    kind: meta.kind,
-                    label: meta.label,
-                    secret_b64: B64.encode(&pt),
-                });
-            }
-        }
+            backup::export_credentials(&self.db_pool, &vs).await?
+        };
         let known_hosts = db::known_hosts::list(&self.db_pool).await?;
         let settings = db::settings::list_all(&self.db_pool).await?
             .into_iter()

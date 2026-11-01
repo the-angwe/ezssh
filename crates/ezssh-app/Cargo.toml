@@ -28,6 +28,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 open = "5"
 zeroize = "1.9"
+# Native open / save dialogs (backup, restore, sync, import; SFTP in phase 6).
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Diagnostics_Debug"] }

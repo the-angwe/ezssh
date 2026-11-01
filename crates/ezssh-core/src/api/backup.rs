@@ -56,10 +56,13 @@ pub struct SessionPreview {
     pub username:     String,
     pub session_kind: String,
     pub auth_type:    String,
-    /// Present when the session references a credential in the same backup.
-    /// The selection UI uses this to warn when a session is selected but
-    /// its credential isn't.
+    /// Present when the session references a shared credential (a key) in
+    /// the same backup. The selection UI uses this to warn when a session
+    /// is selected but its credential isn't. `None` for password sessions:
+    /// their password comes with the session.
     pub credential_id: Option<i64>,
+    /// A password session whose password is in the backup.
+    pub has_password: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -145,21 +148,10 @@ async fn backup_create_inner(
         sessions.push(SessionEntry { session: s, env });
     }
 
-    let cred_metas = db::credentials::list(&state.db).await?;
-    let mut credentials: Vec<CredentialEntry> = Vec::with_capacity(cred_metas.len());
-    for meta in cred_metas {
-        let row = db::credentials::get(&state.db, meta.id).await?;
-        let pt = {
-            let vs = state.vault.read().await;
-            vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?
-        };
-        credentials.push(CredentialEntry {
-            id:        meta.id,
-            kind:      meta.kind,
-            label:     meta.label,
-            secret_b64: B64.encode(&pt),
-        });
-    }
+    let credentials: Vec<CredentialEntry> = {
+        let vs = state.vault.read().await;
+        backup::export_credentials(&state.db, &vs).await?
+    };
 
     let known_hosts = db::known_hosts::list(&state.db).await?;
     let settings = db::settings::list_all(&state.db).await?;
@@ -220,27 +212,32 @@ async fn backup_preview_inner(
     let bundle = backup::decrypt_bundle(&bytes, passphrase)?;
 
     Ok(BackupPreview {
-        created_at:    bundle.created_at,
-        app_version:   bundle.app_version,
-        folders:       bundle.folders,
+        created_at:    bundle.created_at.clone(),
+        app_version:   bundle.app_version.clone(),
+        folders:       bundle.folders.clone(),
         sessions: bundle
             .sessions
             .iter()
-            .map(|e| SessionPreview {
-                id:           e.session.id,
-                folder_id:    e.session.folder_id,
-                name:         e.session.name.clone(),
-                host:         e.session.host.clone(),
-                port:         e.session.port,
-                username:     e.session.username.clone(),
-                session_kind: e.session.session_kind.clone(),
-                auth_type:    e.session.auth_type.clone(),
-                credential_id: e.session.credential_id,
+            .map(|e| {
+                let password = session_password(&bundle, &e.session);
+                SessionPreview {
+                    id:           e.session.id,
+                    folder_id:    e.session.folder_id,
+                    name:         e.session.name.clone(),
+                    host:         e.session.host.clone(),
+                    port:         e.session.port,
+                    username:     e.session.username.clone(),
+                    session_kind: e.session.session_kind.clone(),
+                    auth_type:    e.session.auth_type.clone(),
+                    credential_id: if e.session.auth_type == "password" { None } else { e.session.credential_id },
+                    has_password: password.is_some(),
+                }
             })
             .collect(),
         credentials: bundle
             .credentials
             .iter()
+            .filter(|c| c.kind != "password")
             .map(|c| CredentialPreview {
                 id:    c.id,
                 kind:  c.kind.clone(),
@@ -303,7 +300,8 @@ async fn backup_restore_inner(
         .map(|c| c.label)
         .collect();
     for entry in &bundle.credentials {
-        if !selection.credential_ids.contains(&entry.id) {
+        // Passwords come with their sessions (step 3).
+        if entry.kind == "password" || !selection.credential_ids.contains(&entry.id) {
             continue;
         }
         let pt = B64
@@ -389,10 +387,24 @@ async fn backup_restore_inner(
             .map(|s| s.name)
             .collect();
         let final_name = unique_name(&entry.session.name, &existing, &mut result.renamed);
-        let remapped_cred = entry
-            .session
-            .credential_id
-            .and_then(|c| cred_id_map.get(&c).copied());
+        let is_password = entry.session.auth_type == "password";
+        let password = match session_password(&bundle, &entry.session) {
+            Some(c) if is_password => {
+                let pt = zeroize::Zeroizing::new(
+                    B64.decode(&c.secret_b64)
+                        .map_err(|_| AppError::Validation("credential plaintext not base64".into()))?,
+                );
+                let vs = state.vault.read().await;
+                let (nonce, ciphertext) = vault::encrypt_with(&vs, &pt)?;
+                db::sessions::PasswordOp::Set { nonce, ciphertext }
+            }
+            _ => db::sessions::PasswordOp::Keep,
+        };
+        let remapped_cred = if is_password {
+            None
+        } else {
+            entry.session.credential_id.and_then(|c| cred_id_map.get(&c).copied())
+        };
         let remapped_pass = entry
             .session
             .key_passphrase_credential_id
@@ -419,8 +431,9 @@ async fn backup_restore_inner(
             session_kind: entry.session.session_kind.clone(),
             forward_x11: entry.session.forward_x11,
             starting_dir: entry.session.starting_dir.clone(),
+            password: None,
         };
-        db::sessions::create(&state.db, &input).await?;
+        db::sessions::create_with(&state.db, &input, &password).await?;
         result.sessions_created += 1;
     }
 
@@ -452,6 +465,16 @@ async fn backup_restore_inner(
 
     state.sync.trigger();
     Ok(result)
+}
+
+/// The password entry a password session uses: its own row, or (bundles
+/// from before passwords moved onto sessions) the shared row it names.
+fn session_password<'a>(bundle: &'a Bundle, s: &db::sessions::Session) -> Option<&'a CredentialEntry> {
+    if s.auth_type != "password" {
+        return None;
+    }
+    let id = s.credential_id?;
+    bundle.credentials.iter().find(|c| c.id == id && c.kind == "password")
 }
 
 /// Append " (N)" suffixes until the candidate doesn't collide. Tracks

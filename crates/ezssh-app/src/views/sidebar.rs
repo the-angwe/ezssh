@@ -1,6 +1,6 @@
 //! `sessions-sidebar.tsx`: the folder / session tree with drag and drop,
-//! context menus, and the folder / session dialogs that do not need the
-//! phase 5 editors.
+//! context menus, and the small folder / session dialogs. The session
+//! editor and the root menu's dialogs live in their own modules.
 
 use std::collections::HashSet;
 
@@ -9,7 +9,7 @@ use ezssh_core::api;
 use ezssh_core::db::folders::Folder;
 use ezssh_core::db::sessions::Session;
 
-use crate::app::{App, PHASE5_HINT};
+use crate::app::App;
 use crate::core::Core;
 use crate::icons::Icon;
 use crate::style::{ROW_H, alpha, font, font_semibold, size, tokens};
@@ -219,13 +219,20 @@ pub fn parse_color(s: &str) -> Option<Color32> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Action {
-    NewSession,
+    NewSession(Option<i64>),
+    Edit(i64),
+    Import,
+    Backup,
+    Restore,
+    CloudSync,
+    Credentials,
+    ChangePassword,
+    RecoveryCode,
     NewFolder(Option<i64>),
     Sort(Option<i64>, bool),
     MoveFolder(i64),
     RenameFolder(i64),
     DeleteFolder(i64),
-    Phase5,
     Settings,
     Connect(i64),
     Duplicate(i64),
@@ -309,7 +316,7 @@ impl Sidebar {
         let id = folder.map(|f| f.id);
         let children = self.folders.iter().filter(|f| f.parent_id == id).count() + self.sessions.iter().filter(|s| s.folder_id == id).count();
         let mut items = vec![
-            MenuEntry::disabled("New Session", Action::NewSession, Some(PHASE5_HINT)),
+            MenuEntry::item("New Session", Action::NewSession(id)),
             MenuEntry::item("New Folder", Action::NewFolder(id)),
             MenuEntry::Separator,
             MenuEntry::item("Sort A → Z", Action::Sort(id, true)).enabled(children > 1),
@@ -323,21 +330,20 @@ impl Sidebar {
                 MenuEntry::danger("Delete", Action::DeleteFolder(f.id)),
             ]);
         } else {
-            let p5 = |label: &str| MenuEntry::disabled(label, Action::Phase5, Some(PHASE5_HINT));
             items.extend([
                 MenuEntry::Separator,
-                p5("Import from MobaXterm…"),
+                MenuEntry::item("Import from MobaXterm…", Action::Import),
                 MenuEntry::Separator,
-                p5("Backup…"),
-                p5("Restore…"),
+                MenuEntry::item("Backup…", Action::Backup),
+                MenuEntry::item("Restore…", Action::Restore),
                 MenuEntry::Separator,
-                p5("Cloud sync…"),
+                MenuEntry::item("Cloud sync…", Action::CloudSync),
                 MenuEntry::Separator,
                 MenuEntry::item("Settings…", Action::Settings),
                 MenuEntry::Separator,
-                p5("Credentials…"),
-                p5("Change master password…"),
-                p5("Recovery code…"),
+                MenuEntry::item("Credentials…", Action::Credentials),
+                MenuEntry::item("Change master password…", Action::ChangePassword),
+                MenuEntry::item("Recovery code…", Action::RecoveryCode),
             ]);
         }
         Menu::new(pos, items)
@@ -348,7 +354,7 @@ impl Sidebar {
             pos,
             vec![
                 MenuEntry::item("Connect", Action::Connect(s.id)),
-                MenuEntry::disabled("Edit", Action::Phase5, Some(PHASE5_HINT)),
+                MenuEntry::item("Edit", Action::Edit(s.id)),
                 MenuEntry::item("Duplicate", Action::Duplicate(s.id)),
                 MenuEntry::Separator,
                 MenuEntry::item("Move to folder…", Action::MoveSession(s.id)),
@@ -374,14 +380,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, Stroke::new(1.0, t.border));
     let mut toolbar = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(6.0, 2.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
     toolbar.spacing_mut().item_spacing.x = 2.0;
-    toolbar.add_enabled_ui(false, |ui| widgets::icon_button(ui, Icon::Plus, 24.0, 14.0, false, "New session")).inner.on_disabled_hover_text(format!("New session. {PHASE5_HINT}"));
+    if widgets::icon_button(&mut toolbar, Icon::Plus, 24.0, 14.0, false, "New session").clicked() {
+        act(app, Action::NewSession(None));
+    }
     if widgets::icon_button(&mut toolbar, Icon::FolderPlus, 24.0, 14.0, false, "New folder").clicked() {
         app.sidebar.prompt = Some(Prompt::NewFolder(None, PromptState::new("New folder", "Folder name", "", "My servers", "Create")));
     }
-    toolbar
-        .add_enabled_ui(false, |ui| widgets::icon_button(ui, Icon::FileInput, 24.0, 14.0, false, "Import from MobaXterm"))
-        .inner
-        .on_disabled_hover_text(format!("Import from MobaXterm. {PHASE5_HINT}"));
+    if widgets::icon_button(&mut toolbar, Icon::FileInput, 24.0, 14.0, false, "Import from MobaXterm").clicked() {
+        act(app, Action::Import);
+    }
     toolbar.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         if widgets::icon_button(ui, Icon::PanelLeftClose, 24.0, 14.0, false, "Hide sessions (Ctrl+B)").clicked() {
             app.tabs.sidebar_collapsed = true;
@@ -407,13 +414,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let pointer = ui.ctx().input(|i| i.pointer.hover_pos());
     let mut rows = Vec::new();
     let mut opened: Option<Session> = None;
+    let mut new_session = false;
     let mut actions: Vec<(Pos2, MenuOpen)> = Vec::new();
     egui::ScrollArea::vertical().id_salt("sidebar-scroll").auto_shrink(false).show(&mut tree, |ui| {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         if app.sidebar.folders.is_empty() && app.sidebar.sessions.is_empty() {
-            widgets::empty_state(ui, Icon::Terminal, "No sessions yet", "Create your first saved connection.", Some(("New session", false)), true)
-                .map(|r| r.on_disabled_hover_text(PHASE5_HINT));
+            if widgets::empty_state(ui, Icon::Terminal, "No sessions yet", "Create your first saved connection.", Some(("New session", true)), true)
+                .is_some_and(|r| r.clicked())
+            {
+                new_session = true;
+            }
             return;
         }
         let mut ctx = Walk { rows: &mut rows, opened: &mut opened, menus: &mut actions };
@@ -437,6 +448,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     });
     app.sidebar.rows = rows;
+    if new_session {
+        act(app, Action::NewSession(None));
+    }
     for (pos, m) in actions {
         app.sidebar.menu = Some(match m {
             MenuOpen::Folder(f) => {
@@ -699,7 +713,19 @@ fn act(app: &mut App, a: Action) {
     tracing::debug!(?a, "sidebar: action");
     let sb = &mut app.sidebar;
     match a {
-        Action::NewSession | Action::Phase5 => app.toasts.info("Not available yet", PHASE5_HINT.to_string()),
+        Action::NewSession(folder) => app.dialogs.session = Some(crate::views::session_dialog::SessionDialog::new_session(folder)),
+        Action::Edit(id) => {
+            if let Some(s) = sb.sessions.iter().find(|s| s.id == id).cloned() {
+                app.dialogs.session = Some(crate::views::session_dialog::SessionDialog::edit(s));
+            }
+        }
+        Action::Import => app.dialogs.import = Some(Default::default()),
+        Action::Backup => app.dialogs.backup = Some(Default::default()),
+        Action::Restore => app.dialogs.restore = Some(Default::default()),
+        Action::CloudSync => app.dialogs.sync = Some(Default::default()),
+        Action::Credentials => app.dialogs.credentials = Some(Default::default()),
+        Action::ChangePassword => app.dialogs.change_password = Some(Default::default()),
+        Action::RecoveryCode => app.dialogs.recovery_code = Some(Default::default()),
         Action::NewFolder(parent) => sb.prompt = Some(Prompt::NewFolder(parent, PromptState::new("New folder", "Folder name", "", "My servers", "Create"))),
         Action::RenameFolder(id) => {
             if let Some(f) = sb.folders.iter().find(|f| f.id == id) {

@@ -36,9 +36,21 @@ pub(crate) struct CredentialRow {
     pub ciphertext: Vec<u8>,
 }
 
+/// One row of [`list_for_export`].
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct ExportRow {
+    pub id: i64,
+    pub kind: String,
+    pub label: String,
+    /// Owning session of a session password; `None` for shared rows.
+    pub session_id: Option<i64>,
+}
+
+/// The shared credentials (private keys, key passphrases). Session
+/// passwords belong to their session and are not listed.
 pub async fn list(pool: &SqlitePool) -> Result<Vec<CredentialMeta>> {
     Ok(sqlx::query_as::<_, CredentialMeta>(
-        "SELECT id, kind, label FROM credentials ORDER BY id DESC",
+        "SELECT id, kind, label FROM credentials WHERE session_id IS NULL ORDER BY id DESC",
     )
     .fetch_all(pool)
     .await?)
@@ -46,7 +58,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<CredentialMeta>> {
 
 pub async fn list_detailed(pool: &SqlitePool) -> Result<Vec<CredentialDetail>> {
     let creds = sqlx::query_as::<_, (i64, String, String, String)>(
-        "SELECT id, kind, label, created_at FROM credentials ORDER BY id DESC",
+        "SELECT id, kind, label, created_at FROM credentials WHERE session_id IS NULL ORDER BY id DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -84,6 +96,27 @@ pub async fn list_detailed(pool: &SqlitePool) -> Result<Vec<CredentialDetail>> {
             used_by: used.remove(&id).unwrap_or_default(),
         })
         .collect())
+}
+
+/// The Tauri picker's list: the shared rows plus every session password,
+/// labelled with its session's name. The old webview selects a session's
+/// password by id and drops a selection it cannot find, so it must see
+/// them; saving a session that names another session's password copies
+/// it (see `db::sessions`).
+pub async fn list_with_session_passwords(pool: &SqlitePool) -> Result<Vec<CredentialMeta>> {
+    Ok(sqlx::query_as::<_, CredentialMeta>(
+        "SELECT c.id, c.kind, COALESCE(s.name, c.label) AS label FROM credentials c \
+         LEFT JOIN sessions s ON s.id = c.session_id ORDER BY c.id DESC",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Every row, session passwords included (backups and sync bundles).
+pub async fn list_for_export(pool: &SqlitePool) -> Result<Vec<ExportRow>> {
+    Ok(sqlx::query_as::<_, ExportRow>("SELECT id, kind, label, session_id FROM credentials ORDER BY id")
+        .fetch_all(pool)
+        .await?)
 }
 
 pub(crate) async fn insert(
@@ -130,7 +163,8 @@ pub(crate) async fn update(
     };
     let n = sqlx::query(
         "UPDATE credentials SET label = COALESCE(?, label), \
-         nonce = COALESCE(?, nonce), ciphertext = COALESCE(?, ciphertext) WHERE id = ?",
+         nonce = COALESCE(?, nonce), ciphertext = COALESCE(?, ciphertext) \
+         WHERE id = ? AND session_id IS NULL",
     )
     .bind(label)
     .bind(nonce)
@@ -145,11 +179,17 @@ pub(crate) async fn update(
     Ok(())
 }
 
+/// Delete a shared credential. A session password is not reachable here
+/// (it goes with its session): `NotFound`.
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM credentials WHERE id = ?")
+    let n = sqlx::query("DELETE FROM credentials WHERE id = ? AND session_id IS NULL")
         .bind(id)
         .execute(pool)
-        .await?;
+        .await?
+        .rows_affected();
+    if n == 0 {
+        return Err(crate::error::AppError::NotFound);
+    }
     Ok(())
 }
 

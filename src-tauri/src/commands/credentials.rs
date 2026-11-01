@@ -9,9 +9,12 @@ use ezssh_core::db::credentials::{CredentialDetail, CredentialMeta};
 use ezssh_core::error::Result;
 use ezssh_core::state::AppState;
 
+/// The webview's picker still selects session passwords by id (it drops a
+/// selection it cannot find), so it gets them too; the native app uses
+/// `credential_list` (shared rows only).
 #[tauri::command]
 pub async fn credential_list(state: State<'_, AppState>) -> Result<Vec<CredentialMeta>> {
-    api::credentials::credential_list(&state).await
+    api::credentials::credential_list_with_session_passwords(&state).await
 }
 
 #[tauri::command]

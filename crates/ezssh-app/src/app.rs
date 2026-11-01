@@ -29,7 +29,8 @@ pub struct Options {
 }
 
 pub enum Screen {
-    Unlock(views::unlock::UnlockState),
+    // Boxed: the unlock state (with its dialogs) is much larger than `Main`.
+    Unlock(Box<views::unlock::UnlockState>),
     Main,
 }
 
@@ -41,11 +42,34 @@ pub struct Dialogs {
     pub tile_grid: Option<views::dialogs::TileGridDraft>,
     /// Multi-line paste waiting for the user's yes: (tab, text, lines).
     pub paste: Option<(TabId, String, usize)>,
+    pub session: Option<views::session_dialog::SessionDialog>,
+    pub credentials: Option<views::credentials::CredentialsDialog>,
+    pub change_password: Option<views::vault_dialogs::ChangePassword>,
+    pub recovery_code: Option<views::vault_dialogs::RecoveryCode>,
+    pub xserver: Option<views::xserver::XServerDialog>,
+    pub font_picker: Option<views::font_picker::FontPicker>,
+    pub backup: Option<views::backup::BackupDialog>,
+    pub restore: Option<views::restore::RestoreDialog>,
+    pub sync: Option<views::sync::SyncDialog>,
+    pub import: Option<views::import::ImportDialog>,
 }
 
 impl Dialogs {
     pub fn any_open(&self) -> bool {
-        self.settings.is_some() || self.quit_confirm || self.tile_grid.is_some() || self.paste.is_some()
+        self.settings.is_some()
+            || self.quit_confirm
+            || self.tile_grid.is_some()
+            || self.paste.is_some()
+            || self.session.is_some()
+            || self.credentials.is_some()
+            || self.change_password.is_some()
+            || self.recovery_code.is_some()
+            || self.xserver.is_some()
+            || self.font_picker.is_some()
+            || self.backup.is_some()
+            || self.restore.is_some()
+            || self.sync.is_some()
+            || self.import.is_some()
     }
 }
 
@@ -63,6 +87,10 @@ pub struct App {
     pub(crate) strip: views::tabstrip::StripState,
     pub(crate) mdi: views::mdi::MdiState,
     pub(crate) dialogs: Dialogs,
+    /// Shared credentials (keys, passphrases) for pickers and the manager.
+    pub(crate) creds: crate::creds::CredCache,
+    /// The port-forward panes.
+    pub(crate) forwards: views::forwards::ForwardsState,
     pub(crate) toasts: Toasts,
     pub(crate) term_style: TermStyle,
     pub(crate) fonts: FontRegistry,
@@ -82,7 +110,7 @@ const XSERVER_POLL: Duration = Duration::from_secs(5);
 /// How often the idle-lock clock is checked (the webview's 15 s ticker).
 const IDLE_TICK: Duration = Duration::from_secs(15);
 
-pub const PHASE5_HINT: &str = "Not in the native build yet: arrives with the dialogs (rework phase 5). Use the ezTerm app meanwhile.";
+pub const UPDATER_HINT: &str = "Not in the native build yet: arrives with the updater (rework phase 7). Use the ezTerm app meanwhile.";
 
 impl App {
     /// Open the database and show the unlock screen. Fails when the
@@ -109,7 +137,7 @@ impl App {
         tracing::info!(vault = status, db = %options.db_path.display(), "app: start");
         let mut unlock = views::unlock::UnlockState::new(status == "uninitialized");
         unlock.probe_recovery(&core);
-        let screen = Screen::Unlock(unlock);
+        let screen = Screen::Unlock(Box::new(unlock));
         style::apply(ctx, theme);
         let tabs = Tabs::new(layout.view_mode, layout.tile_grid);
         let mut app = Self {
@@ -126,6 +154,8 @@ impl App {
             strip: views::tabstrip::StripState::default(),
             mdi: views::mdi::MdiState::default(),
             dialogs: Dialogs::default(),
+            creds: crate::creds::CredCache::default(),
+            forwards: views::forwards::ForwardsState::default(),
             toasts: Toasts::default(),
             term_style: TermStyle::default(),
             fonts,
@@ -162,6 +192,7 @@ impl App {
             },
         );
         self.sidebar.reload(&self.core);
+        self.creds.reload(&self.core);
         // WSL first, then local shells; each is idempotent, and both
         // report what they did, as in the webview.
         self.core.call(
@@ -201,9 +232,15 @@ impl App {
         tracing::info!("app: lock");
         self.dialogs = Dialogs::default();
         self.sidebar.close_dialogs();
+        self.forwards.close_dialogs();
+        // Auth-fix overlays hold typed secrets; the failed tabs keep their
+        // error card (Reconnect brings the overlay back).
+        for slot in self.terms.values_mut() {
+            slot.auth_fix = None;
+        }
         let mut u = views::unlock::UnlockState::new(false);
         u.probe_recovery(&self.core);
-        self.screen = Screen::Unlock(u);
+        self.screen = Screen::Unlock(Box::new(u));
         self.core.call("vault_lock", |st| async move { api::vault::vault_lock(&st).await }, |app, r| {
             if let Err(e) = r {
                 app.toasts.danger("Lock failed", e.to_string());
@@ -341,6 +378,7 @@ impl App {
             || self.tabs.pending_close.is_some()
             || self.sidebar.dialog_open()
             || self.terms.values().any(|s| s.host_key.is_some())
+            || self.forwards.dialog_open()
     }
 
     // ------------------------------------------------------------ frame

@@ -1,13 +1,14 @@
 //! `unlock-screen.tsx`: create the vault on first run, else unlock it.
 
-use egui::{Align2, CornerRadius, Frame, Key, Margin, RichText, Stroke, Ui, vec2};
+use egui::{Align2, Color32, CornerRadius, CursorIcon, Frame, Key, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, Ui, Vec2, vec2};
 use ezssh_core::api;
 use zeroize::Zeroize;
 
-use crate::app::{App, PHASE5_HINT, Screen};
+use crate::app::{App, Screen};
 use crate::core::Core;
 use crate::icons::Icon;
 use crate::style::{alpha, font, font_semibold, size, tokens};
+use crate::views::vault_dialogs::{self, RecoveryUnlock, ResetVault};
 use crate::widgets;
 
 pub struct UnlockState {
@@ -19,6 +20,10 @@ pub struct UnlockState {
     busy: bool,
     recovery_available: bool,
     focused: bool,
+    /// "Use recovery code" dialog.
+    pub(crate) recovery: Option<RecoveryUnlock>,
+    /// "Forgot password?" (reset vault) dialog.
+    pub(crate) reset: Option<ResetVault>,
 }
 
 impl Drop for UnlockState {
@@ -30,7 +35,22 @@ impl Drop for UnlockState {
 
 impl UnlockState {
     pub fn new(first_run: bool) -> Self {
-        Self { first_run, pw: String::new(), pw2: String::new(), show: false, error: None, busy: false, recovery_available: false, focused: false }
+        Self { first_run, pw: String::new(), pw2: String::new(), show: false, error: None, busy: false, recovery_available: false, focused: false, recovery: None, reset: None }
+    }
+
+    /// Give the password field the keyboard again (a dialog closed).
+    pub(crate) fn refocus(&mut self) {
+        self.focused = false;
+    }
+
+    #[cfg(test)]
+    pub fn recovery_available(&self) -> bool {
+        self.recovery_available
+    }
+
+    #[cfg(test)]
+    pub fn reset_dialog(&self) -> Option<&ResetVault> {
+        self.reset.as_ref()
     }
 
     #[cfg(test)]
@@ -82,7 +102,7 @@ pub fn score_password(pw: &str) -> usize {
     score.min(4)
 }
 
-const STRENGTH_COPY: [&str; 5] = ["Too short", "Weak", "Fair", "Strong", "Very strong"];
+pub(crate) const STRENGTH_COPY: [&str; 5] = ["Too short", "Weak", "Fair", "Strong", "Very strong"];
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = tokens(ui.ctx());
@@ -151,20 +171,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     let r = widgets::text_input(ui, &mut state.pw2, "Confirm password", w, !state.show);
                     enter |= r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
                     if !state.pw.is_empty() {
-                        let score = score_password(&state.pw);
-                        let (bar, _) = ui.allocate_exact_size(vec2(w, 4.0), egui::Sense::hover());
-                        let gap = 4.0;
-                        let seg = (w - 3.0 * gap) / 4.0;
-                        let fill = match score {
-                            0 | 1 => t.danger,
-                            2 => t.warning,
-                            _ => t.success,
-                        };
-                        for i in 0..4 {
-                            let r = egui::Rect::from_min_size(egui::pos2(bar.left() + i as f32 * (seg + gap), bar.top()), vec2(seg, 4.0));
-                            ui.painter().rect_filled(r, 1.0, if i < score { fill } else { t.surface2 });
-                        }
-                        ui.label(RichText::new(STRENGTH_COPY[score]).font(font(size::XS)).color(t.muted));
+                        strength_meter(ui, &state.pw, w);
                     }
                 }
 
@@ -180,25 +187,20 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
                 if !state.first_run {
                     ui.add_space(4.0);
+                    // Not while an unlock is running: its result would land
+                    // under a dialog that changes the vault.
+                    let idle = !state.busy;
                     ui.horizontal(|ui| {
-                        let link = |ui: &mut Ui, icon: Icon, text: &str| {
-                            ui.add_enabled_ui(false, |ui| {
-                                // Icon first, even inside the right-to-left half.
-                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                    ui.spacing_mut().item_spacing.x = 4.0;
-                                    icon.show(ui, 11.0, t.muted);
-                                    ui.label(RichText::new(text).font(font(size::XS)).color(t.muted));
-                                })
-                            })
-                            .response
-                            .on_disabled_hover_text(PHASE5_HINT);
-                        };
-                        if state.recovery_available {
-                            link(ui, Icon::KeyRound, "Use recovery code");
+                        if state.recovery_available && link(ui, Icon::KeyRound, "Use recovery code", t.fg).clicked() && idle {
+                            tracing::debug!("unlock: recovery dialog opened");
+                            state.recovery = Some(RecoveryUnlock::default());
                         }
-                        let forgot_w = 11.0 + 4.0 + ui.painter().layout_no_wrap("Forgot password?".into(), font(size::XS), t.muted).size().x;
+                        let forgot_w = link_width(ui, "Forgot password?");
                         ui.add_space((ui.available_width() - forgot_w).max(0.0));
-                        link(ui, Icon::Trash, "Forgot password?");
+                        if link(ui, Icon::Trash, "Forgot password?", t.danger).clicked() && idle {
+                            tracing::debug!("unlock: reset dialog opened");
+                            state.reset = Some(ResetVault::default());
+                        }
                     });
                 }
             });
@@ -206,6 +208,52 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if submit && !state.busy {
         submit_unlock(app);
     }
+    vault_dialogs::unlock_dialogs(app, ui.ctx());
+}
+
+/// The four-segment strength bar and its caption (`password-strength.ts`),
+/// shared with the change-password dialog.
+pub(crate) fn strength_meter(ui: &mut Ui, pw: &str, w: f32) {
+    let t = tokens(ui.ctx());
+    let score = score_password(pw);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        let (bar, resp) = ui.allocate_exact_size(vec2(w, 4.0), Sense::hover());
+        widgets::a11y(&resp, egui::Role::Meter, &format!("Password strength: {}", STRENGTH_COPY[score]));
+        let gap = 4.0;
+        let seg = (w - 3.0 * gap) / 4.0;
+        let fill = match score {
+            0 | 1 => t.danger,
+            2 => t.warning,
+            _ => t.success,
+        };
+        for i in 0..4 {
+            let r = Rect::from_min_size(Pos2::new(bar.left() + i as f32 * (seg + gap), bar.top()), vec2(seg, 4.0));
+            ui.painter().rect_filled(r, 1.0, if i < score { fill } else { t.surface2 });
+        }
+        ui.label(RichText::new(STRENGTH_COPY[score]).font(font(size::XS)).color(t.muted));
+    });
+}
+
+const LINK_ICON: f32 = 11.0;
+
+fn link_width(ui: &Ui, text: &str) -> f32 {
+    let g = ui.painter().layout_no_wrap(text.into(), font(size::XS), Color32::WHITE);
+    4.0 + LINK_ICON + 4.0 + g.size().x + 4.0
+}
+
+/// The card's small text links (`px-1`, icon then text, `hover` colour).
+fn link(ui: &mut Ui, icon: Icon, text: &str, hover: Color32) -> Response {
+    let t = tokens(ui.ctx());
+    let g = ui.painter().layout_no_wrap(text.into(), font(size::XS), t.muted);
+    let (rect, resp) = ui.allocate_exact_size(vec2(link_width(ui, text), g.size().y.max(LINK_ICON) + 4.0), Sense::click());
+    let color = if resp.hovered() { hover } else { t.muted };
+    let icon_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + LINK_ICON / 2.0, rect.center().y), Vec2::splat(LINK_ICON));
+    icon.paint(ui, icon_rect, LINK_ICON, color);
+    ui.painter().galley_with_override_text_color(Pos2::new(icon_rect.right() + 4.0, rect.center().y - g.size().y / 2.0), g, color);
+    widgets::focus_ring(ui, &resp, rect);
+    widgets::a11y(&resp, egui::Role::Button, text);
+    resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn submit_unlock(app: &mut App) {

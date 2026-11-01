@@ -8,6 +8,13 @@
 
 #![cfg(unix)]
 
+// Phase 5 dialog tests, one file per dialog group; they use the helpers
+// below.
+mod credentials;
+mod data;
+mod sessions;
+mod vault;
+
 use std::time::{Duration, Instant};
 
 use egui::{Event, Modifiers, PointerButton, Pos2, Role, vec2};
@@ -17,14 +24,14 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use crate::app::{App, Options, Screen};
 use crate::tabs::{TabStatus, ViewMode};
 
-const PASSWORD: &str = "correct horse battery";
+pub(crate) const PASSWORD: &str = "correct horse battery";
 
-struct Env {
-    _dir: tempfile::TempDir,
-    h: Harness<'static, App>,
+pub(crate) struct Env {
+    pub(crate) _dir: tempfile::TempDir,
+    pub(crate) h: Harness<'static, App>,
 }
 
-fn start() -> Env {
+pub(crate) fn start() -> Env {
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("ezterm.sqlite");
     let h = Harness::builder()
@@ -41,7 +48,7 @@ fn start() -> Env {
 
 /// Step frames until `cond` holds (async core calls finish on other
 /// threads), or fail after `secs`.
-fn wait(h: &mut Harness<'static, App>, secs: u64, what: &str, cond: impl Fn(&App) -> bool) {
+pub(crate) fn wait(h: &mut Harness<'static, App>, secs: u64, what: &str, cond: impl Fn(&App) -> bool) {
     let until = Instant::now() + Duration::from_secs(secs);
     loop {
         h.step();
@@ -54,7 +61,7 @@ fn wait(h: &mut Harness<'static, App>, secs: u64, what: &str, cond: impl Fn(&App
     }
 }
 
-fn shot(h: &mut Harness<'static, App>, name: &str) {
+pub(crate) fn shot(h: &mut Harness<'static, App>, name: &str) {
     let Ok(dir) = std::env::var("EZSSH_UI_SHOTS") else {
         return;
     };
@@ -69,7 +76,7 @@ fn shot(h: &mut Harness<'static, App>, name: &str) {
     }
 }
 
-fn type_into(h: &mut Harness<'static, App>, index: usize, text: &str) {
+pub(crate) fn type_into(h: &mut Harness<'static, App>, index: usize, text: &str) {
     let fields: Vec<_> = h.query_all_by_role(Role::PasswordInput).collect();
     let field = fields.get(index).unwrap_or_else(|| panic!("password field {index} missing ({} found)", fields.len()));
     field.click();
@@ -78,7 +85,7 @@ fn type_into(h: &mut Harness<'static, App>, index: usize, text: &str) {
 }
 
 /// Create the vault and wait for the workspace with the seeded sessions.
-fn unlock_fresh(env: &mut Env) {
+pub(crate) fn unlock_fresh(env: &mut Env) {
     let h = &mut env.h;
     h.run_steps(3);
     assert!(h.query_by_label("Set master password").is_some(), "first run shows vault creation");
@@ -91,17 +98,17 @@ fn unlock_fresh(env: &mut Env) {
 }
 
 /// Everything in the tab's terminal, scrollback included.
-fn screen_text(h: &mut Harness<'static, App>, tab: u64) -> String {
+pub(crate) fn screen_text(h: &mut Harness<'static, App>, tab: u64) -> String {
     let term = &mut h.state_mut().terms.get_mut(&tab).expect("terminal").term;
     term.select_all();
     term.selection_text().unwrap_or_default()
 }
 
-fn first_local(h: &Harness<'static, App>) -> String {
+pub(crate) fn first_local(h: &Harness<'static, App>) -> String {
     h.state().sidebar.sessions.iter().find(|s| s.session_kind == "local").expect("a local shell session").name.clone()
 }
 
-fn open_local(h: &mut Harness<'static, App>) -> u64 {
+pub(crate) fn open_local(h: &mut Harness<'static, App>) -> u64 {
     // Out of egui's multi-click window, so the next two clicks are a
     // double-click and not the end of a triple.
     h.run_steps(30);
@@ -234,7 +241,7 @@ fn view_modes_cascade_and_minimize() {
 }
 
 /// Press at `from`, move in steps to `to`, release.
-fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
+pub(crate) fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
     h.event(Event::PointerMoved(from));
     h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
     h.step();
@@ -296,14 +303,14 @@ fn folder_create_drag_drop_and_close_confirm() {
     let n = name.clone();
     wait(h, 10, "session moved", move |a| a.sidebar.sessions.iter().any(|s| s.name == n && s.folder_id == Some(folder)));
 
-    // Root context menu lists the phase 5 items disabled.
+    // Root context menu: every item is live now.
     let tree = h.get_by_role_and_label(Role::TreeItem, "Servers").rect();
     let below = Pos2::new(tree.center().x, 760.0);
     h.event(Event::PointerMoved(below));
     h.event(Event::PointerButton { pos: below, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
     h.event(Event::PointerButton { pos: below, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
     h.run_steps(3);
-    assert!(h.get_by_label("Backup…").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Backup…").accesskit_node().is_disabled());
     assert!(!h.get_by_label("Settings…").accesskit_node().is_disabled());
     shot(h, "sidebar-root-menu");
     h.key_press(egui::Key::Escape);

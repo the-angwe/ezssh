@@ -186,12 +186,15 @@ fn slot(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect, kind: Slot) {
         if tab.forwards_open && tab.is_ssh() {
             let w = FORWARDS_PANE_W.min(body.width() - 120.0).max(0.0);
             let pane = Rect::from_min_size(body.min, vec2(w, body.height()));
-            pane_placeholder(ui, pane, Icon::Network, "Port forwards", "The forwards pane arrives in rework phase 5.");
+            crate::views::forwards::pane(app, ui, id, pane);
             body.min.x += w;
         }
     }
 
     terminal(app, ui, id, body);
+    if app.terms.get(&id).is_some_and(|s| s.auth_fix.is_some()) {
+        crate::views::auth_fix::show(app, ui, id, body);
+    }
 
     match kind {
         Slot::Cell if active => {
@@ -234,16 +237,18 @@ fn terminal(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect) {
         return;
     };
     // No overlay while a host-key prompt is up (the dialog says it all).
-    let overlay = if slot.host_key.is_some() { None } else { overlay_for(tab) };
+    let overlay = if slot.host_key.is_some() || slot.auth_fix.is_some() { None } else { overlay_for(tab) };
     let bg = {
         let c = app.term_style.palette.background;
         egui::Color32::from_rgb(c.r, c.g, c.b)
     };
     ui.painter().rect_filled(rect, 0.0, bg);
-    let focus = active && !modal && tab.status == TabStatus::Connected && std::mem::take(&mut slot.focus);
+    // An auth-fix overlay owns its own tab's keyboard (not the others').
+    let blocked = modal || slot.auth_fix.is_some();
+    let focus = active && !blocked && tab.status == TabStatus::Connected && std::mem::take(&mut slot.focus);
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("term", id)));
     child.set_clip_rect(rect.intersect(ui.clip_rect()));
-    let out = TerminalView::new(&mut slot.term, &app.term_style).focus(focus).overlay(overlay.as_ref()).input(!modal).show(&mut child);
+    let out = TerminalView::new(&mut slot.term, &app.term_style).focus(focus).overlay(overlay.as_ref()).input(!blocked).show(&mut child);
     if out.response.has_focus() {
         app.mdi.term_focused = true;
     }
@@ -258,7 +263,10 @@ fn terminal(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect) {
                 }
             }
             TermAction::Bell => crate::bell::ring(),
-            TermAction::OpenFontPicker => app.toasts.info("Font picker", "Arrives with the dialogs (rework phase 5). Ctrl+wheel changes the size.".to_string()),
+            TermAction::OpenFontPicker => {
+                let anchor = ui.ctx().pointer_latest_pos();
+                app.dialogs.font_picker = Some(crate::views::font_picker::FontPicker::new(id, anchor));
+            }
         }
     }
 }

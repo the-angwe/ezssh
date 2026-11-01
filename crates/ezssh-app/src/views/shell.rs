@@ -8,7 +8,10 @@ use crate::app::App;
 use crate::icons::Icon;
 use crate::layout::{FORWARDS_PANE_W, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, TERMINAL_MIN_W};
 use crate::style::{STATUS_BAR_H, tokens};
-use crate::views::{dialogs, mdi, settings, sidebar, statusbar, tabstrip};
+use crate::views::{
+    backup, credentials, dialogs, font_picker, forwards, import, mdi, restore, session_dialog, settings, sidebar, statusbar, sync, tabstrip,
+    vault_dialogs, xserver,
+};
 use crate::widgets;
 
 pub fn show(app: &mut App, ui: &mut Ui) {
@@ -177,4 +180,17 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
     if app.dialogs.settings.is_some() {
         settings::show(app, ctx);
     }
+    // Phase 5 dialogs. Each shows its `app.dialogs` slot when set; the
+    // credentials manager comes after the session dialog so it stacks on
+    // top when opened from a picker.
+    session_dialog::show(app, ctx);
+    credentials::show(app, ctx);
+    forwards::dialogs(app, ctx);
+    vault_dialogs::show(app, ctx);
+    xserver::show(app, ctx);
+    font_picker::show(app, ctx);
+    backup::show(app, ctx);
+    sync::show(app, ctx);
+    restore::show(app, ctx);
+    import::show(app, ctx);
 }

@@ -74,6 +74,23 @@ pub struct SessionInput {
     pub forward_x11: i64,
     #[serde(default)]
     pub starting_dir: Option<String>,
+    /// New password for a `password` session, typed in the session editor.
+    /// Passwords belong to their session (a credentials row with
+    /// `session_id` set), so there is no shared password to pick. `None`
+    /// or empty keeps the stored one. Ignored for other auth types; the
+    /// API layer encrypts it into a [`PasswordOp`].
+    #[serde(default)]
+    pub password: Option<crate::secret::Secret>,
+}
+
+/// What to do with a session's own password row when it is saved.
+#[derive(Debug)]
+pub enum PasswordOp {
+    /// Keep the stored one (or claim the unowned row `credential_id`
+    /// names: the Tauri picker's create-then-attach flow).
+    Keep,
+    /// Store this ciphertext, replacing any previous password.
+    Set { nonce: Vec<u8>, ciphertext: Vec<u8> },
 }
 
 fn default_session_kind() -> String {
@@ -142,6 +159,11 @@ async fn env_replace(
 }
 
 pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> {
+    create_with(pool, input, &PasswordOp::Keep).await
+}
+
+/// [`create`] plus the session's own password, in one transaction.
+pub async fn create_with(pool: &SqlitePool, input: &SessionInput, password: &PasswordOp) -> Result<Session> {
     let mut tx = pool.begin().await?;
     let id = sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
@@ -175,13 +197,19 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
     .await?
     .last_insert_rowid();
     env_replace(&mut tx, id, &input.env).await?;
+    bind_password(&mut tx, id, input, password).await?;
     tx.commit().await?;
     get(pool, id).await
 }
 
 pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<Session> {
+    update_with(pool, id, input, &PasswordOp::Keep).await
+}
+
+/// [`update`] plus the session's own password, in one transaction.
+pub async fn update_with(pool: &SqlitePool, id: i64, input: &SessionInput, password: &PasswordOp) -> Result<Session> {
     let mut tx = pool.begin().await?;
-    sqlx::query(
+    let n = sqlx::query(
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
          auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
          initial_command = ?, scrollback_lines = ?, font_size = ?, font_family = ?, cursor_style = ?, \
@@ -211,17 +239,132 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
     .bind(&input.starting_dir)
     .bind(id)
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+    if n == 0 {
+        return Err(crate::error::AppError::NotFound);
+    }
     env_replace(&mut tx, id, &input.env).await?;
+    bind_password(&mut tx, id, input, password).await?;
     tx.commit().await?;
     get(pool, id).await
 }
 
-pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
-    sqlx::query("DELETE FROM sessions WHERE id = ?")
+/// kind, owning session, nonce, ciphertext of a credentials row.
+type CredRow = (String, Option<i64>, Vec<u8>, Vec<u8>);
+
+/// Point `sessions.credential_id` of a `password` session at its own row
+/// (writing, claiming or keeping it), or drop the own row when the session
+/// uses another auth type. Key and passphrase slots may only name shared
+/// rows.
+async fn bind_password(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: i64,
+    input: &SessionInput,
+    op: &PasswordOp,
+) -> Result<()> {
+    let owned: Option<i64> = sqlx::query_scalar("SELECT id FROM credentials WHERE session_id = ?")
         .bind(id)
-        .execute(pool)
+        .fetch_optional(&mut **tx)
         .await?;
+    if input.auth_type != "password" {
+        for slot in [input.credential_id, input.key_passphrase_credential_id].into_iter().flatten() {
+            let owner: Option<Option<i64>> = sqlx::query_scalar("SELECT session_id FROM credentials WHERE id = ?")
+                .bind(slot)
+                .fetch_optional(&mut **tx)
+                .await?;
+            if matches!(owner, Some(Some(_))) {
+                return Err(crate::error::AppError::Validation(
+                    "that credential is a session password, not a shared key".into(),
+                ));
+            }
+        }
+        if let Some(o) = owned {
+            tracing::debug!(session = id, credential = o, "sessions: auth type changed, dropping the session password");
+            sqlx::query("DELETE FROM credentials WHERE id = ?").bind(o).execute(&mut **tx).await?;
+        }
+        return Ok(());
+    }
+    let bound = match op {
+        PasswordOp::Set { nonce, ciphertext } => Some(store_own(tx, id, &input.name, owned, nonce, ciphertext).await?),
+        // The Tauri picker names a password row instead of sending one.
+        PasswordOp::Keep => match input.credential_id {
+            Some(c) if Some(c) != owned => {
+                let row: Option<CredRow> =
+                    sqlx::query_as("SELECT kind, session_id, nonce, ciphertext FROM credentials WHERE id = ?")
+                        .bind(c)
+                        .fetch_optional(&mut **tx)
+                        .await?;
+                match row {
+                    // Just created by the picker: claim it (the old own row
+                    // goes first, the unique index allows one per session).
+                    Some((kind, None, _, _)) if kind == "password" => {
+                        if let Some(o) = owned {
+                            sqlx::query("DELETE FROM credentials WHERE id = ?").bind(o).execute(&mut **tx).await?;
+                        }
+                        sqlx::query("UPDATE credentials SET session_id = ? WHERE id = ?").bind(id).bind(c).execute(&mut **tx).await?;
+                        tracing::debug!(session = id, credential = c, "sessions: claimed an unowned password row");
+                        Some(c)
+                    }
+                    // Another session's password: copy it, never share it.
+                    Some((kind, Some(other), nonce, ciphertext)) if kind == "password" => {
+                        tracing::debug!(session = id, from_session = other, "sessions: copying another session's password");
+                        Some(store_own(tx, id, &input.name, owned, &nonce, &ciphertext).await?)
+                    }
+                    _ => {
+                        tracing::debug!(session = id, credential = c, "sessions: not a password row, keeping the own password");
+                        owned
+                    }
+                }
+            }
+            _ => owned,
+        },
+    };
+    sqlx::query("UPDATE sessions SET credential_id = ?, key_passphrase_credential_id = NULL WHERE id = ?")
+        .bind(bound)
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Write `nonce` / `ciphertext` as session `id`'s own password, replacing
+/// the row `owned` if there is one. Returns the row id.
+async fn store_own(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: i64,
+    name: &str,
+    owned: Option<i64>,
+    nonce: &[u8],
+    ciphertext: &[u8],
+) -> Result<i64> {
+    if let Some(o) = owned {
+        sqlx::query("UPDATE credentials SET nonce = ?, ciphertext = ?, label = ? WHERE id = ?")
+            .bind(nonce)
+            .bind(ciphertext)
+            .bind(name)
+            .bind(o)
+            .execute(&mut **tx)
+            .await?;
+        return Ok(o);
+    }
+    Ok(sqlx::query("INSERT INTO credentials (kind, label, nonce, ciphertext, session_id) VALUES ('password', ?, ?, ?, ?)")
+        .bind(name)
+        .bind(nonce)
+        .bind(ciphertext)
+        .bind(id)
+        .execute(&mut **tx)
+        .await?
+        .last_insert_rowid())
+}
+
+/// Delete a session with its own password (explicitly, not through the FK
+/// cascade, as `vault::reset` does).
+pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM credentials WHERE session_id = ?").bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM sessions WHERE id = ?").bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -290,6 +433,22 @@ pub async fn duplicate(pool: &SqlitePool, id: i64) -> Result<Session> {
         return Err(crate::error::AppError::NotFound);
     }
     let new_id = inserted.last_insert_rowid();
+    // The copy gets its own copy of the password row.
+    let cloned = sqlx::query(
+        "INSERT INTO credentials (kind, label, nonce, ciphertext, session_id) \
+         SELECT kind, label || ' (copy)', nonce, ciphertext, ? FROM credentials WHERE session_id = ?",
+    )
+    .bind(new_id)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    if cloned.rows_affected() == 1 {
+        sqlx::query("UPDATE sessions SET credential_id = ? WHERE id = ?")
+            .bind(cloned.last_insert_rowid())
+            .bind(new_id)
+            .execute(&mut *tx)
+            .await?;
+    }
     sqlx::query(
         "INSERT INTO session_env (session_id, key, value) \
          SELECT ?, key, value FROM session_env WHERE session_id = ?",
@@ -350,6 +509,7 @@ mod tests {
             session_kind: "ssh".into(),
             forward_x11: 0,
             starting_dir: None,
+            password: None,
         }
     }
 

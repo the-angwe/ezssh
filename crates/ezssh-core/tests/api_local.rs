@@ -46,6 +46,7 @@ fn local_session(name: &str) -> SessionInput {
         session_kind: "local".into(),
         forward_x11: 0,
         starting_dir: None,
+        password: None,
     }
 }
 

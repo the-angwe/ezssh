@@ -3,7 +3,7 @@
 
 use egui::{Align, FontId, Layout, Pos2, Rect, RichText, Ui, vec2};
 
-use crate::app::{App, PHASE5_HINT};
+use crate::app::{App, UPDATER_HINT};
 use crate::icons::Icon;
 use crate::style::{alpha, font, size, tokens};
 use crate::tabs::TabStatus;
@@ -40,7 +40,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
         ui.add_enabled_ui(false, |ui| widgets::icon_button(ui, Icon::Sparkles, 20.0, 12.0, false, "Check for updates"))
             .inner
-            .on_disabled_hover_text(format!("Check for updates. {PHASE5_HINT}"));
+            .on_disabled_hover_text(format!("Check for updates. {UPDATER_HINT}"));
         if widgets::icon_button(ui, Icon::Settings, 20.0, 12.0, false, "Settings").clicked() {
             app.dialogs.settings = Some(crate::views::settings::SettingsDialog::default());
         }

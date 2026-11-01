@@ -17,13 +17,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ICONS = [
-  'chevron-down', 'chevron-left', 'chevron-right', 'circle-alert', 'circle-check',
-  'columns-2', 'eye', 'eye-off', 'file-input', 'folder', 'folder-open', 'folder-plus',
-  'folder-tree', 'grid-3x3', 'info', 'key-round', 'layers', 'layout-grid',
-  'lock', 'maximize-2', 'minimize-2', 'minus', 'monitor', 'monitor-dot', 'moon', 'network',
-  'palette', 'panel-left-close', 'panel-left-open', 'plus', 'refresh-cw', 'rows-2',
-  'server', 'settings', 'shield-alert', 'shield-check', 'shield-x', 'sparkles', 'square-stack',
-  'square-terminal', 'sun', 'terminal', 'trash', 'triangle-alert', 'x',
+  'arrow-left-right', 'check', 'chevron-down', 'chevron-left', 'chevron-right', 'circle-alert',
+  'circle-check', 'cloud', 'cloud-off', 'cog', 'columns-2', 'copy', 'cpu',
+  'download', 'earth', 'eye', 'eye-off', 'file-input', 'folder',
+  'folder-open', 'folder-plus', 'folder-tree', 'grid-3x3', 'info', 'key',
+  'key-round', 'key-square', 'layers', 'layout-grid', 'loader-circle', 'lock', 'maximize-2',
+  'minimize-2', 'minus', 'monitor', 'monitor-dot', 'monitor-off', 'moon', 'network',
+  'package-check', 'package-open', 'palette', 'panel-left-close', 'panel-left-open', 'pencil',
+  'play', 'plug-zap', 'plus', 'refresh-ccw', 'refresh-cw', 'rows-2', 'save', 'server', 'settings',
+  'settings-2', 'shield', 'shield-alert', 'shield-check', 'shield-x', 'sliders-vertical',
+  'sparkles', 'square', 'square-stack', 'square-terminal', 'sun', 'terminal', 'trash',
+  'triangle-alert', 'type', 'upload', 'user', 'x',
 ];
 
 const here = dirname(fileURLToPath(import.meta.url));

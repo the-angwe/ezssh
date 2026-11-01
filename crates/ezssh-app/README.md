@@ -1,8 +1,9 @@
 # ezssh-app
 
 The native ezSsh window: an eframe (egui 0.37) shell around
-`ezssh-core` (backend) and `ezssh-term` (terminal widget). Rework phase 4
-of `docs/design/native-rework-plan.md` (results in §12).
+`ezssh-core` (backend) and `ezssh-term` (terminal widget). Rework phases 4
+(shell) and 5 (dialogs) of `docs/design/native-rework-plan.md` (results in
+§12 and §13).
 
 ```sh
 cargo run -p ezssh-app --release                 # the real database (shared with the Tauri build)
@@ -29,28 +30,27 @@ pane width and columns) is kept in `layout.json` next to the database.
 | `style.rs`, `icons.rs`, `ui_font.rs` | `globals.css` tokens, Lucide icons (`tools/gen_icons.mjs`), system UI font |
 | `widgets.rs` | `.btn-*`, `.icon-btn`, dialog shell, `context-menu.tsx`, `resize-handle.tsx`, `status-dot.tsx`, `empty-state.tsx` |
 | `toasts.rs`, `bell.rs` | `lib/toast.ts` + `toast-region.tsx`; the 880 Hz bell |
-| `views/` | unlock, shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
+| `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); `lib/fonts.ts` |
+| `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
+| `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `font_picker`, `xserver`, `backup`, `restore`, `sync`, `import` |
 
 ## Not in this build yet
 
-Phase 5 (dialogs): session editor (New / Edit session), credentials,
-import, backup / restore, sync, change password, recovery code, reset
-vault, update dialog, auth-fix overlay, X server install, font picker.
-Their menu items and buttons are present but disabled, with a hover note.
 Phase 6: the SFTP pane (the toggle opens a placeholder of the right
-width). Phase 5: the forwards pane (same). Phase 7: updater.
-
-Until then, create and edit sessions in the ezTerm app; this build reads
-the same database.
+width). Phase 7: the updater and its dialog (the status-bar button is
+disabled).
 
 ## Tests
 
-`cargo test -p ezssh-app`: unit tests plus `src/ui_tests.rs`, which drives
+`cargo test -p ezssh-app`: unit tests plus `src/ui_tests/` (`mod.rs` and one
+file per dialog group), which drives
 the real `App` on a temp database with egui_kittest (create the vault,
 open a real local shell, lock / unlock with the tab kept, view modes,
 cascade drag / minimise, folder create + drag and drop, settings
 write-through, theme, sidebar resize persistence, host-key dialog,
-multi-line paste, idle lock). Unix only (local PTYs).
+multi-line paste, idle lock; every phase 5 dialog, checking the database
+after saves). Unix only (local PTYs). Native file dialogs cannot run
+headless; the tests hand the dialogs a path directly.
 `EZSSH_UI_SHOTS=<dir> cargo test -p ezssh-app ui_tests` renders each state
 to PNG.
 
@@ -74,3 +74,15 @@ to PNG.
 8. Settings → Security → idle lock 1 minute, wait: the vault locks.
 9. Light theme: window decorations follow (Wayland / Windows).
 10. Bell = sound: `printf '\a'` beeps (pw-play / paplay / aplay on Linux).
+11. New session (SSH, password): connect works; Edit shows "Saved — leave
+    blank to keep"; a wrong password opens the auth-fix overlay over the
+    tab, fixing it reconnects.
+12. A database from the ezTerm app with a password shared by two sessions:
+    after the first start both still connect, and the Credentials manager
+    lists only keys and passphrases.
+13. Backup → Restore → Sync (local folder) → Import: the native open / save
+    / folder dialogs appear (desktop portal on Linux, system dialogs on
+    Windows) and the chosen path is used.
+14. Forwards pane on a connected SSH tab: add a local forward, it shows
+    running; stop; edit restarts it.
+15. Windows: X11 session without VcXsrv → install from the dialog.

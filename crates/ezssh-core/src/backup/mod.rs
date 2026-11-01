@@ -72,6 +72,34 @@ pub struct CredentialEntry {
     /// Plaintext secret, base64. Bytes-only, since private keys have
     /// line endings and whitespace that matter, and passwords may be UTF-8.
     pub secret_b64: String,
+    /// The session a session password belongs to (source id). Absent for
+    /// shared credentials and in bundles written before passwords moved
+    /// onto sessions, where a password row could be shared; restore binds
+    /// a password to every selected session that references it either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
+}
+
+/// Decrypt every credential row, session passwords included, for a backup
+/// or sync bundle.
+pub async fn export_credentials(
+    pool: &sqlx::SqlitePool,
+    vault_state: &crate::vault::VaultState,
+) -> Result<Vec<CredentialEntry>> {
+    let rows = crate::db::credentials::list_for_export(pool).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for meta in rows {
+        let row = crate::db::credentials::get(pool, meta.id).await?;
+        let pt = crate::vault::decrypt_with(vault_state, &row.nonce, &row.ciphertext)?;
+        out.push(CredentialEntry {
+            id: meta.id,
+            kind: meta.kind,
+            label: meta.label,
+            secret_b64: B64.encode(&pt),
+            session_id: meta.session_id,
+        });
+    }
+    Ok(out)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -173,6 +201,7 @@ mod tests {
                 kind: "password".into(),
                 label: "prod-db".into(),
                 secret_b64: B64.encode(b"sup3rsecret"),
+                session_id: None,
             }],
             known_hosts: Vec::new(),
             settings:    Vec::new(),

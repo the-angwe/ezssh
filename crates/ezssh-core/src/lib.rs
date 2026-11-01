@@ -15,6 +15,7 @@ pub mod events;
 pub mod import;
 pub mod local;
 pub mod log_redacted;
+pub mod secret;
 pub mod sftp;
 pub mod ssh;
 pub mod state;
@@ -24,5 +25,6 @@ pub mod wslfs;
 pub mod xserver;
 
 pub use error::{AppError, Result};
+pub use secret::Secret;
 pub use events::{CloseReason, Event, EventSink, Events, Output, OutputSink};
 pub use state::AppState;
