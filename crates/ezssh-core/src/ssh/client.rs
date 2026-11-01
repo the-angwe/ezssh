@@ -322,7 +322,7 @@ async fn connect_impl(
             )
             .await?;
         }
-        KeyCheck::Untrusted => return Err(AppError::HostKeyUntrusted),
+        KeyCheck::Untrusted => return Err(AppError::HostKeyUntrusted { actual: fp }),
         KeyCheck::Mismatch {
             expected_sha256,
             actual_sha256,

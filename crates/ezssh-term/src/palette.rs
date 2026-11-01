@@ -7,7 +7,8 @@
 //! it is its own setting. Ids keep their `ezterm-` prefix because they are
 //! stored values; only the labels say ezSsh.
 
-use alacritty_terminal::vte::ansi::{NamedColor, Rgb};
+use alacritty_terminal::vte::ansi::NamedColor;
+pub use alacritty_terminal::vte::ansi::Rgb;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Palette {

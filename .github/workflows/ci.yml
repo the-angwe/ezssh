@@ -48,7 +48,8 @@ jobs:
           npm --prefix ui run build
 
       # Same set as release.yml: webkit2gtk 4.1 plus the desktop libs the
-      # tauri / wry / gtk crates link against.
+      # tauri / wry / gtk crates link against, and the xkb / xcb headers
+      # eframe (crates/ezssh-term, crates/ezssh-app) builds against.
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
@@ -58,6 +59,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             build-essential \
+            libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             curl wget file xz-utils patchelf
 
       - name: Install Rust toolchain
@@ -73,17 +75,18 @@ jobs:
       # Warnings are errors here, matching the repo rule that cargo check
       # must be clean before every commit.
       - name: cargo check
-        run: cargo check -p ezterm -p ezssh-core --locked --all-targets
+        run: cargo check -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --locked --all-targets
         env:
           RUSTFLAGS: -D warnings
 
       # The backend lives in crates/ezssh-core; src-tauri is its Tauri
-      # adapter. Both are clippy-clean, so lints are blocking.
+      # adapter; ezssh-term and ezssh-app are the native rework. All are
+      # clippy-clean, so lints are blocking.
       - name: cargo clippy
-        run: cargo clippy -p ezterm -p ezssh-core --locked --all-targets -- -D warnings
+        run: cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --locked --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test -p ezterm -p ezssh-core --locked
+        run: cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --locked
 
   audit:
     name: cargo audit

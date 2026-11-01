@@ -51,8 +51,10 @@ pub enum AppError {
     #[error("host key mismatch (expected {expected}, got {actual})")]
     HostKeyMismatch { expected: String, actual: String },
 
+    /// No stored key for this host yet. `actual` is the SHA-256 fingerprint
+    /// the server presented, for the user to verify before trusting it.
     #[error("host key not yet trusted")]
-    HostKeyUntrusted,
+    HostKeyUntrusted { actual: String },
 
     #[error("channel closed")]
     // emitted when explicit channel-close logic lands; Plan 3 or later
@@ -82,9 +84,15 @@ impl Serialize for AppError {
         let mut obj = serde_json::Map::new();
         obj.insert("code".into(), serde_json::Value::String(code_for(self).into()));
         obj.insert("message".into(), serde_json::Value::String(self.to_string()));
-        if let AppError::HostKeyMismatch { expected, actual } = self {
-            obj.insert("expected".into(), serde_json::Value::String(expected.clone()));
-            obj.insert("actual".into(), serde_json::Value::String(actual.clone()));
+        match self {
+            AppError::HostKeyMismatch { expected, actual } => {
+                obj.insert("expected".into(), serde_json::Value::String(expected.clone()));
+                obj.insert("actual".into(), serde_json::Value::String(actual.clone()));
+            }
+            AppError::HostKeyUntrusted { actual } => {
+                obj.insert("actual".into(), serde_json::Value::String(actual.clone()));
+            }
+            _ => {}
         }
         serde_json::Value::Object(obj).serialize(s)
     }
@@ -106,7 +114,7 @@ fn code_for(e: &AppError) -> &'static str {
         AppError::PortConflict(_) => "port_conflict",
         AppError::AuthFailed => "auth_failed",
         AppError::HostKeyMismatch { .. } => "host_key_mismatch",
-        AppError::HostKeyUntrusted => "host_key_untrusted",
+        AppError::HostKeyUntrusted { .. } => "host_key_untrusted",
         AppError::ChannelClosed => "channel_closed",
         AppError::Sftp(_) => "sftp",
         AppError::PathTraversal => "path_traversal",
@@ -125,5 +133,21 @@ impl From<russh::Error> for AppError {
 impl From<russh_sftp::client::error::Error> for AppError {
     fn from(e: russh_sftp::client::error::Error) -> Self {
         AppError::Sftp(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_key_errors_carry_fingerprints_to_the_ui() {
+        let v = serde_json::to_value(AppError::HostKeyUntrusted { actual: "abc".into() }).unwrap();
+        assert_eq!(v, serde_json::json!({ "code": "host_key_untrusted", "message": "host key not yet trusted", "actual": "abc" }));
+        let v = serde_json::to_value(AppError::HostKeyMismatch { expected: "old".into(), actual: "new".into() }).unwrap();
+        assert_eq!(v["code"], "host_key_mismatch");
+        assert_eq!((v["expected"].as_str(), v["actual"].as_str()), (Some("old"), Some("new")));
+        let v = serde_json::to_value(AppError::AuthFailed).unwrap();
+        assert_eq!(v, serde_json::json!({ "code": "auth_failed", "message": "authentication failed" }));
     }
 }

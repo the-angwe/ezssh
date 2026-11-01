@@ -273,11 +273,12 @@ pub struct TerminalView<'a> {
     style: &'a TermStyle,
     focus_on_show: bool,
     overlay: Option<&'a Overlay>,
+    input: bool,
 }
 
 impl<'a> TerminalView<'a> {
     pub fn new(term: &'a mut Terminal, style: &'a TermStyle) -> Self {
-        Self { term, style, focus_on_show: false, overlay: None }
+        Self { term, style, focus_on_show: false, overlay: None, input: true }
     }
 
     /// Take keyboard focus this frame (new tab, tab switch).
@@ -292,15 +293,24 @@ impl<'a> TerminalView<'a> {
         self
     }
 
+    /// Accept keyboard and mouse input (default). The app turns it off
+    /// while one of its dialogs is open: egui's keyboard focus is not
+    /// modal-aware, so a focused terminal would otherwise keep reading
+    /// keys typed into the dialog.
+    pub fn input(mut self, input: bool) -> Self {
+        self.input = input;
+        self
+    }
+
     pub fn show(self, ui: &mut Ui) -> TermOutput {
-        let TerminalView { term, style, focus_on_show, overlay } = self;
+        let TerminalView { term, style, focus_on_show, overlay, input } = self;
         let mut actions = Vec::new();
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
         let id = response.id;
         let ctx = ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        let blocked = overlay.is_some();
+        let blocked = overlay.is_some() || !input;
 
         let popup_open = term.view.find.is_some() || term.view.menu.is_some();
         let wants_focus = focus_on_show || std::mem::take(&mut term.view.refocus);

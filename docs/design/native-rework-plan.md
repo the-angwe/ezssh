@@ -2,7 +2,8 @@
 
 Status: phase 1 (spike) built 2026-10-30, results in §9; go decision
 confirmed by hand (tmux, Claude Code). Phase 2 (core extraction) built
-2026-10-30, §10. Phase 3 (terminal widget parity) built 2026-10-30, §11. Proposal written
+2026-10-30, §10. Phase 3 (terminal widget parity) built 2026-10-30, §11.
+Phase 4 (app shell, `crates/ezssh-app`) built 2026-11-01, §12. Proposal written
 2026-10-29 against ezTerm v1.14.0 (`feat/176-terminal-palettes` on top of
 v1.13.1).
 
@@ -247,7 +248,7 @@ until phase 7 because phase 1 makes the core a library both shells use.
 | 1 | Spike | `ezssh-term` prototype over a local PTY and one SSH session in a bare eframe window (`ezssh-spike`). Pass the gate in 4.1 plus: WARP fallback on a Windows VM over RDP, IME input, 60 fps on `cat` of 8 MB, binary size. Go / no-go. **Built 2026-10-30, §9** | 1 week |
 | 2 | Core extraction | `crates/ezssh-core` without Tauri types; `src-tauri` becomes a thin adapter; all Rust tests green; no behaviour change. **Built 2026-10-30, §10** | 1 week |
 | 3 | Terminal widget | full 4.1 parity, Rust tests for osc52 policy, palettes, paste normalisation, key encoding table. **Built 2026-10-30, §11** | 1–2 weeks |
-| 4 | Shell | unlock, main shell, sidebar + DnD + menus, tab strip, six view modes incl. cascade, status bar, toasts, settings, theme, layout persistence | 2–3 weeks |
+| 4 | Shell | unlock, main shell, sidebar + DnD + menus, tab strip, six view modes incl. cascade, status bar, toasts, settings, theme, layout persistence. **Built 2026-11-01, §12** | 2–3 weeks |
 | 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, update, find, font picker | 2 weeks |
 | 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress | 1 week |
 | 7 | Packaging and updater | cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs | 1 week |
@@ -622,3 +623,118 @@ path.
 - Find match points go stale while output scrolls; they are recounted on
   the next keystroke in the find bar.
 
+
+## 12. Phase 4 results (2026-11-01)
+
+Branch `native/phase-4-shell` (from `native/phase-2-core` after the user
+committed phases 2 and 3). New crate `crates/ezssh-app`, binary `ezssh`;
+its README has the file map, the run commands and a manual checklist.
+Also touched: `ezssh-term` (`TerminalView::input`, `palette::Rgb`
+re-export), `ezssh-core` (`HostKeyUntrusted` carries the fingerprint),
+CI and the build scripts.
+
+### 12.1 What the shell does (§4.2 rows)
+
+| §4.2 row | As built |
+|---|---|
+| vault gate | `Screen::{Unlock, Main}`; the database opens and the vault state and theme are read before the first frame (≈0.25 s to the unlock screen, debug build), so there is no splash. Create (with the strength meter) and unlock work; the recovery / forgot links are shown disabled (phase 5). |
+| main shell | sidebar 180–520 px with its own resize strip (drag, double-click reset, ←/→ / Home / End when focused, keeps 320 px + the active tab's panes free), Ctrl+B and the 24 px rail; idle auto-lock (`security.idleLockMinutes`, checked in `App::logic`); quit confirmation through `ViewportCommand::CancelClose`; WSL and local-shell autodetect with the same toasts on every unlock. |
+| tab strip | natural width 180–260 px, proportional shrink to 180 then scroll (wheel, chevrons, drag auto-scroll, active tab kept in view); drag reorder with the insertion line and ±24 px release band; middle-click close; colour dot, status dot (pulsing while connecting, alert icon on error), file / forwards pane toggles, tooltip with summary, status and error. |
+| six view modes | one function (`views/mdi.rs`): tabs, tile H / V with 1 px `border-strong` gaps, tile grid (rows × cols dialog, 160 px minimum rows, extra rows and scrolling past that), auto (squarest grid), cascade (24 px chrome, drag by title, eight resize handles, double-click maximise, minimise strip, press raises the topmost frame). Hidden tabs are not painted; their terminals keep running. |
+| status bar | dot + summary in the UI mono font, SFTP cwd, X server pill (polled every 5 s), version, theme / settings / lock; updates button disabled (phase 5 / 7). |
+| toasts | own implementation (four kinds, 4 / 6 / 8 / 4 s, bottom-right, dismiss), expiry in `App::logic`. |
+| theme | `style.rs` tokens from `globals.css`, applied to egui's visuals; views read the tokens directly so rows, badges and tabs match their Tailwind originals. The window decorations follow through `ctx.set_theme`. |
+| settings | `settings.rs` is `settings.ts` (21 keys, same bounds, parse / normalise, write-through with rollback); the dialog has the five sections, number fields commit on Enter / blur, palette combo with the live swatch. Palette and OSC 52 apply to open tabs at once. |
+| tabs store | `tabs.rs` with the same actions and rules (open collapses the sidebar, close picks the last tab, `request_close` confirms live tabs, reorder contract, staircase cascade, maximise / restore). |
+| layout persistence | `layout.json` next to the database: view mode, tile grid, sidebar width, SFTP pane width and columns. Minimized tabs are not kept (tabs do not survive a restart). |
+| sidebar (§4.4) | tree with folders first, count badges, kind tiles in the session colour, selection rail, trash on hover; drag and drop with the webview's slot rules (sessions 50/50, folder drags 25/50/25, a session over a folder is always "into", whitespace = root, self-drops refused) and its exact move / reorder calls (`plan_drop`, unit-tested); auto-scroll; Escape cancels. Folder, session and root context menus with every item; New folder, Rename, Delete, Duplicate, Move to folder…, Sort A→Z / Z→A and Settings… work, the phase 5 items are disabled with a note. |
+| connections (§3) | `conn.rs`: the core feeds the terminal directly; one generation number per connect attempt replaces arm / detach; input and resizes queue per attempt and are sent in order once the connection id is known (query answers during the handshake are kept); the terminal outlives connections, so Reconnect keeps the scrollback as before. Connect waits for the first layout (≤300 ms) so the remote starts at the right size. Host-key prompt (untrusted / mismatch) pulled forward from phase 5. Auth and X server errors show the Failed card until phase 5 adds their dialogs. |
+
+### 12.2 Findings and deviations
+
+1. **The untrusted-host prompt never showed a fingerprint** in the webview
+   either: `AppError::HostKeyUntrusted` carried none and the UI read an
+   absent `actual`. The variant is now `HostKeyUntrusted { actual }`,
+   serialized as `actual` like the mismatch case, which also fixes the
+   Tauri dialog. Test in `error.rs`.
+2. **Lock keeps the tabs.** The webview unmounted the workspace on lock,
+   which dropped every connection and reconnected after unlock, although
+   the Settings hint says "Open connections stay up". Native keeps tabs
+   and connections behind the unlock screen.
+3. Local shell summaries read `@/bin/sh:0` (every kind was formatted as
+   SSH); now SSH `user@host[:port]`, WSL `user@distro`, local the
+   program. `appearance.tabLabel = user@host` leaves local shells on
+   their name, as its hint says.
+4. **egui's keyboard focus is not modal-aware**: a focused terminal kept
+   reading keys typed into a dialog. `TerminalView::input(false)` (new)
+   blocks input the way an overlay does; the app passes it while any
+   dialog is open.
+5. egui 0.37 renames met here: `Id::new` → `Id::unique` (global ids) /
+   `IdSalt`, `Panel::show_inside` → `show`, `Ui::id` → `scope_id`,
+   `TextEdit::horizontal_align` → `align`. `Panel`s are resizable and draw
+   a separator by default; both are off where the app paints its own
+   border and resize strip (the default handle swallowed the strip's
+   drag; the test caught it). An `Area` offers the whole screen as
+   available width, so menus size themselves from their widest label.
+6. Icons: the 45 Lucide icons the shell uses, written as SVG from the
+   webview's own `lucide-react` 1.57.0 by `tools/gen_icons.mjs` (white
+   stroke, tinted per use, rendered by egui_extras / resvg). `Trash2` is
+   an alias of `trash` in that version. egui-phosphor still targets egui
+   0.36; egui-lucide was too young to depend on.
+7. UI font: the system UI face through fontique (Segoe UI Variable on
+   Windows, fontconfig's system-ui / sans-serif elsewhere; Noto Sans
+   here) plus its semibold face when it has a real one. `font-mono` text
+   uses the terminal's default font.
+8. Bell sound without an audio library: Windows `Beep(880, 80)`; a
+   generated 880 Hz WAV through pw-play / paplay / aplay (Linux) or afplay
+   (macOS); rate-limited to one per 100 ms.
+9. Ctrl+B / Ctrl+Shift+W act only while no terminal has focus. That is
+   what the webview did in practice (xterm.js swallowed both) and keeps
+   ^B for tmux.
+10. Accessibility: every hand-painted control (rows, tabs, toggles, icon
+    buttons, menu items, the resize strip) reports a role and label to
+    AccessKit. The terminal grid itself still has no text node (§11.4).
+11. Headless testing with egui_kittest: its 0.25 s default step makes two
+    clicks too slow for a double-click (tests use 60 Hz steps); its
+    `MissingGlyphPolicy::Panic` caught "→" missing from the UI font,
+    covered in the real window by eframe's system font fallback, which
+    the tests now install too.
+
+### 12.3 Verification
+
+- `cargo test -p ezssh-app`: 45 unit tests (settings incl. the vitest
+  cases, layout, tabs store and cascade geometry, drop planning, tab
+  widths and drop targets, connection plumbing, toasts, password
+  strength, icons, bell) and 6 end-to-end tests in `src/ui_tests.rs` on
+  the real `App` with a temp database: create the vault → seeded Local
+  Shells → open a local shell and run a command through the PTY → lock
+  (connection kept, wrong password refused) → unlock; tile H / V / grid /
+  auto / cascade, minimise and restore, title-bar drag, Ctrl+Shift+W;
+  New folder, drag a session into it, root menu items, close
+  confirmation; settings write-through to SQLite and the theme toggle;
+  sidebar resize saved to `layout.json`; host-key dialog Cancel,
+  Reconnect, multi-line paste confirmation, idle lock.
+  `EZSSH_UI_SHOTS=<dir>` renders 19 screens; all were looked at.
+- Whole workspace: `cargo test -p ezterm -p ezssh-core -p ezssh-term
+  -p ezssh-app` green, `cargo clippy --workspace --all-targets` clean.
+  CI and `build.sh` / `build.cmd` now check, lint and test `ezssh-term`
+  and `ezssh-app` too (with the xkb / xcb headers eframe needs).
+- `ezssh --db <temp>` opens a real window (wgpu, Intel Arc) to the
+  unlock screen without errors.
+- Release binary 43 MB stripped, no LTO (the spike was 30 MB; the rest is
+  the backend: sqlx, russh, rust-s3, reqwest, plus resvg for the icons).
+  LTO and size work belong to phase 7 (the spike went 30 → 22.9 MB with
+  fat LTO).
+- Not verified here: SSH sessions (no sshd), the window close prompt
+  (needs a real close request), Windows. The README checklist covers
+  them.
+
+### 12.4 Left for later phases
+
+- Phase 5: session editor, credentials, import, backup / restore, sync,
+  password / recovery / reset dialogs, update dialog, auth-fix overlay,
+  X server install, font picker, forwards pane. Their entry points exist
+  and are disabled.
+- Phase 6: the SFTP pane (placeholder of the right width, resizable
+  width setting already in `layout.json`).
+- Dialog entry animations (`dialog-in`) are not ported.
