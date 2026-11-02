@@ -210,6 +210,30 @@ fn slot(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect, kind: Slot) {
     }
 }
 
+/// Right-click on a tab header (tab strip, cascade title bar): activate
+/// the tab and open its terminal's context menu at `pos`, under the same
+/// rule as a right-click inside the terminal: not while a dialog, the
+/// auth-fix card or a connection overlay covers it.
+pub(crate) fn open_tab_menu(app: &mut App, id: TabId, pos: Pos2) {
+    app.activate(id);
+    let modal = app.any_modal_open();
+    let Some(tab) = app.tabs.get(id) else {
+        tracing::warn!(tab = id, "mdi: tab menu for a closed tab");
+        return;
+    };
+    let covered = overlay_for(tab).is_some();
+    let Some(slot) = app.terms.get_mut(&id) else {
+        tracing::error!(tab = id, "mdi: tab without a terminal, no menu");
+        return;
+    };
+    if modal || covered || slot.auth_fix.is_some() || slot.host_key.is_some() {
+        tracing::debug!(tab = id, modal, covered, auth_fix = slot.auth_fix.is_some(), host_key = slot.host_key.is_some(), "mdi: tab menu blocked");
+        return;
+    }
+    tracing::debug!(tab = id, ?pos, "mdi: tab menu from the header");
+    slot.term.open_menu(pos);
+}
+
 fn overlay_for(tab: &crate::tabs::Tab) -> Option<Overlay> {
     let summary = tab.summary();
     match tab.status {
@@ -307,6 +331,10 @@ fn chrome(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect) {
     }
     if resp.double_clicked() {
         app.tabs.toggle_maximize(id, area.width(), frames_h);
+    }
+    if resp.secondary_clicked() {
+        let pos = resp.interact_pointer_pos().unwrap_or(bar.left_bottom());
+        open_tab_menu(app, id, pos);
     }
     if resp.drag_started() && !maximized {
         start_drag(app, id, None, area.width(), frames_h);

@@ -174,6 +174,7 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     let mut spans = Vec::with_capacity(widths.len());
     let mut activate = None;
     let mut close = None;
+    let mut menu = None;
     let mut toggle_sftp = None;
     let mut toggle_fwd = None;
     let dragging = st.drag;
@@ -246,6 +247,9 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         if resp.middle_clicked() {
             close = Some(tab.id);
         }
+        if resp.secondary_clicked() {
+            menu = Some((tab.id, resp.interact_pointer_pos().unwrap_or(r.left_bottom())));
+        }
         if resp.drag_started() {
             st.drag = Some(tab.id);
         }
@@ -311,6 +315,9 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     }
     if let Some(id) = activate {
         app.activate(id);
+    }
+    if let Some((id, pos)) = menu {
+        crate::views::mdi::open_tab_menu(app, id, pos);
     }
     if let Some(id) = close {
         app.request_close_tab(id);

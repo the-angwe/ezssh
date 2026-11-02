@@ -452,3 +452,53 @@ fn idle_lock_host_key_and_paste_confirm() {
     assert!(matches!(h.state().screen, Screen::Unlock(_)), "locked after the idle limit");
     assert!(h.state().tabs.get(tab).is_some_and(|t| t.status == TabStatus::Connected), "tab kept");
 }
+
+/// Right-click at `pos` (press and release).
+fn right_click(h: &mut Harness<'static, App>, pos: Pos2) {
+    h.event(Event::PointerMoved(pos));
+    h.event(Event::PointerButton { pos, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
+    h.step();
+    h.event(Event::PointerButton { pos, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(3);
+}
+
+#[test]
+fn tab_header_right_click_opens_terminal_menu() {
+    let mut env = start();
+    unlock_fresh(&mut env);
+    let h = &mut env.h;
+    let tabs: Vec<u64> = (0..2)
+        .map(|_| {
+            h.state_mut().tabs.sidebar_collapsed = false;
+            h.run_steps(2);
+            open_local(h)
+        })
+        .collect();
+    assert_eq!(h.state().tabs.active, Some(tabs[1]));
+    assert!(h.query_by_label("Select All").is_none(), "no menu yet");
+
+    // Tab strip: the first (inactive) tab becomes active and shows its menu.
+    let first = h.query_all_by_role(Role::Tab).map(|n| n.rect()).min_by(|a, b| a.left().total_cmp(&b.left())).expect("a tab in the strip");
+    right_click(h, first.center());
+    assert_eq!(h.state().tabs.active, Some(tabs[0]), "right-click activates the tab");
+    assert!(h.query_by_label("Select All").is_some(), "terminal menu open");
+    shot(h, "tab-header-menu");
+    h.get_by_label("Select All").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Select All").is_none(), "menu closed after a pick");
+    assert!(h.state().terms[&tabs[0]].term.has_selection(), "the pick acted on that tab's terminal");
+    assert!(!h.state().terms[&tabs[1]].term.has_selection());
+
+    // Cascade title bar.
+    h.get_by_label("Cascade").click();
+    h.run_steps(3);
+    let top = *h.state().tabs.z_order().last().unwrap();
+    let maxes: Vec<_> = h.query_all_by_label("Maximize").map(|n| n.rect()).collect();
+    let bar = maxes.iter().max_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
+    right_click(h, Pos2::new(bar.left() - 200.0, bar.center().y));
+    assert_eq!(h.state().tabs.active, Some(top));
+    assert_eq!(h.query_all_by_label("Select All").count(), 1, "one menu: the frame under the title bar does not take the click");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.query_by_label("Select All").is_none(), "Escape closes");
+}

@@ -379,7 +379,7 @@ impl<'a> TerminalView<'a> {
         let layer = ui.layer_id();
         let hovered = !blocked && (response.hovered() || response.contains_pointer());
         if !blocked {
-            let env = PointerEnv { ctx: &ctx, rect, layer, hovered };
+            let env = PointerEnv { ctx: &ctx, rect, layer, hovered, topmost: response.hovered() };
             handle_pointer(term, style, &events, &env, &mut actions);
         }
         if focused {
@@ -686,6 +686,10 @@ struct PointerEnv<'a> {
     /// The widget's layer: presses over a popup above it are not ours.
     layer: LayerId,
     hovered: bool,
+    /// egui's hit test picked this widget: false when another widget on
+    /// the same layer covers the pointer (a cascade frame stacked over
+    /// this terminal). `contains_pointer` ignores such covers.
+    topmost: bool,
 }
 
 impl PointerEnv<'_> {
@@ -705,7 +709,8 @@ fn handle_pointer(
     for ev in events {
         match ev {
             Event::PointerButton { pos, button, pressed, modifiers } => {
-                if *pressed && (!rect.contains(*pos) || !env.on_top(*pos)) {
+                if *pressed && (!rect.contains(*pos) || !env.on_top(*pos) || !env.topmost) {
+                    tracing::trace!(?pos, ?button, topmost = env.topmost, "term: press not for this terminal");
                     continue;
                 }
                 if !*pressed && !term.view.selecting && term.view.reported_button.is_none() && term.view.press_link.is_none() {
