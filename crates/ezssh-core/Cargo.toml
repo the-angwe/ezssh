@@ -44,9 +44,18 @@ rust-s3 = { version = "0.38", default-features = false, features = ["tokio-rustl
 # matches the rest of our TLS stack (no OpenSSL dep).
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
+# In-app updater (`updater`): minisign signatures in the format
+# tauri-plugin-updater used, version ordering, the macOS .app.tar.gz.
+minisign-verify = "0.3"
+semver = "1"
+flate2 = "1"
+tar = "0.4"
+
 [dev-dependencies]
 tempfile = "3"
 ezssh-testsrv = { path = "../ezssh-testsrv" }
+# Signs test installers and builds test manifests the way the release job does.
+ezssh-release = { path = "../ezssh-release" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full", "test-util"] }
 

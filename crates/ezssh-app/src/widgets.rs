@@ -739,7 +739,8 @@ pub fn error_strip(ui: &mut Ui, text: &str) {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 Icon::AlertCircle.show(ui, 13.0, t.danger);
-                ui.label(RichText::new(text).font(font(size::XS)).color(t.danger));
+                // Wrap long messages (a label in a row does not by default).
+                ui.add(egui::Label::new(RichText::new(text).font(font(size::XS)).color(t.danger)).wrap());
             });
         });
 }

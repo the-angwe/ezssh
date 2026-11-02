@@ -3,7 +3,7 @@
 
 use egui::{Align, FontId, Layout, Pos2, Rect, RichText, Ui, vec2};
 
-use crate::app::{App, UPDATER_HINT};
+use crate::app::App;
 use crate::icons::Icon;
 use crate::style::{alpha, font, size, tokens};
 use crate::tabs::TabStatus;
@@ -38,9 +38,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if widgets::icon_button(ui, Icon::Lock, 20.0, 12.0, false, "Lock vault").clicked() {
             app.lock();
         }
-        ui.add_enabled_ui(false, |ui| widgets::icon_button(ui, Icon::Sparkles, 20.0, 12.0, false, "Check for updates"))
-            .inner
-            .on_disabled_hover_text(format!("Check for updates. {UPDATER_HINT}"));
+        updates_button(app, ui);
         if widgets::icon_button(ui, Icon::Settings, 20.0, 12.0, false, "Settings").clicked() {
             app.dialogs.settings = Some(crate::views::settings::SettingsDialog::default());
         }
@@ -67,6 +65,24 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let text_rect = Rect::from_min_max(Pos2::new(text_left, r.top()), Pos2::new(right_edge.max(text_left), r.bottom()));
     let shown = widgets::paint_text(ui, text_rect, &summary, mono, t.muted);
     ui.interact(shown, ui.scope_id().with("summary"), egui::Sense::hover()).on_hover_text(&summary);
+}
+
+/// Sparkles: opens the update dialog; a dot while a newer release is known.
+fn updates_button(app: &mut App, ui: &mut Ui) {
+    let t = tokens(ui.ctx());
+    let enabled = app.updater.cfg.is_some();
+    let tip = match &app.updater.available {
+        Some(u) => format!("Update available: v{}", u.version),
+        None => "Check for updates".to_string(),
+    };
+    let resp = ui.add_enabled_ui(enabled, |ui| widgets::icon_button(ui, Icon::Sparkles, 20.0, 12.0, false, &tip)).inner;
+    let resp = resp.on_disabled_hover_text("Update checks are off in this run");
+    if app.updater.available.is_some() {
+        ui.painter().circle_filled(resp.rect.right_top() + vec2(-4.0, 4.0), 3.0, t.accent);
+    }
+    if resp.clicked() {
+        crate::views::update::open(app);
+    }
 }
 
 fn sep(ui: &mut Ui) {

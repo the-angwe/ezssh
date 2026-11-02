@@ -1,0 +1,23 @@
+[package]
+name = "ezssh-release"
+description = "ezSsh release tool: update signing key, artifact signatures, latest.json"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "ezssh-release"
+path = "src/main.rs"
+
+# Kept light on purpose: the release job builds only this crate.
+[dependencies]
+minisign = "0.10"
+base64 = "0.23"
+serde_json = "1"
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"
+minisign-verify = "0.3"

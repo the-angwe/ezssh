@@ -5,7 +5,8 @@ confirmed by hand (tmux, Claude Code). Phase 2 (core extraction) built
 2026-10-30, §10. Phase 3 (terminal widget parity) built 2026-10-30, §11.
 Phase 4 (app shell, `crates/ezssh-app`) built 2026-11-01, §12. Phase 5
 (dialogs; passwords moved onto sessions) built 2026-11-01, §13. Phase 6
-(file pane) built 2026-11-02, §14. Proposal written
+(file pane) built 2026-11-02, §14. Phase 7 (packaging, updater, update
+dialog) built 2026-11-02, §15. Proposal written
 2026-10-29 against ezTerm v1.14.0 (`feat/176-terminal-palettes` on top of
 v1.13.1).
 
@@ -253,7 +254,7 @@ until phase 7 because phase 1 makes the core a library both shells use.
 | 4 | Shell | unlock, main shell, sidebar + DnD + menus, tab strip, six view modes incl. cascade, status bar, toasts, settings, theme, layout persistence. **Built 2026-11-01, §12** | 2–3 weeks |
 | 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, find, font picker; passwords bound to sessions. **Built 2026-11-01, §13** (update dialog moved to phase 7) | 2 weeks |
 | 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress. **Built 2026-11-02, §14** | 1 week |
-| 7 | Packaging and updater | update dialog (from phase 5), cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs | 1 week |
+| 7 | Packaging and updater | update dialog (from phase 5), cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs **Built 2026-11-02, §15** | 1 week |
 | 8 | Cut-over | delete `ui/`, `src-tauri/`, Tauri deps; README, CLAUDE.md, CONTRIBUTING, site docs; release v2.0.0 through the v1 update channel | days |
 
 Total: roughly 10–12 working weeks for one person, less with the current
@@ -1033,3 +1034,139 @@ cancel of a queued batch member while the next one still runs);
 items, a partial failure, cancel of a download, an upload, a folder job
 and the waiting queue; run four times for timing). 4 more screens.
 
+
+## 15. Phase 7 results (2026-11-02)
+
+Branch `native/phase-6-sftp` (phase 6 committed as "rework phase 6" and
+follow-ups). The native app updates itself, is packaged by cargo-packager
+and has its own release workflow; the update dialog of phase 5 is in.
+
+### 15.1 Updater (`ezssh-core::updater`, §4.5)
+
+`cargo-packager-updater` 0.2 was read and not used: it has no deb
+support, requires a `format` field in every manifest entry (not in the
+v1 `latest.json`), ignores the signed version, and panics when the
+Windows installer cannot be started. Own code instead (~700 lines with
+tests), same manifest and signature format as `tauri-plugin-updater`:
+
+| Step | As built |
+|---|---|
+| Check | stable: `github.com/<repo>/releases/latest/download/latest.json`; pre-release: the newest published release of either kind that has a `latest.json` asset (the Tauri code took the newest non-draft release even when it had none). 404 → "no release with an update manifest is published yet". Versions compared as semver. Static (`platforms`) and dynamic (`url` + `signature`) manifests. `EZSSH_UPDATE_MANIFEST=URL` reads another manifest (manual tests); the signature check still applies. |
+| Which installer | `updater::detect()` at start-up: `portable.txt` next to the binary → portable; Linux `$APPIMAGE` → AppImage, `/usr/…` + `/var/lib/dpkg/info/ezssh.list` → deb; macOS `*.app/Contents/MacOS` → app; Windows `uninstall.exe` next to the exe → NSIS, a `target` folder → unpackaged, else MSI. Keys tried: `{os}-{arch}-{kind}`, then the bare `{os}-{arch}` only for the platform's default kind (a deb never falls back to the AppImage behind the bare key, the failure behind upstream issue #36). Portable and unpackaged copies are told about the release and get "Open releases page". |
+| Download | streamed to a fresh `ezssh-update-<pid>-<ms>` temp folder while minisign's stream verifier hashes it; 60 s idle timeout, 1 GiB cap, short bodies fail; a file that fails is deleted. Before any byte is fetched: the signature must be by the compiled-in key and its trusted comment must name the announced version (`version:` field; the Tauri plugin made that optional). `Event::UpdateProgress` at most every 100 ms. |
+| Install | NSIS / MSI: a hidden PowerShell helper (`-EncodedCommand`) waits for the app's pid to exit, runs `setup.exe /P` or `msiexec /i … /passive /norestart`, logs the exit code to `%TEMP%\ezssh-update.log`, deletes the download folder (only a folder named `ezssh-update-*`) and starts the app with its arguments; the app exits. AppImage: copy next to the old file, same mode (+x), fsync, rename over it (atomic; the Tauri plugin wrote in place). deb: `pkexec dpkg -i`, with the `sudo dpkg -i` line in the error when the prompt is cancelled. `.app`: unpack next to the bundle, swap by renames, put the old one back on failure. |
+| Restart | "Installed v… Restarting" for 800 ms, then the new program is spawned with the same arguments and the window closes without the quit prompt. |
+| Key | `crates/ezssh-core/updater.pub`, compiled in, empty for now: such a build says it has no update key. The fork has no signing key yet and upstream's (in `tauri.conf.json`) is not ours; `docs/UPDATER_SIGNING.md` has the one-time setup. Repo defaults to `the-angwe/ezssh`, `EZSSH_UPDATE_REPO` at build time overrides. |
+
+### 15.2 Release tool (`crates/ezssh-release`)
+
+`keygen` (encrypted minisign key, prints the `updater.pub` line), `sign`
+(one base64 `.sig` per file, trusted comment
+`timestamp:…\tfile:…\tversion:…`), `verify` (against a public key file
+and version; the release job uses it to catch a secret that does not
+match `updater.pub`), `manifest` (`latest.json` from cargo-packager's file
+names, refuses two files for one key). Depends on minisign + serde_json
+only, so the release job builds it in seconds. Core and app tests sign
+their fixtures with it, so writer and reader are tested against each
+other.
+
+### 15.3 Packaging
+
+`[package.metadata.packager]` in `crates/ezssh-app/Cargo.toml` (product
+ezSsh, identifier `xyz.angwe.ezssh`, data paths unchanged) and
+`crates/ezssh-app/packaging/` (icons copied from `src-tauri/icons`, NSIS
+strings, WiX fragment, `portable.txt`, README). `before-packaging-command`
+builds profile `dist` (fat LTO, one codegen unit, stripped). `panic`
+stays `unwind` (§9.2 left that open): with `abort` a panicking reader
+thread would take every tab down.
+
+- NSIS: per-user install (`%LOCALAPPDATA%\ezSsh`, no UAC). cargo-packager's
+  NSIS template has no uninstall hook; its "delete app data" checkbox is
+  pointed at the per-user VcXsrv folder and relabelled, so uninstall
+  offers to remove VcXsrv and says that sessions and the vault stay (the
+  Tauri hook removed it unasked).
+- MSI: the Tauri WiX fragment, renamed, linked through
+  `custom-action-refs`.
+- VcXsrv: staged at `target/vcxsrv` on Windows, shipped as a resource
+  next to `ezssh.exe` (`vcxsrv/`, which `xserver::detect_install_path`
+  already checks); a missing folder adds nothing on other platforms.
+- deb: dependencies listed by hand (the binary links libc only; winit,
+  xkbcommon, fontconfig and the GPU API are loaded at run time). No
+  webkit2gtk.
+- The window got an icon (`ViewportBuilder::with_icon`); the Windows exe
+  has no embedded icon resource yet (shortcuts use the installer's icon).
+
+### 15.4 Workflows
+
+`release.yml` is now the native build: tag must equal the `Cargo.toml`
+version (a mismatch would make installed copies offer the same update
+forever; the Tauri workflow rewrote the version instead), cargo-packager
+per platform (Windows nsis+wix, Linux x64/arm64 deb+appimage with
+`APPIMAGE_EXTRACT_AND_RUN`, macOS app → `.app.tar.gz`), portable `.tar.xz`
+with the marker, then one release job that signs, verifies against
+`updater.pub`, writes `latest.json`, checks its URLs, SHA256SUMS, and a
+draft release (pre-release for `-` versions). Without the secret it
+publishes without `latest.json`. The Tauri workflow is
+`release-tauri.yml`: manual runs, artifacts only. CI, `build.sh` and
+`build.cmd` include `ezssh-release`.
+
+### 15.5 Verification
+
+- `ezssh-release`: 7 unit tests (cargo-packager names → manifest keys, key
+  clashes, sign / verify round trip incl. base64 keys, signatures read by
+  `minisign-verify` the way the app reads them, encrypted keys, RFC 3339).
+- `ezssh-core/src/updater/tests.rs` (12): keys per install kind; manifest
+  evaluation (older / equal / pre-release ordering, deb never takes the
+  bare key, portable gets no installer, garbage is an error); signed
+  version required; safe download names; detection (portable, AppImage);
+  end to end over `ezssh_testsrv::http`: check + download with progress,
+  tampered bytes refused and deleted, wrong version and foreign key
+  refused before downloading, short body, no manifest, no key; the
+  release tool's manifest read back for all five kinds; AppImage swap
+  keeps the mode and leaves no temp file; `.app` swap and a bad archive
+  that leaves the bundle alone; the Windows helper script (quoting of
+  `'` and spaces, MSI arguments, only `ezssh-update-*` folders deleted).
+- `ezssh-app/src/ui_tests/update.rs` (2): unlock → settings → launch check
+  opens the dialog → Install & restart replaces a stand-in AppImage and
+  starts it with the same arguments; status-bar check says up to date,
+  then a tampered installer ends in the error and nothing is installed.
+  3 screens with `EZSSH_UI_SHOTS`. Unit tests for the launch cadence and
+  byte formatting; `layout.json` keeps the last check.
+- The Windows install path (`#[cfg(windows)]`) type-checks for
+  `x86_64-pc-windows-gnu` in a scratch crate; it has not run on Windows.
+- Local packaging (Linux x86_64): `cargo packager -p ezssh-app -f
+  deb,appimage` → `ezssh_1.14.0_amd64.deb` 18.3 MB (package `ezssh`,
+  dependencies as above, desktop entry, hicolor icons 32–512) and
+  `ezssh_1.14.0_x86_64.AppImage` 17.7 MB, which starts, opens a window
+  (Vulkan, Intel Arc) and detects itself as an AppImage. `target/dist/ezssh`
+  is 41.3 MB (fat LTO + strip; 43 MB stripped without LTO, §12.3). The
+  `dist` build takes about 6 minutes here.
+- Workspace clippy clean; all Rust tests green.
+
+### 15.6 Findings
+
+1. cargo-packager names a deb after the kebab-cased product name
+   (`ez-ssh`) unless `deb.package-name` is set; the updater looks for
+   `ezssh.list`, so it is set. Its `@2x` icon file lands in a
+   non-standard `256x256@2` hicolor folder, so the 256 px icon is a plain
+   `256x256.png`. Config keys follow its serde aliases
+   (`installer-mode`, `custom-language-file`), not the docs' names.
+2. A label inside a row does not wrap in egui; `widgets::error_strip` now
+   wraps, so long errors no longer widen a dialog past its header.
+3. The binary barely shrinks with LTO (41.3 vs 43 MB); the size is the
+   backend (sqlx, russh, rust-s3, reqwest), resvg and both renderers.
+
+### 15.7 Left for the user / later
+
+- **Generate the update key** and set the two secrets
+  (`docs/UPDATER_SIGNING.md`); until then releases carry no `latest.json`
+  and builds report "no update key".
+- Run a tagged release once: Windows NSIS / MSI, arm64 Linux and macOS
+  were never built here (WiX, NSIS and the `.app` are configured, not
+  tried), and the updater has not installed over a real NSIS / MSI / deb /
+  `.app` install (app README items 17–18).
+- Embedded exe icon on Windows (needs a resource compiler step);
+  macOS signing and notarisation; `panic = "abort"` and dropping a
+  renderer for size.
+- Phase 8: delete `ui/`, `src-tauri/` and `release-tauri.yml` (the
+  packages already use their own copy of the icons).

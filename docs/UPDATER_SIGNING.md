@@ -1,98 +1,97 @@
-# Updater signing — one-time setup
+# Updater signing: one-time setup
 
-ezTerm's auto-updater (`tauri-plugin-updater`) requires every update
-artifact to be signed so clients can't be tricked into installing a
-tampered binary. This is a **one-time** setup per project. Until it's
-done, `"active": false` in `tauri.conf.json` keeps the plugin disabled
-so the app still boots.
+ezSsh's in-app updater (`crates/ezssh-core/src/updater/`) installs only
+installers signed with the update key whose public half is compiled into
+the app (`crates/ezssh-core/updater.pub`). Until that file holds a key,
+"Check for updates" says the build has no update key, and the release
+workflow publishes releases without `latest.json`, so no installed copy is
+offered them.
 
-## 1. Install minisign
+The formats are the ones `tauri-plugin-updater` used: minisign keys and
+signatures, each base64-wrapped into one line, `latest.json` with
+`{version, notes, pub_date, platforms}`. The signature's trusted comment
+names the release version, and the app refuses an installer whose
+signature names another version than the manifest announces.
 
-Tauri's updater uses the minisign format. Any recent minisign binary
-works.
+## 1. Generate the key
 
-- Windows (winget): `winget install minisign.minisign`
-- Windows (scoop): `scoop install minisign`
-- macOS: `brew install minisign`
-- Linux: `apt install minisign` / `dnf install minisign`
-
-Alternatively, Tauri's CLI can generate a key without installing
-minisign separately:
-
-```bash
-cargo install tauri-cli --version '^2.0' --locked   # already installed for this project
-cargo tauri signer generate -w ~/.tauri/ezterm.key
+```sh
+export EZSSH_SIGNING_KEY_PASSWORD='a long passphrase'
+cargo run -p ezssh-release -- keygen --out ~/.ezssh-keys
 ```
 
-That writes `~/.tauri/ezterm.key` (private) and `~/.tauri/ezterm.key.pub`
-(public) and prompts for an optional password.
+This writes `~/.ezssh-keys/ezssh-update.key` (secret, mode 600, encrypted
+with the passphrase) and `ezssh-update.pub`, and prints one base64 line.
+Keep the secret key and the passphrase somewhere safe (a password
+manager): losing them means installed copies can no longer be updated
+(see "Rotating the key").
 
-**Pick a password** — no password means anyone with the file can sign
-releases.
+## 2. Commit the public key
 
-## 2. Paste the public key into `tauri.conf.json`
+Put the printed line into `crates/ezssh-core/updater.pub` (the file holds
+only that line) and commit it. Every build from then on trusts that key.
 
-Open `~/.tauri/ezterm.key.pub` — it contains a single long base64-ish line
-like:
+## 3. Add the secret key to GitHub
 
-```
-untrusted comment: minisign public key ABCD...
-RWQ... (one long line)
-```
-
-The actual key is the **second line**. Copy it and replace the
-placeholder in `src-tauri/tauri.conf.json`:
-
-```jsonc
-"plugins": {
-  "updater": {
-    "active": true,                                // flip to true
-    "pubkey": "RWQ... (second line from .pub)"    // paste here
-    // ...
-  }
-}
-```
-
-Commit both changes.
-
-## 3. Add the private key + password as GitHub Secrets
-
-Settings → Secrets and variables → Actions → **New repository secret**:
+Repository → Settings → Secrets and variables → Actions → New repository
+secret:
 
 | Name | Value |
 |---|---|
-| `TAURI_SIGNING_PRIVATE_KEY` | entire contents of `~/.tauri/ezterm.key` (including `untrusted comment:` lines) |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the password you set at generation |
+| `EZSSH_SIGNING_KEY` | the whole contents of `ezssh-update.key` (or its base64) |
+| `EZSSH_SIGNING_KEY_PASSWORD` | the passphrase |
 
-The release workflow reads both at build time and passes them to
-`cargo tauri build`, which produces `.sig` files alongside every
-installer automatically.
+Only the `release` job of `.github/workflows/release.yml` reads them; the
+build jobs never see the key.
 
-## 4. Verify
+## 4. Release
 
-Push a new tag after the secrets are set. The release workflow should:
+Bump `version` in the workspace `Cargo.toml`, commit, tag `vX.Y.Z` (or
+`vX.Y.Z-beta.N` for a pre-release) and push the tag. The workflow:
 
-1. Build MSI + NSIS (Windows) / AppImage + deb (Linux).
-2. Emit `.sig` files next to each installer.
-3. Generate `latest.json` with the signature strings embedded.
-4. Upload all of the above plus the portable `.tar.xz` archives.
+1. checks that the tag equals the `Cargo.toml` version (the app reports
+   that version to the updater),
+2. builds the NSIS + MSI, AppImage + deb (x86_64 and arm64), the macOS
+   `.app.tar.gz` and a portable `.tar.xz` per platform,
+3. signs every installer (`ezssh-release sign`), checks the signatures
+   against the committed `updater.pub` (`ezssh-release verify`; a key
+   mismatch fails the release here, not on users' machines),
+4. writes `latest.json` (`ezssh-release manifest`) with release notes from
+   `docs/release-notes/vX.Y.Z.md` when that file exists,
+5. creates a draft release (marked pre-release for `-` versions).
 
-The app, once rebuilt with `"active": true`, then checks the
-`latest.json` manifest on launch (and on-demand via the Check-for-Updates
-menu), downloads the matching installer, verifies its signature against
-the public key baked into the binary, and relaunches into the new
-version.
+Publish the draft. The stable channel reads
+`https://github.com/<repo>/releases/latest/download/latest.json`, which
+GitHub resolves to the newest published non-pre-release; the pre-release
+channel takes the newest published release of either kind that carries a
+`latest.json`.
+
+## Signing by hand
+
+```sh
+export EZSSH_SIGNING_KEY="$(cat ~/.ezssh-keys/ezssh-update.key)"
+export EZSSH_SIGNING_KEY_PASSWORD='…'
+ezssh-release sign --version 1.15.0 target/packages/*.deb target/packages/*.AppImage
+ezssh-release verify --pubkey crates/ezssh-core/updater.pub --version 1.15.0 target/packages/*.deb
+ezssh-release manifest --dir target/packages --version 1.15.0 --base-url https://example/dl
+```
 
 ## Rotating the key
 
-If the private key is ever compromised:
+Generate a new pair, replace `updater.pub` and both secrets, release. Any
+copy built with the old public key refuses updates signed with the new
+one; those users have to download the new version by hand once. If the
+old key is not compromised, sign one last release with the old key that
+already contains the new `updater.pub`, so installed copies move over on
+their own.
 
-1. Generate a new keypair (step 1).
-2. Replace the public key in `tauri.conf.json` (step 2).
-3. Replace the GitHub Secrets (step 3).
-4. Ship a release signed with the NEW key.
+## The Tauri build
 
-**Caveat:** any user running a version of ezTerm built with the OLD
-public key won't accept updates signed with the new key — they'll have
-to download the new version manually (via the Releases page). Plan key
-rotation carefully; treat the private key like any other secret.
+The webview build (`src-tauri`, `.github/workflows/release-tauri.yml`,
+manual runs only) keeps its own updater: `tauri-plugin-updater` with the
+public key in `src-tauri/tauri.conf.json` and the `TAURI_SIGNING_PRIVATE_KEY`
+/ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets. That key is upstream
+ezTerm's; this fork does not have its private half, so the Tauri updater
+of this repository cannot sign anything until the key there is replaced
+too (`cargo tauri signer generate`). The Tauri build is removed at the
+native cut-over (rework phase 8).

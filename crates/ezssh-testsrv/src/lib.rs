@@ -2,11 +2,14 @@
 //!
 //! - password auth against one user,
 //! - a shell channel that echoes what it gets (`exit` closes it),
-//! - the `sftp` subsystem over a local folder: remote `/` is `root`.
+//! - the `sftp` subsystem over a local folder: remote `/` is `root`,
+//! - and, separately, [`http::serve`] for updater tests.
 //!
 //! Not a security boundary: paths are resolved lexically (`..` stops at
 //! the root) but a symlink inside `root` that points out of it is
 //! followed. Bind it to loopback only.
+
+pub mod http;
 
 use std::collections::HashMap;
 use std::io;

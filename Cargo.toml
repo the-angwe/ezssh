@@ -1,9 +1,17 @@
 [workspace]
-members = ["src-tauri", "crates/ezssh-core", "crates/ezssh-term", "crates/ezssh-spike", "crates/ezssh-app", "crates/ezssh-testsrv"]
+members = ["src-tauri", "crates/ezssh-core", "crates/ezssh-term", "crates/ezssh-spike", "crates/ezssh-app", "crates/ezssh-testsrv", "crates/ezssh-release"]
 resolver = "3"
 
 [workspace.package]
 version = "1.14.0"
 edition = "2024"
 license = "GPL-3.0-only"
-repository = "https://github.com/ZerosAndOnesLLC/ezTerm"
+repository = "https://github.com/the-angwe/ezssh"
+
+# Release builds for packaging (`cargo build --profile dist`): one codegen
+# unit and fat LTO for size and speed, symbols stripped.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = true

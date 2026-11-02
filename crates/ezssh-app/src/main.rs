@@ -9,7 +9,7 @@ use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
 use eframe::wgpu;
 
 const HELP: &str = "\
-ezssh — ezSsh, native build (rework phase 4)
+ezssh — ezSsh, native build
 
 USAGE:
     ezssh [OPTIONS]
@@ -24,6 +24,8 @@ OPTIONS:
     -h, --help              Show this help
 
 Logging: RUST_LOG=ezssh_app=debug,ezssh_core=debug,ezssh_term=debug
+Updates: EZSSH_UPDATE_MANIFEST=URL reads that latest.json instead of the
+         GitHub release one (installers must still carry a valid signature)
 ";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,8 +131,13 @@ fn main() -> Result<()> {
     };
     tracing::info!(db = %db_path.display(), renderer = ?args.renderer, version = env!("CARGO_PKG_VERSION"), "ezssh.start");
 
+    let mut viewport = egui::ViewportBuilder::default();
+    match eframe::icon_data::from_png_bytes(include_bytes!("../packaging/icons/256x256.png")) {
+        Ok(icon) => viewport = viewport.with_icon(Arc::new(icon)),
+        Err(e) => tracing::warn!("ezssh: window icon unreadable: {e}"),
+    }
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
+        viewport: viewport
             .with_title("ezSsh")
             .with_app_id("ezssh")
             .with_inner_size([1280.0, 800.0])
@@ -150,7 +157,12 @@ fn main() -> Result<()> {
         }
     }
 
-    let app_options = ezssh_app::Options { db_path };
+    let manifest = std::env::var("EZSSH_UPDATE_MANIFEST").ok().filter(|v| !v.is_empty());
+    if let Some(m) = &manifest {
+        tracing::warn!(manifest = %m, "ezssh: update manifest overridden (signatures are still checked)");
+    }
+    let updater = ezssh_core::updater::Config::new(ezssh_core::updater::detect(), manifest);
+    let app_options = ezssh_app::Options { db_path, updater: Some(updater) };
     eframe::run_native(
         "ezssh",
         options,

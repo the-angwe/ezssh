@@ -26,6 +26,8 @@ use crate::views;
 #[derive(Clone, Debug)]
 pub struct Options {
     pub db_path: PathBuf,
+    /// The updater for this copy; `None` turns update checks off (tests).
+    pub updater: Option<ezssh_core::updater::Config>,
 }
 
 pub enum Screen {
@@ -93,6 +95,8 @@ pub struct App {
     pub(crate) forwards: views::forwards::ForwardsState,
     /// The file panes and their transfers.
     pub(crate) sftp: views::sftp::SftpState,
+    /// Update checks, the update dialog and the restart after an install.
+    pub(crate) updater: views::update::UpdaterState,
     pub(crate) toasts: Toasts,
     pub(crate) term_style: TermStyle,
     pub(crate) fonts: FontRegistry,
@@ -111,8 +115,6 @@ pub struct App {
 const XSERVER_POLL: Duration = Duration::from_secs(5);
 /// How often the idle-lock clock is checked (the webview's 15 s ticker).
 const IDLE_TICK: Duration = Duration::from_secs(15);
-
-pub const UPDATER_HINT: &str = "Not in the native build yet: arrives with the updater (rework phase 7). Use the ezTerm app meanwhile.";
 
 impl App {
     /// Open the database and show the unlock screen. Fails when the
@@ -160,6 +162,7 @@ impl App {
             creds: crate::creds::CredCache::default(),
             forwards: views::forwards::ForwardsState::default(),
             sftp: views::sftp::SftpState::default(),
+            updater: views::update::UpdaterState::new(options.updater),
             toasts: Toasts::default(),
             term_style: TermStyle::default(),
             fonts,
@@ -191,6 +194,8 @@ impl App {
                 Ok(rows) => {
                     app.settings = Settings::from_rows(&rows);
                     app.apply_settings();
+                    // `updates.*` decide the launch check.
+                    views::update::launch_check(app);
                 }
                 Err(e) => app.toasts.danger("Could not load settings", e.to_string()),
             },
@@ -238,6 +243,7 @@ impl App {
         self.sidebar.close_dialogs();
         self.forwards.close_dialogs();
         self.sftp.close_dialogs();
+        self.updater.on_lock();
         // Auth-fix overlays hold typed secrets; the failed tabs keep their
         // error card (Reconnect brings the overlay back).
         for slot in self.terms.values_mut() {
@@ -451,6 +457,7 @@ impl App {
             || self.terms.values().any(|s| s.host_key.is_some())
             || self.forwards.dialog_open()
             || self.sftp.dialog_open()
+            || self.updater.dialog_open()
     }
 
     // ------------------------------------------------------------ frame
@@ -467,6 +474,10 @@ impl App {
     fn tick(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
         if let Some(next) = self.toasts.expire(now) {
+            ctx.request_repaint_after(next);
+        }
+        // An installed update restarts the app whatever is on screen.
+        if let Some(next) = views::update::tick(self, now) {
             ctx.request_repaint_after(next);
         }
         if !matches!(self.screen, Screen::Main) {

@@ -63,6 +63,8 @@ pub enum Event {
     /// Progress of an upload or download (SFTP or WSL). The last event of
     /// a transfer has `done = true`.
     Transfer(TransferProgress),
+    /// Bytes of an update installer received so far (`api::updater`).
+    UpdateProgress { downloaded: u64, total: Option<u64> },
 }
 
 impl std::fmt::Debug for Event {
@@ -100,6 +102,11 @@ impl std::fmt::Debug for Event {
                 .field("total_bytes", &p.total_bytes)
                 .field("done", &p.done)
                 .field("error", &p.error)
+                .finish(),
+            Event::UpdateProgress { downloaded, total } => f
+                .debug_struct("UpdateProgress")
+                .field("downloaded", downloaded)
+                .field("total", total)
                 .finish(),
         }
     }

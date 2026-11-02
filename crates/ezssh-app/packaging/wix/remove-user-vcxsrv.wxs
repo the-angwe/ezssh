@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX fragment (cargo-packager wix.fragment-paths, referenced through
+  wix.custom-action-refs). On uninstall, removes the per-user VcXsrv that
+  the in-app "Install VcXsrv" flow puts in the data folder
+  (%APPDATA%\zerosandones\ezterm\data\vcxsrv). The copy shipped inside the
+  MSI is removed by the uninstaller itself. Sessions, the vault and
+  settings are never touched.
+
+  Same action as the Tauri build's src-tauri/wix-remove-user-vcxsrv.wxs
+  (WiX v3 schema, which cargo-packager also uses): deferred and
+  impersonated so it runs as the user, Return="ignore" so a missing folder
+  does not fail the uninstall, REMOVE~="ALL" so upgrades keep the folder.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction
+      Id="RemoveEzSshUserVcXsrv"
+      Directory="AppDataFolder"
+      ExeCommand='cmd.exe /c rmdir /s /q "%APPDATA%\zerosandones\ezterm\data\vcxsrv"'
+      Execute="deferred"
+      Impersonate="yes"
+      Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveEzSshUserVcXsrv" Before="RemoveFiles">REMOVE~="ALL"</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

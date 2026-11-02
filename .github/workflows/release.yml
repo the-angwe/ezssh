@@ -1,20 +1,33 @@
 name: release
 
-# Push a tag starting with `v` (e.g. `v0.14.0`) to kick off a release,
-# or trigger manually from the Actions tab. Builds portable tar.xz
-# archives for every target plus MSI + NSIS (Windows) and AppImage +
-# deb (Linux) installers for in-app auto-update via
-# tauri-plugin-updater. Updater installer artifacts are minisign-signed
-# when TAURI_SIGNING_PRIVATE_KEY is available as a repo secret.
+# Push a tag `vX.Y.Z` (or `vX.Y.Z-beta.N`) to build and publish a draft
+# release of the native ezSsh app, or run it by hand from the Actions tab
+# (build only). The tag must equal the version in Cargo.toml: the binary
+# reports that version to the updater, so a mismatch would make every
+# install offer the same update again.
+#
+# Per platform (cargo-packager 0.11, config in crates/ezssh-app/Cargo.toml):
+#   Windows x64      NSIS setup.exe + MSI (both carry VcXsrv)
+#   Linux x64/arm64  AppImage + deb
+#   macOS arm64      ezSsh.app as .app.tar.gz (unsigned, not notarised)
+# plus a portable .tar.xz for each (with a portable.txt marker, so the
+# in-app updater links to the release instead of replacing it).
+#
+# The release job signs every installer with the update key
+# (`ezssh-release sign`, secret EZSSH_SIGNING_KEY + _PASSWORD), checks the
+# signatures against crates/ezssh-core/updater.pub, and writes latest.json.
+# Without the secret it still publishes the draft, with no latest.json, so
+# no installed copy is offered that release. One-time setup:
+# docs/UPDATER_SIGNING.md.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
 
-# No workflow-level permissions block. Each job declares the minimum
-# scope it needs (build = read; release / prune = write). Limits the
-# blast radius if the build job's secret-handling steps ever go sideways.
+# No workflow-level permissions block: each job declares what it needs
+# (build = read; release / prune = write). Only the release job sees the
+# signing key.
 
 jobs:
   build:
@@ -26,121 +39,77 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `asset` is the platform token in published file names:
-          # ezTerm_<version>_<asset>-portable.tar.xz, matching the
-          # Tauri bundler's ezTerm_<version>_<arch>… installers.
+          # `asset` is the platform token of the portable archive's name.
           - name: windows-x86_64
             asset: windows-x64
             os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bin_name: ezterm.exe
-            bundles: "msi nsis"
+            formats: nsis,wix
+            bin: ezssh.exe
           - name: linux-x86_64
             asset: linux-amd64
             os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            bin_name: ezterm
-            bundles: "appimage deb"
+            formats: deb,appimage
+            bin: ezssh
           - name: linux-aarch64
             asset: linux-aarch64
             os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            bin_name: ezterm
-            bundles: "appimage deb"
+            formats: deb,appimage
+            bin: ezssh
           - name: macos-aarch64
             asset: macos-aarch64
             os: macos-latest
-            target: aarch64-apple-darwin
-            bin_name: ezterm
-            bundles: "app"
+            formats: app
+            bin: ezssh
 
     steps:
       - uses: actions/checkout@v5
 
-      # Cargo.toml is the single source of truth for the version (Ron bumps
-      # it before each tag). Propagate that value into tauri.conf.json and
-      # ui/package.json so the bundler names installers correctly and the
-      # MSI / NSIS embed the right product version (otherwise Windows
-      # Installer refuses to upgrade across releases). On tag pushes, the
-      # tag wins in case of any mismatch.
-      - name: Sync bundle version from tag / Cargo.toml
+      - name: Version (tag must match Cargo.toml)
+        id: ver
         shell: bash
         run: |
           set -euo pipefail
+          CARGO_VER=$(grep -m1 -E '^version\s*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           if [[ "${GITHUB_REF_NAME:-}" =~ ^v[0-9] ]]; then
-            VER="${GITHUB_REF_NAME#v}"
-          else
-            VER=$(grep -m1 -E '^version\s*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+            TAG_VER="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VER" != "$CARGO_VER" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml says ${CARGO_VER}; bump Cargo.toml and tag again"
+              exit 1
+            fi
           fi
-          echo "Bundle version → $VER"
-          tmp=$(mktemp)
-          jq --arg v "$VER" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
-          tmp=$(mktemp)
-          jq --arg v "$VER" '.version = $v' ui/package.json > "$tmp" && mv "$tmp" ui/package.json
-          echo "--- tauri.conf.json ---"; jq -r '.version' src-tauri/tauri.conf.json
-          echo "--- ui/package.json  ---"; jq -r '.version' ui/package.json
+          echo "version=$CARGO_VER" >> "$GITHUB_OUTPUT"
+          echo "version $CARGO_VER"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
-          key: ${{ matrix.target }}
+          key: native-${{ matrix.name }}
 
-      # Install the Tauri CLI as a pre-built binary (far faster than
-      # `cargo install`) so we can invoke `cargo tauri build` for the
-      # platforms that need installer bundles.
-      - name: Install Tauri CLI
-        if: matrix.bundles != ''
+      - name: Install cargo-packager
         uses: taiki-e/install-action@v2
         with:
-          tool: tauri-cli@2
+          tool: cargo-packager@0.11.8
 
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      # Tauri v2 needs webkit2gtk 4.1 + a handful of X / desktop libs on
-      # Linux. Native arm64 runner has the same apt repos as x86_64 so a
-      # single step covers both Ubuntu targets.
+      # Build: the xkb / xcb headers eframe compiles against. Packaging:
+      # `file` for linuxdeploy; the AppImage tools run extracted (no FUSE on
+      # the runners). No webkit2gtk any more.
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            build-essential \
-            curl wget file xz-utils patchelf \
-            fuse libfuse2 desktop-file-utils \
-            minisign
+            build-essential pkg-config \
+            libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            file xz-utils
 
-      - name: Build UI (Next.js static export)
-        run: |
-          npm --prefix ui ci
-          npm --prefix ui run build
-
-      # Windows: pull VcXsrv via Chocolatey (preinstalled on windows-latest)
-      # and stage it at `src-tauri/vcxsrv/` so:
-      # 1. The Tauri bundler picks it up as a resource (see
-      #    `tauri.windows.conf.json`) and ships it inside MSI / NSIS.
-      # 2. The portable tar.xz packaging step below copies the same tree
-      #    next to `ezterm.exe` — single source, two layouts.
-      #
-      # SourceForge mirrors have become unreliable for direct download
-      # from CI (redirect interstitials + rate-limited mirrors); Chocolatey
-      # pulls the signed installer from their own cache.
-      - name: Stage VcXsrv for bundling (Windows only)
-        if: matrix.name == 'windows-x86_64'
+      # VcXsrv via Chocolatey (SourceForge mirrors are unreliable from CI),
+      # staged at target/vcxsrv: cargo-packager ships it in both installers
+      # (resources) and the portable archive copies it next to ezssh.exe.
+      - name: Stage VcXsrv (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           choco install vcxsrv -y --no-progress --limit-output
@@ -148,163 +117,71 @@ jobs:
             Write-Error 'VcXsrv install missing vcxsrv.exe'
             exit 1
           }
-          New-Item -ItemType Directory -Force -Path 'src-tauri\vcxsrv' | Out-Null
-          Copy-Item 'C:\Program Files\VcXsrv\*' 'src-tauri\vcxsrv\' -Recurse -Force
-          Write-Host "Staged VcXsrv size: $((Get-ChildItem 'src-tauri\vcxsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
+          New-Item -ItemType Directory -Force -Path 'target\vcxsrv' | Out-Null
+          Copy-Item 'C:\Program Files\VcXsrv\*' 'target\vcxsrv\' -Recurse -Force
+          Write-Host "Staged VcXsrv: $((Get-ChildItem 'target\vcxsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
 
-      # Two build modes. Platforms with bundles (Windows / Linux / macOS)
-      # go through `cargo tauri build` so the installer bundler runs and
-      # produces the updater artifacts (.app.tar.gz on macOS, .AppImage
-      # on Linux, .msi/.exe on Windows). The .app is ad-hoc-signed; we
-      # don't notarise yet, so first launch needs right-click → Open.
-      - name: Build release binary + installer bundles
+      # before-packaging-command builds target/dist/ezssh (profile dist).
+      - name: Package
+        shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          set -euo pipefail
+          cargo packager -p ezssh-app -f "${{ matrix.formats }}" -v
+          ls -la target/packages
+
+      - name: Collect installers
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${{ matrix.bundles }}" ]; then
-            cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-          else
-            cargo build --release --target ${{ matrix.target }}
-          fi
-
-      # Tauri's bundler signs the AppImage and macOS .app.tar.gz
-      # automatically when TAURI_SIGNING_PRIVATE_KEY is set, but it
-      # does NOT sign .deb files. Sign them here with the same key so
-      # the updater plugin can verify them on Linux deb installs.
-      - name: Sign .deb files (Linux only)
-        if: runner.os == 'Linux' && matrix.bundles != ''
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — skipping .deb signing"
-            exit 0
-          fi
-          DEB_DIR="target/${{ matrix.target }}/release/bundle/deb"
-          if [ ! -d "$DEB_DIR" ]; then
-            echo "no deb bundle dir at $DEB_DIR — nothing to sign"
-            exit 0
-          fi
-          # Stage the secret to a real file so minisign can mmap it
-          # (process substitution doesn't survive minisign's reopen-on-EOF
-          # behavior on the secret-key path). trap EXIT guarantees the
-          # tempfile is removed even if the job is cancelled mid-loop.
-          KEY_FILE=$(mktemp)
-          trap 'rm -f "$KEY_FILE"' EXIT
-          chmod 600 "$KEY_FILE"
-          # TAURI_SIGNING_PRIVATE_KEY is conventionally stored base64-
-          # encoded in CI secrets (matches the encoding of the `pubkey`
-          # field in tauri.conf.json). Auto-detect: real minisign key
-          # files start with "untrusted comment:" — if that's what we
-          # see, write as-is; otherwise base64-decode before writing.
-          if [[ "${TAURI_SIGNING_PRIVATE_KEY}" == untrusted* ]]; then
-            printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
-          else
-            printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" | base64 -d > "$KEY_FILE"
-          fi
-          for deb in "$DEB_DIR"/*.deb; do
-            [ -f "$deb" ] || continue
-            base=$(basename "$deb")
-            ts=$(date +%s)
-            # Pipe the password to stdin so minisign doesn't try a tty
-            # prompt. Trusted-comment matches the convention Tauri uses
-            # on its sigs: timestamp + file basename, tab-separated.
-            # Sign to a raw file first, then base64-encode. Tauri's
-            # bundler ships .sig files in base64-wrapped form (so the
-            # contents drop straight into latest.json's `signature`
-            # field, which the updater plugin base64-decodes uniformly).
-            # minisign's native output is the raw multi-line sig file;
-            # if we used it directly the plugin's base64-decode of the
-            # signature field would fail on the literal space at offset 9
-            # ("untrusted comment:") with "Invalid symbol 32 offset 9".
-            printf '%s\n' "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
-              | minisign -S \
-                  -s "$KEY_FILE" \
-                  -t "timestamp:${ts}	file:${base}" \
-                  -m "$deb" \
-                  -x "${deb}.sig.raw"
-            base64 -w 0 "${deb}.sig.raw" > "${deb}.sig"
-            rm -f "${deb}.sig.raw"
-            echo "signed: ${deb}.sig"
+          VER="${{ steps.ver.outputs.version }}"
+          mkdir -p installers
+          shopt -s nullglob
+          for f in target/packages/*-setup.exe target/packages/*.msi \
+                   target/packages/*.AppImage target/packages/*.deb; do
+            cp -v "$f" installers/
           done
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # The updater unpacks this and swaps the bundle; the name carries
+            # version and arch like every other installer.
+            tar -C target/packages -czf "installers/ezssh_${VER}_aarch64.app.tar.gz" ezSsh.app
+          fi
+          ls -la installers
+          [ -n "$(ls -A installers)" ] || { echo "::error::no installers built"; exit 1; }
 
-      - name: Package portable tar.xz + collect installers
+      - name: Portable archive
         shell: bash
         run: |
           set -euo pipefail
-          VER=$(jq -r '.version' src-tauri/tauri.conf.json)
-          PORTABLE="ezTerm_${VER}_${{ matrix.asset }}-portable"
+          VER="${{ steps.ver.outputs.version }}"
+          PORTABLE="ezSsh_${VER}_${{ matrix.asset }}-portable"
           STAGE="stage/${PORTABLE}"
           mkdir -p "$STAGE"
-          cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
-          cp README.md "$STAGE/"
-          if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
-          if [ "${{ matrix.name }}" = "windows-x86_64" ]; then
-            # VcXsrv is already staged at src-tauri/vcxsrv/ by the
-            # "Stage VcXsrv for bundling" step (so the Tauri bundler
-            # picks it up). Mirror that tree into the tarball so the
-            # portable build has it next to ezterm.exe too.
+          cp "target/dist/${{ matrix.bin }}" "$STAGE/"
+          cp README.md LICENSE "$STAGE/"
+          cp crates/ezssh-app/packaging/portable.txt "$STAGE/"
+          if [ "${{ runner.os }}" = "Windows" ]; then
             mkdir -p "$STAGE/vcxsrv"
-            cp -r src-tauri/vcxsrv/. "$STAGE/vcxsrv/"
+            cp -r target/vcxsrv/. "$STAGE/vcxsrv/"
           fi
           tar -C stage -cJf "${PORTABLE}.tar.xz" "${PORTABLE}"
           ls -l "${PORTABLE}.tar.xz"
 
-          # Copy installer bundles (+ .sig files produced by the tauri
-          # bundler when signing is configured) into a flat directory so
-          # the release job can upload them by glob.
-          mkdir -p installers
-          BUNDLE_DIR="target/${{ matrix.target }}/release/bundle"
-          if [ -d "$BUNDLE_DIR" ]; then
-            find "$BUNDLE_DIR" -maxdepth 2 \( \
-              -name '*.msi' -o -name '*.msi.sig' -o \
-              -name '*-setup.exe' -o -name '*-setup.exe.sig' -o \
-              -name '*.nsis.zip' -o -name '*.nsis.zip.sig' -o \
-              -name '*.AppImage' -o -name '*.AppImage.sig' -o \
-              -name '*.deb' -o -name '*.deb.sig' -o \
-              -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
-              \) -print0 | xargs -0 -I {} cp -v {} installers/ || true
-          fi
-          echo "--- installers collected ---"
-          ls -la installers/ || true
-      # The bundler names the macOS updater bundle after the product only
-      # (`ezTerm.app.tar.gz`). Give it the same version + platform shape as
-      # every other asset; latest.json is generated from the final names.
-      - name: Normalise macOS updater bundle name
-        if: matrix.name == 'macos-aarch64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          VER=$(jq -r '.version' src-tauri/tauri.conf.json)
-          for f in installers/*.app.tar.gz installers/*.app.tar.gz.sig; do
-            [ -f "$f" ] || continue
-            base=$(basename "$f")
-            mv "$f" "installers/ezTerm_${VER}_${{ matrix.asset }}${base#ezTerm}"
-          done
-          ls -la installers/
-
-
-      - name: Upload portable artifact
+      - name: Upload portable archive
         uses: actions/upload-artifact@v5
         with:
           name: portable-${{ matrix.name }}
-          path: ezTerm_*-portable.tar.xz
+          path: ezSsh_*-portable.tar.xz
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload installer artifacts
-        if: matrix.bundles != ''
+      - name: Upload installers
         uses: actions/upload-artifact@v5
         with:
           name: installers-${{ matrix.name }}
           path: installers/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
 
   release:
@@ -323,117 +200,52 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List artifacts
-        run: ls -la artifacts/
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Generate SHA256SUMS
-        working-directory: artifacts
-        run: |
-          set -euo pipefail
-          # Only hash the user-facing archives + installers, not the .sig files.
-          shopt -s nullglob
-          sha256sum *.tar.xz *.msi *.exe *.AppImage *.deb 2>/dev/null > SHA256SUMS || true
-          echo "--- SHA256SUMS ---"
-          cat SHA256SUMS || true
+      # Small: minisign + serde_json, nothing of the app.
+      - name: Build ezssh-release
+        run: cargo build -p ezssh-release --release --locked
 
-      # Build a tauri-plugin-updater manifest (`latest.json`) from the
-      # installer artifacts + their .sig files. One platform entry per
-      # signed installer we found.
-      - name: Generate latest.json updater manifest
+      - name: Sign installers and write latest.json
         working-directory: artifacts
         env:
+          EZSSH_SIGNING_KEY: ${{ secrets.EZSSH_SIGNING_KEY }}
+          EZSSH_SIGNING_KEY_PASSWORD: ${{ secrets.EZSSH_SIGNING_KEY_PASSWORD }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          version="${TAG#v}"
-          notes_file="../docs/release-notes/${TAG}.md"
-          notes=""
-          if [ -f "$notes_file" ]; then
-            notes=$(head -c 4000 "$notes_file")
-          fi
-          pub_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          base="https://github.com/${REPO}/releases/download/${TAG}"
-
-          # Build the platforms object via jq with --arg for every value
-          # so signatures and URLs go through proper JSON escaping (no
-          # shell-level sed for quotes — defense in depth even though
-          # minisign output is base64). Per-installer entries (e.g.
-          # linux-x86_64-deb) are what the updater plugin's get_urls()
-          # looks up first based on the binary's __TAURI_BUNDLE_TYPE
-          # constant. The bare linux-{arch} fallbacks come first within
-          # each arch block, matching the spec's sample manifest order.
-          platforms='{}'
-          for pair in \
-            "windows-x86_64:*-setup.exe" \
-            "linux-x86_64:*_amd64.AppImage" \
-            "linux-x86_64-appimage:*_amd64.AppImage" \
-            "linux-x86_64-deb:*_amd64.deb" \
-            "linux-aarch64:*_aarch64.AppImage" \
-            "linux-aarch64-appimage:*_aarch64.AppImage" \
-            "linux-aarch64-deb:*_arm64.deb" \
-            "darwin-aarch64:*.app.tar.gz" \
-          ; do
-            plat="${pair%%:*}"
-            glob="${pair#*:}"
-            # shellcheck disable=SC2086
-            installer=$(ls $glob 2>/dev/null | head -n1 || true)
-            if [ -z "$installer" ]; then continue; fi
-            sig_file="${installer}.sig"
-            if [ ! -f "$sig_file" ]; then
-              echo "skip $plat — no signature for $installer (signing secret missing?)"
-              continue
-            fi
-            sig=$(tr -d '\n' < "$sig_file")
-            url="${base}/${installer}"
-            platforms=$(jq --arg p "$plat" --arg u "$url" --arg s "$sig" \
-              '. + {($p): {url: $u, signature: $s}}' <<< "$platforms")
-          done
-
-          if [ "$platforms" = '{}' ]; then
-            echo "No signed installers found — skipping latest.json."
+          TOOL=../target/release/ezssh-release
+          VER="${TAG#v}"
+          shopt -s nullglob
+          INSTALLERS=(*-setup.exe *.msi *.AppImage *.deb *.app.tar.gz)
+          ls -la
+          if [ -z "${EZSSH_SIGNING_KEY:-}" ]; then
+            echo "::warning::EZSSH_SIGNING_KEY is not set: no signatures, no latest.json (installed copies will not be offered this release)"
             exit 0
           fi
-
-          jq -n \
-            --arg v "$version" \
-            --arg n "$notes" \
-            --arg d "$pub_date" \
-            --argjson p "$platforms" \
-            '{version:$v, notes:$n, pub_date:$d, platforms:$p}' \
-            > latest.json
-          echo "--- latest.json ---"
+          "$TOOL" sign --version "$VER" "${INSTALLERS[@]}"
+          # The key that signed must be the one the app trusts.
+          "$TOOL" verify --pubkey ../crates/ezssh-core/updater.pub --version "$VER" "${INSTALLERS[@]}"
+          "$TOOL" manifest --dir . --version "$VER" \
+            --base-url "https://github.com/${REPO}/releases/download/${TAG}" \
+            --notes "../docs/release-notes/${TAG}.md"
           cat latest.json
+          # Every URL in the manifest must be an asset of this release.
+          missing=0
+          while IFS= read -r url; do
+            [ -f "${url##*/}" ] || { echo "::error::latest.json names missing asset ${url##*/}"; missing=1; }
+          done < <(jq -r '.platforms | to_entries[] | .value.url' latest.json)
+          [ "$missing" = 0 ]
 
-      # Cross-check: every URL in latest.json must resolve to a file in
-      # artifacts/. Catches cases where the manifest builder, asset
-      # collector, and release-create asset list drift apart — exactly
-      # the failure mode that produced #36 (manifest pointed at
-      # AppImage, deb users tried to install_deb(AppImage_bytes)).
-      - name: Verify manifest URLs resolve to uploaded assets
+      - name: SHA256SUMS
         working-directory: artifacts
         run: |
           set -euo pipefail
-          if [ ! -f latest.json ]; then
-            echo "no latest.json — nothing to verify"
-            exit 0
-          fi
-          missing=()
-          while IFS= read -r url; do
-            asset="${url##*/}"
-            if [ ! -f "$asset" ]; then
-              missing+=("$asset")
-            fi
-          done < <(jq -r '.platforms | to_entries[] | .value.url' latest.json)
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::manifest references missing assets: ${missing[*]}"
-            echo "--- latest.json ---"
-            cat latest.json
-            echo "--- artifacts/ ---"
-            ls -la
-            exit 1
-          fi
-          echo "✓ all $(jq '.platforms | length' latest.json) manifest URLs resolve"
+          shopt -s nullglob
+          sha256sum *.tar.xz *-setup.exe *.msi *.AppImage *.deb *.app.tar.gz > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Create draft release
         env:
@@ -442,33 +254,20 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           NOTES_FILE="docs/release-notes/${TAG}.md"
-          ASSETS=$(ls artifacts/*.tar.xz artifacts/SHA256SUMS 2>/dev/null)
-          # Include installers + their sigs + manifest when present.
-          for f in artifacts/*.msi artifacts/*.msi.sig \
-                   artifacts/*-setup.exe artifacts/*-setup.exe.sig \
-                   artifacts/*.AppImage artifacts/*.AppImage.sig \
-                   artifacts/*.deb artifacts/*.deb.sig \
-                   artifacts/*.app.tar.gz artifacts/*.app.tar.gz.sig \
-                   artifacts/latest.json; do
-            [ -f "$f" ] && ASSETS="$ASSETS $f"
-          done
+          shopt -s nullglob
+          ASSETS=(artifacts/*.tar.xz artifacts/SHA256SUMS
+                  artifacts/*-setup.exe artifacts/*.msi artifacts/*.AppImage artifacts/*.deb artifacts/*.app.tar.gz
+                  artifacts/*.sig artifacts/latest.json)
+          FLAGS=(--title "$TAG" --draft)
+          # vX.Y.Z-beta.N is a pre-release: only the pre-release channel offers it.
+          if [[ "$TAG" == *-* ]]; then FLAGS+=(--prerelease); fi
           if [ -f "$NOTES_FILE" ]; then
-            echo "Using notes from $NOTES_FILE"
-            # shellcheck disable=SC2086
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes-file "$NOTES_FILE" \
-              --draft \
-              $ASSETS
+            FLAGS+=(--notes-file "$NOTES_FILE")
           else
-            echo "No $NOTES_FILE — falling back to --generate-notes"
-            # shellcheck disable=SC2086
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --generate-notes \
-              --draft \
-              $ASSETS
+            echo "No $NOTES_FILE, generating notes"
+            FLAGS+=(--generate-notes)
           fi
+          gh release create "$TAG" "${FLAGS[@]}" "${ASSETS[@]}"
 
   prune:
     name: prune old releases
@@ -478,46 +277,22 @@ jobs:
     permissions:
       contents: write
     env:
-      # Bump this to keep more (or fewer) releases. Counts every release
-      # GitHub knows about, drafts and prereleases included.
+      # Counts every release, drafts and pre-releases included.
       RELEASES_TO_KEEP: 20
     steps:
       - name: Delete releases + tags beyond the cap
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO:  ${{ github.repository }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          KEEP="${RELEASES_TO_KEEP}"
-
-          # List every release the repo has (drafts + prereleases included),
-          # sort newest first by created_at, then take everything past index
-          # KEEP — those are the tags to delete. --limit is generous; we
-          # never expect to be near it but it costs nothing.
           mapfile -t TO_DELETE < <(
-            gh release list --limit 1000 \
-              --json tagName,createdAt,isDraft,isPrerelease \
-              | jq -r --argjson keep "$KEEP" '
-                  sort_by(.createdAt) | reverse | .[$keep:] | .[].tagName
-                '
+            gh release list --limit 1000 --json tagName,createdAt \
+              | jq -r --argjson keep "$RELEASES_TO_KEEP" 'sort_by(.createdAt) | reverse | .[$keep:] | .[].tagName'
           )
-
-          TOTAL=$(gh release list --limit 1000 --json tagName --jq 'length')
-          echo "Releases on repo: $TOTAL"
-          echo "Keeping newest:   $KEEP"
-          echo "To delete:        ${#TO_DELETE[@]}"
-
-          if [ "${#TO_DELETE[@]}" -eq 0 ]; then
-            echo "Nothing to prune."
-            exit 0
-          fi
-
+          echo "To delete: ${#TO_DELETE[@]}"
           for tag in "${TO_DELETE[@]}"; do
             [ -z "$tag" ] && continue
-            # --cleanup-tag also deletes the underlying git tag so we don't
-            # accumulate orphan tags. --yes skips the confirmation prompt.
             echo "Deleting release + tag: $tag"
             gh release delete "$tag" --cleanup-tag --yes
           done
-
-          echo "Prune complete."

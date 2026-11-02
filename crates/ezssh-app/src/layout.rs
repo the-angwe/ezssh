@@ -1,5 +1,6 @@
 //! Window layout that the webview kept in localStorage (`ezterm.*` keys):
-//! view mode, tile grid, sidebar and SFTP pane widths, SFTP columns. Kept
+//! view mode, tile grid, sidebar and SFTP pane widths, SFTP columns, the
+//! last update check. Kept
 //! in `layout.json` next to the database. It is per-install convenience,
 //! not a preference, so backups and sync never carry it.
 //!
@@ -71,6 +72,9 @@ pub struct Layout {
     pub sidebar_width: f32,
     pub sftp_pane_width: f32,
     pub sftp_columns: SftpColumns,
+    /// Unix time of the last successful update check (the webview's
+    /// `ezterm.updater.lastCheckAt`).
+    pub last_update_check: Option<i64>,
 }
 
 impl Default for Layout {
@@ -81,6 +85,7 @@ impl Default for Layout {
             sidebar_width: SIDEBAR_DEFAULT,
             sftp_pane_width: SFTP_PANE_DEFAULT,
             sftp_columns: SftpColumns::default(),
+            last_update_check: None,
         }
     }
 }
@@ -95,6 +100,7 @@ struct Stored {
     sidebar_width: Option<f64>,
     sftp_pane_width: Option<f64>,
     sftp_columns: Option<serde_json::Value>,
+    last_update_check: Option<i64>,
 }
 
 fn in_range(v: Option<f64>, min: f32, max: f32) -> Option<f32> {
@@ -134,6 +140,7 @@ impl Layout {
             sidebar_width: in_range(stored.sidebar_width, SIDEBAR_MIN, SIDEBAR_MAX).unwrap_or(d.sidebar_width),
             sftp_pane_width: in_range(stored.sftp_pane_width, SFTP_PANE_MIN, SFTP_PANE_MAX).unwrap_or(d.sftp_pane_width),
             sftp_columns,
+            last_update_check: stored.last_update_check.filter(|t| *t > 0),
         }
     }
 
@@ -144,6 +151,7 @@ impl Layout {
             sidebar_width: Some(self.sidebar_width as f64),
             sftp_pane_width: Some(self.sftp_pane_width as f64),
             sftp_columns: Some(serde_json::json!({ "name": self.sftp_columns.name, "size": self.sftp_columns.size })),
+            last_update_check: self.last_update_check,
         };
         match serde_json::to_string_pretty(&stored) {
             Ok(s) => s,
@@ -207,6 +215,7 @@ mod tests {
             sidebar_width: 300.0,
             sftp_pane_width: 400.0,
             sftp_columns: SftpColumns { name: 300.0, size: 90.0 },
+            last_update_check: Some(1_793_181_296),
         };
         assert_eq!(Layout::parse(&l.to_json()), l);
     }

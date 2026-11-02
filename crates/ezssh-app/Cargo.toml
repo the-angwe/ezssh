@@ -43,3 +43,75 @@ tempfile = "3"
 egui_system_font_provider = "0.37"
 # In-process SSH / SFTP server for the file pane tests.
 ezssh-testsrv = { path = "../ezssh-testsrv" }
+# Signs the update the updater test installs.
+ezssh-release = { path = "../ezssh-release" }
+
+# ------------------------------------------------------------- packaging
+#
+# `cargo packager -p ezssh-app --release -f <formats>` (cargo-packager
+# 0.11) builds the installers into target/packages from the `dist` build
+# (workspace Cargo.toml). Paths are relative to this file. The release
+# workflow signs the results with `ezssh-release`, not with cargo-packager's
+# own signer. See packaging/README.md.
+[package.metadata.packager]
+product-name = "ezSsh"
+# What package managers and the installers show (the crate description is
+# for developers).
+description = "Free SSH client in the style of MobaXterm: saved sessions, an encrypted credential vault, SFTP, port forwards and an xterm-compatible terminal."
+identifier = "xyz.angwe.ezssh"
+publisher = "ezSsh"
+authors = ["ezSsh contributors"]
+homepage = "https://github.com/the-angwe/ezssh"
+copyright = "GPL-3.0-only. Fork of ezTerm by ZerosAndOnes LLC."
+category = "DeveloperTool"
+license-file = "../../LICENSE"
+before-packaging-command = "cargo build -p ezssh-app --profile dist --locked"
+binaries-dir = "../../target/dist"
+out-dir = "../../target/packages"
+binaries = [{ path = "ezssh", main = true }]
+icons = [
+  "packaging/icons/32x32.png",
+  "packaging/icons/128x128.png",
+  "packaging/icons/256x256.png",
+  "packaging/icons/icon.png",
+  "packaging/icons/icon.ico",
+  "packaging/icons/icon.icns",
+]
+# VcXsrv, staged into target/vcxsrv by the Windows release job; found next
+# to ezssh.exe by `xserver::detect_install_path`. Absent elsewhere, which
+# adds nothing.
+resources = [{ src = "../../target/vcxsrv", target = "vcxsrv" }]
+
+[package.metadata.packager.deb]
+# Fixed, not derived from the product name ("ez-ssh"): the updater finds a
+# deb install by /var/lib/dpkg/info/ezssh.list.
+package-name = "ezssh"
+section = "net"
+# Everything the window loads at run time (the binary itself links libc only):
+# winit's X11 / Wayland and xkbcommon, fontconfig for the font lists, and a
+# GPU API for wgpu (Vulkan, or GL through EGL).
+depends = [
+  "libc6",
+  "libxkbcommon0",
+  "libxkbcommon-x11-0",
+  "libfontconfig1",
+  "libx11-6",
+  "libx11-xcb1",
+  "libxcursor1",
+  "libxi6",
+  "libxrandr2",
+  "libwayland-client0",
+  "libvulkan1 | libegl1",
+]
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+languages = ["English"]
+custom-language-file = { English = "packaging/nsis/English.nsh" }
+# The uninstaller offers to remove the per-user VcXsrv (a checkbox; the
+# string above says what it removes). The database and the vault stay.
+appdata-paths = ["$APPDATA/zerosandones/ezterm/data/vcxsrv"]
+
+[package.metadata.packager.wix]
+fragment-paths = ["packaging/wix/remove-user-vcxsrv.wxs"]
+custom-action-refs = ["RemoveEzSshUserVcXsrv"]

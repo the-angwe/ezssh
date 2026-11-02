@@ -1,0 +1,300 @@
+name: release-tauri
+
+# The Tauri (webview) build of ezTerm, kept buildable until the native
+# cut-over (rework phase 8). Manual runs only, artifacts only: tags and
+# GitHub releases belong to the native ezSsh build (release.yml), whose
+# latest.json the updater reads. Updater artifacts are minisign-signed
+# when TAURI_SIGNING_PRIVATE_KEY is available as a repo secret.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `asset` is the platform token in published file names:
+          # ezTerm_<version>_<asset>-portable.tar.xz, matching the
+          # Tauri bundler's ezTerm_<version>_<arch>… installers.
+          - name: windows-x86_64
+            asset: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_name: ezterm.exe
+            bundles: "msi nsis"
+          - name: linux-x86_64
+            asset: linux-amd64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_name: ezterm
+            bundles: "appimage deb"
+          - name: linux-aarch64
+            asset: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bin_name: ezterm
+            bundles: "appimage deb"
+          - name: macos-aarch64
+            asset: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bin_name: ezterm
+            bundles: "app"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Cargo.toml is the single source of truth for the version (Ron bumps
+      # it before each tag). Propagate that value into tauri.conf.json and
+      # ui/package.json so the bundler names installers correctly and the
+      # MSI / NSIS embed the right product version (otherwise Windows
+      # Installer refuses to upgrade across releases). On tag pushes, the
+      # tag wins in case of any mismatch.
+      - name: Sync bundle version from tag / Cargo.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME:-}" =~ ^v[0-9] ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER=$(grep -m1 -E '^version\s*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          fi
+          echo "Bundle version → $VER"
+          tmp=$(mktemp)
+          jq --arg v "$VER" '.version = $v' src-tauri/tauri.conf.json > "$tmp" && mv "$tmp" src-tauri/tauri.conf.json
+          tmp=$(mktemp)
+          jq --arg v "$VER" '.version = $v' ui/package.json > "$tmp" && mv "$tmp" ui/package.json
+          echo "--- tauri.conf.json ---"; jq -r '.version' src-tauri/tauri.conf.json
+          echo "--- ui/package.json  ---"; jq -r '.version' ui/package.json
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      # Install the Tauri CLI as a pre-built binary (far faster than
+      # `cargo install`) so we can invoke `cargo tauri build` for the
+      # platforms that need installer bundles.
+      - name: Install Tauri CLI
+        if: matrix.bundles != ''
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@2
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # Tauri v2 needs webkit2gtk 4.1 + a handful of X / desktop libs on
+      # Linux. Native arm64 runner has the same apt repos as x86_64 so a
+      # single step covers both Ubuntu targets.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            build-essential \
+            curl wget file xz-utils patchelf \
+            fuse libfuse2 desktop-file-utils \
+            minisign
+
+      - name: Build UI (Next.js static export)
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      # Windows: pull VcXsrv via Chocolatey (preinstalled on windows-latest)
+      # and stage it at `src-tauri/vcxsrv/` so:
+      # 1. The Tauri bundler picks it up as a resource (see
+      #    `tauri.windows.conf.json`) and ships it inside MSI / NSIS.
+      # 2. The portable tar.xz packaging step below copies the same tree
+      #    next to `ezterm.exe` — single source, two layouts.
+      #
+      # SourceForge mirrors have become unreliable for direct download
+      # from CI (redirect interstitials + rate-limited mirrors); Chocolatey
+      # pulls the signed installer from their own cache.
+      - name: Stage VcXsrv for bundling (Windows only)
+        if: matrix.name == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          choco install vcxsrv -y --no-progress --limit-output
+          if (-not (Test-Path 'C:\Program Files\VcXsrv\vcxsrv.exe')) {
+            Write-Error 'VcXsrv install missing vcxsrv.exe'
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path 'src-tauri\vcxsrv' | Out-Null
+          Copy-Item 'C:\Program Files\VcXsrv\*' 'src-tauri\vcxsrv\' -Recurse -Force
+          Write-Host "Staged VcXsrv size: $((Get-ChildItem 'src-tauri\vcxsrv' -Recurse | Measure-Object -Sum Length).Sum) bytes"
+
+      # Two build modes. Platforms with bundles (Windows / Linux / macOS)
+      # go through `cargo tauri build` so the installer bundler runs and
+      # produces the updater artifacts (.app.tar.gz on macOS, .AppImage
+      # on Linux, .msi/.exe on Windows). The .app is ad-hoc-signed; we
+      # don't notarise yet, so first launch needs right-click → Open.
+      - name: Build release binary + installer bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.bundles }}" ]; then
+            cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      # Tauri's bundler signs the AppImage and macOS .app.tar.gz
+      # automatically when TAURI_SIGNING_PRIVATE_KEY is set, but it
+      # does NOT sign .deb files. Sign them here with the same key so
+      # the updater plugin can verify them on Linux deb installs.
+      - name: Sign .deb files (Linux only)
+        if: runner.os == 'Linux' && matrix.bundles != ''
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — skipping .deb signing"
+            exit 0
+          fi
+          DEB_DIR="target/${{ matrix.target }}/release/bundle/deb"
+          if [ ! -d "$DEB_DIR" ]; then
+            echo "no deb bundle dir at $DEB_DIR — nothing to sign"
+            exit 0
+          fi
+          # Stage the secret to a real file so minisign can mmap it
+          # (process substitution doesn't survive minisign's reopen-on-EOF
+          # behavior on the secret-key path). trap EXIT guarantees the
+          # tempfile is removed even if the job is cancelled mid-loop.
+          KEY_FILE=$(mktemp)
+          trap 'rm -f "$KEY_FILE"' EXIT
+          chmod 600 "$KEY_FILE"
+          # TAURI_SIGNING_PRIVATE_KEY is conventionally stored base64-
+          # encoded in CI secrets (matches the encoding of the `pubkey`
+          # field in tauri.conf.json). Auto-detect: real minisign key
+          # files start with "untrusted comment:" — if that's what we
+          # see, write as-is; otherwise base64-decode before writing.
+          if [[ "${TAURI_SIGNING_PRIVATE_KEY}" == untrusted* ]]; then
+            printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" > "$KEY_FILE"
+          else
+            printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" | base64 -d > "$KEY_FILE"
+          fi
+          for deb in "$DEB_DIR"/*.deb; do
+            [ -f "$deb" ] || continue
+            base=$(basename "$deb")
+            ts=$(date +%s)
+            # Pipe the password to stdin so minisign doesn't try a tty
+            # prompt. Trusted-comment matches the convention Tauri uses
+            # on its sigs: timestamp + file basename, tab-separated.
+            # Sign to a raw file first, then base64-encode. Tauri's
+            # bundler ships .sig files in base64-wrapped form (so the
+            # contents drop straight into latest.json's `signature`
+            # field, which the updater plugin base64-decodes uniformly).
+            # minisign's native output is the raw multi-line sig file;
+            # if we used it directly the plugin's base64-decode of the
+            # signature field would fail on the literal space at offset 9
+            # ("untrusted comment:") with "Invalid symbol 32 offset 9".
+            printf '%s\n' "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
+              | minisign -S \
+                  -s "$KEY_FILE" \
+                  -t "timestamp:${ts}	file:${base}" \
+                  -m "$deb" \
+                  -x "${deb}.sig.raw"
+            base64 -w 0 "${deb}.sig.raw" > "${deb}.sig"
+            rm -f "${deb}.sig.raw"
+            echo "signed: ${deb}.sig"
+          done
+
+      - name: Package portable tar.xz + collect installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=$(jq -r '.version' src-tauri/tauri.conf.json)
+          PORTABLE="ezTerm_${VER}_${{ matrix.asset }}-portable"
+          STAGE="stage/${PORTABLE}"
+          mkdir -p "$STAGE"
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "$STAGE/"
+          cp README.md "$STAGE/"
+          if [ -f LICENSE ]; then cp LICENSE "$STAGE/"; fi
+          if [ "${{ matrix.name }}" = "windows-x86_64" ]; then
+            # VcXsrv is already staged at src-tauri/vcxsrv/ by the
+            # "Stage VcXsrv for bundling" step (so the Tauri bundler
+            # picks it up). Mirror that tree into the tarball so the
+            # portable build has it next to ezterm.exe too.
+            mkdir -p "$STAGE/vcxsrv"
+            cp -r src-tauri/vcxsrv/. "$STAGE/vcxsrv/"
+          fi
+          tar -C stage -cJf "${PORTABLE}.tar.xz" "${PORTABLE}"
+          ls -l "${PORTABLE}.tar.xz"
+
+          # Copy installer bundles (+ .sig files produced by the tauri
+          # bundler when signing is configured) into a flat directory so
+          # the release job can upload them by glob.
+          mkdir -p installers
+          BUNDLE_DIR="target/${{ matrix.target }}/release/bundle"
+          if [ -d "$BUNDLE_DIR" ]; then
+            find "$BUNDLE_DIR" -maxdepth 2 \( \
+              -name '*.msi' -o -name '*.msi.sig' -o \
+              -name '*-setup.exe' -o -name '*-setup.exe.sig' -o \
+              -name '*.nsis.zip' -o -name '*.nsis.zip.sig' -o \
+              -name '*.AppImage' -o -name '*.AppImage.sig' -o \
+              -name '*.deb' -o -name '*.deb.sig' -o \
+              -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+              \) -print0 | xargs -0 -I {} cp -v {} installers/ || true
+          fi
+          echo "--- installers collected ---"
+          ls -la installers/ || true
+      # The bundler names the macOS updater bundle after the product only
+      # (`ezTerm.app.tar.gz`). Give it the same version + platform shape as
+      # every other asset; latest.json is generated from the final names.
+      - name: Normalise macOS updater bundle name
+        if: matrix.name == 'macos-aarch64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=$(jq -r '.version' src-tauri/tauri.conf.json)
+          for f in installers/*.app.tar.gz installers/*.app.tar.gz.sig; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            mv "$f" "installers/ezTerm_${VER}_${{ matrix.asset }}${base#ezTerm}"
+          done
+          ls -la installers/
+
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: portable-${{ matrix.name }}
+          path: ezTerm_*-portable.tar.xz
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload installer artifacts
+        if: matrix.bundles != ''
+        uses: actions/upload-artifact@v5
+        with:
+          name: installers-${{ matrix.name }}
+          path: installers/
+          if-no-files-found: warn
+          retention-days: 7

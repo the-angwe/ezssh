@@ -19,5 +19,6 @@ pub mod statusbar;
 pub mod sync;
 pub mod tabstrip;
 pub mod unlock;
+pub mod update;
 pub mod vault_dialogs;
 pub mod xserver;

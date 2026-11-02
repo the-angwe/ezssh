@@ -45,6 +45,7 @@ icons! {
     File => "file",
     FileInput => "file-input",
     FileSymlink => "file-symlink",
+    FlaskConical => "flask-conical",
     Folder => "folder",
     FolderOpen => "folder-open",
     FolderPlus => "folder-plus",

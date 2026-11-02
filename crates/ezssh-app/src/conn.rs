@@ -419,6 +419,7 @@ impl App {
             }
             ev @ Event::ForwardStatus { .. } => crate::views::forwards::on_event(self, ev),
             Event::Transfer(p) => crate::views::sftp::on_event(self, p),
+            Event::UpdateProgress { downloaded, total } => crate::views::update::on_progress(self, downloaded, total),
         }
     }
 }

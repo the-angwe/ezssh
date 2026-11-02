@@ -14,6 +14,7 @@ mod credentials;
 mod data;
 mod sessions;
 mod sftp;
+mod update;
 mod vault;
 
 use std::time::{Duration, Instant};
@@ -33,6 +34,11 @@ pub(crate) struct Env {
 }
 
 pub(crate) fn start() -> Env {
+    start_with(None)
+}
+
+/// [`start`] with an updater (update tests).
+pub(crate) fn start_with(updater: Option<ezssh_core::updater::Config>) -> Env {
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("ezterm.sqlite");
     let h = Harness::builder()
@@ -42,7 +48,7 @@ pub(crate) fn start() -> Env {
         .with_step_dt(1.0 / 60.0)
         .build_eframe(move |cc| {
             cc.egui_ctx.add_font_provider(std::sync::Arc::new(egui_system_font_provider::SystemFontProvider::new()));
-            App::new(&cc.egui_ctx, Options { db_path: db_path.clone() }).expect("app starts")
+            App::new(&cc.egui_ctx, Options { db_path: db_path.clone(), updater: updater.clone() }).expect("app starts")
         });
     Env { _dir: dir, h }
 }

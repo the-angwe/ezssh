@@ -356,7 +356,7 @@ fn session_tab_lists_adds_edits_deletes() {
     let db_path = dir.path().join("ezterm.sqlite");
     let mut h = Harness::builder().with_size(vec2(1000.0, 760.0)).with_step_dt(1.0 / 60.0).build_eframe(move |cc| {
         cc.egui_ctx.add_font_provider(std::sync::Arc::new(egui_system_font_provider::SystemFontProvider::new()));
-        TabHost { app: App::new(&cc.egui_ctx, crate::app::Options { db_path: db_path.clone() }).expect("app starts"), session: None }
+        TabHost { app: App::new(&cc.egui_ctx, crate::app::Options { db_path: db_path.clone(), updater: None }).expect("app starts"), session: None }
     });
     h.run_steps(2);
     assert!(h.query_by_label("Save the session first to configure forwards.").is_some());

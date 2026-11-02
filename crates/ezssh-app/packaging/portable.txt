@@ -1,0 +1,9 @@
+This copy of ezSsh was unpacked from a portable archive.
+
+It keeps its data in the usual per-user folder (shared with installed
+copies). The in-app updater tells you about new versions but does not
+replace a portable copy: download the new archive from the releases page
+and unpack it over this folder.
+
+Deleting this file makes the updater treat the folder as an installed
+copy, which it is not; leave it here.

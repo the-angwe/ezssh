@@ -2,7 +2,8 @@
 //!
 //! Everything the app does that is not drawing: SSH and SFTP over russh,
 //! local and WSL shells, port forwards, the credential vault, the SQLite
-//! store, cloud sync, backups, MobaXterm import and the VcXsrv manager.
+//! store, cloud sync, backups, MobaXterm import, the VcXsrv manager and the
+//! in-app updater.
 //! UI shells (the Tauri adapter in `src-tauri`, the native egui app) hold
 //! an [`AppState`], call [`api`] functions and receive output through the
 //! sinks in [`events`].
@@ -20,6 +21,7 @@ pub mod sftp;
 pub mod ssh;
 pub mod state;
 pub mod sync;
+pub mod updater;
 pub mod vault;
 pub mod wslfs;
 pub mod xserver;

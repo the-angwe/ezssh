@@ -2,20 +2,21 @@
 
 The native ezSsh window: an eframe (egui 0.37) shell around
 `ezssh-core` (backend) and `ezssh-term` (terminal widget). Rework phases 4
-(shell), 5 (dialogs) and 6 (file pane) of `docs/design/native-rework-plan.md`
-(results in §12, §13 and §14).
+(shell), 5 (dialogs), 6 (file pane) and 7 (packaging, updater) of
+`docs/design/native-rework-plan.md` (results in §12 to §15).
 
 ```sh
 cargo run -p ezssh-app --release                 # the real database (shared with the Tauri build)
 cargo run -p ezssh-app --release -- --db /tmp/x/ezterm.sqlite   # a throwaway one
 cargo run -p ezssh-app -- --renderer warp        # software rendering (VMs, RDP)
 RUST_LOG=ezssh_app=debug,ezssh_core=debug cargo run -p ezssh-app
+cargo packager -p ezssh-app -f deb,appimage      # installers into target/packages (packaging/README.md)
 ```
 
 The binary is `ezssh`. Without `--db` it opens the same `ezterm.sqlite`
 as the installed ezTerm app. Running both on the same database at once is
 untested; quit ezTerm first. Window layout (view mode, tile grid, sidebar width, SFTP
-pane width and columns) is kept in `layout.json` next to the database.
+pane width and columns, last update check) is kept in `layout.json` next to the database.
 
 ## Layout
 
@@ -33,12 +34,9 @@ pane width and columns) is kept in `layout.json` next to the database.
 | `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); the font list (installed monospace families, `lib/fonts.ts` as fallback) |
 | `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
 | `views/sftp.rs` (phase 6) | `sftp-pane.tsx`, `sftp-breadcrumb.tsx`, `sftp-file-row.tsx`, `transfer-status.tsx`: the file pane (SFTP or the WSL share), OS drops of files and folders, progress strips, row and list menus |
+| `views/update.rs` (phase 7) | `update-dialog.tsx`, `lib/updater.ts`: launch check (cadence in `layout.json`), status-bar button with a dot, download progress, install, restart; the updater itself is `ezssh_core::updater` |
+| `packaging/` (phase 7) | icons, NSIS strings, WiX fragment, `portable.txt`; the cargo-packager config is `[package.metadata.packager]` in `Cargo.toml` |
 | `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `appearance` (replaced `font_picker`), `xserver`, `backup`, `restore`, `sync`, `import` |
-
-## Not in this build yet
-
-Phase 7: the updater and its dialog (the status-bar button is
-disabled).
 
 ## Tests
 
@@ -50,7 +48,8 @@ cascade drag / minimise, folder create + drag and drop, settings
 write-through, theme, sidebar resize persistence, host-key dialog,
 multi-line paste, idle lock; every phase 5 dialog, checking the database
 after saves; the file pane against the in-process SSH / SFTP server of
-`crates/ezssh-testsrv`). Unix only (local PTYs). Native file dialogs cannot run
+`crates/ezssh-testsrv`; the update dialog against a signed release served
+by `ezssh_testsrv::http`, replacing and restarting a stand-in AppImage). Unix only (local PTYs). Native file dialogs cannot run
 headless; the tests hand the dialogs a path directly.
 `EZSSH_UI_SHOTS=<dir> cargo test -p ezssh-app ui_tests` renders each state
 to PNG.
@@ -96,3 +95,12 @@ to PNG.
     Upload folder instead. Without a server at hand:
     `cargo run -p ezssh-testsrv -- --root /some/dir --home / --delay-ms 2`
     serves a folder on 127.0.0.1:2222 as `ezssh` / `ezssh`.
+17. Packages (`packaging/README.md`): install the deb (`sudo apt install
+    ./target/packages/ezssh_*_amd64.deb`), start ezSsh from the desktop
+    menu; run the AppImage. On Windows the NSIS setup and the MSI from a
+    release build, uninstall with the VcXsrv checkbox; macOS `ezSsh.app`
+    (right-click → Open, it is not notarised).
+18. Updater end to end with a test key: `packaging/README.md` § "Trying
+    the updater" (a local `latest.json` via `EZSSH_UPDATE_MANIFEST`, one
+    run per installed kind: AppImage, deb, NSIS, MSI, `.app`; portable
+    shows "Open releases page").

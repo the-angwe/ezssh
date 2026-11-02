@@ -87,6 +87,12 @@ fn wire(event: &Event) -> serde_json::Result<(String, Value)> {
             format!("sftp:transfer:{}", progress.transfer_id),
             serde_json::to_value(progress)?,
         ),
+        // The Tauri build updates through tauri-plugin-updater and never
+        // runs the core updater; mapped onto its event shape anyway.
+        Event::UpdateProgress { downloaded, total } => (
+            "updater:progress".to_string(),
+            serde_json::json!({ "event": "progress", "downloaded": downloaded, "total": total }),
+        ),
     })
 }
 

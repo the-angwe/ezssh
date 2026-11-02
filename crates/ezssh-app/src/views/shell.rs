@@ -10,7 +10,7 @@ use crate::layout::{FORWARDS_PANE_W, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, 
 use crate::style::{STATUS_BAR_H, tokens};
 use crate::views::{
     appearance, backup, credentials, dialogs, forwards, import, mdi, restore, session_dialog, settings, sftp, sidebar, statusbar, sync, tabstrip,
-    vault_dialogs, xserver,
+    update, vault_dialogs, xserver,
 };
 use crate::widgets;
 
@@ -195,4 +195,5 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
     sync::show(app, ctx);
     restore::show(app, ctx);
     import::show(app, ctx);
+    update::show(app, ctx);
 }
