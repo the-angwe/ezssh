@@ -61,6 +61,40 @@ impl Faces {
         };
         found.unwrap_or(&self.regular)
     }
+
+    /// These faces minus any family egui has not bound yet. `add_font`
+    /// only applies at once when no text was laid out this pass; otherwise
+    /// the family exists from the next pass. Until then the missing faces
+    /// fall back (regular to egui's built-in monospace) and a repaint is
+    /// asked for, so the font shows one frame later.
+    pub fn usable(&self, ctx: &egui::Context) -> Faces {
+        let (regular, bold, italic, bold_italic) = ctx.fonts(|f| {
+            let families = &f.definitions().families;
+            let bound = |fam: &FontFamily| !matches!(fam, FontFamily::Name(_)) || families.contains_key(fam);
+            (bound(&self.regular), self.bold.as_ref().map(bound), self.italic.as_ref().map(bound), self.bold_italic.as_ref().map(bound))
+        });
+        let all = regular && [bold, italic, bold_italic].iter().all(|b| b.unwrap_or(true));
+        if all {
+            return self.clone();
+        }
+        tracing::debug!(
+            font = ?self.loaded,
+            regular,
+            ?bold,
+            ?italic,
+            ?bold_italic,
+            "term.fonts: font not bound yet this pass, drawing with a fallback"
+        );
+        ctx.request_repaint();
+        let keep = |fam: &Option<FontFamily>, ok: Option<bool>| fam.clone().filter(|_| ok == Some(true));
+        Faces {
+            regular: if regular { self.regular.clone() } else { FontFamily::Monospace },
+            bold: keep(&self.bold, bold),
+            italic: keep(&self.italic, italic),
+            bold_italic: keep(&self.bold_italic, bold_italic),
+            loaded: if regular { self.loaded.clone() } else { None },
+        }
+    }
 }
 
 /// Split a stored font-family value into names: `"Fira Code", monospace`
@@ -226,14 +260,17 @@ impl FontRegistry {
         family
     }
 
-    /// Append the Nerd Font symbols to `family` as its last face.
+    /// Append the Nerd Font symbols to `family` as its last face. Each
+    /// family gets its own insert name: `add_font` skips a name egui
+    /// already has, so a shared name bound the symbols only to the fonts
+    /// registered in the first pass.
     fn add_symbols(&mut self, ctx: &egui::Context, family: &FontFamily) {
         if !self.symbols_installed {
             tracing::debug!(bytes = SYMBOLS_TTF.len(), "term.fonts: loading bundled Nerd Font symbols");
             self.symbols_installed = true;
         }
         ctx.add_font(FontInsert {
-            name: SYMBOLS_NAME.into(),
+            name: format!("{SYMBOLS_NAME} for {family:?}"),
             data: FontData::from_static(SYMBOLS_TTF),
             families: vec![InsertFontFamily { family: family.clone(), priority: FontPriority::Lowest }],
         });
@@ -386,6 +423,53 @@ mod tests {
         assert_eq!(f.pick(false, true), &i);
         assert_eq!(f.pick(true, true), &b);
         assert_eq!(Faces::default().pick(true, true), &FontFamily::Monospace);
+    }
+
+    /// Run one pass that lays out text, then `during` in the same pass.
+    fn pass_after_text(ctx: &egui::Context, mut during: impl FnMut(&egui::Context)) {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.label("text laid out before the font is added");
+            during(ui.ctx());
+        });
+        out.textures_delta.clear();
+    }
+
+    /// Opening a session mid-frame: the family is not bound until the next
+    /// pass, so `usable` falls back for that pass and keeps it afterwards.
+    #[test]
+    fn font_added_mid_pass_is_used_from_the_next_pass() {
+        let ctx = egui::Context::default();
+        let mut reg = FontRegistry::new();
+        let mut faces = None;
+        pass_after_text(&ctx, |ctx| {
+            let f = reg.faces(ctx, "");
+            assert_eq!(f.usable(ctx).regular, FontFamily::Monospace, "not bound in the pass that added it");
+            faces = Some(f);
+        });
+        let faces = faces.unwrap();
+        if faces.loaded.is_none() {
+            eprintln!("no system monospace font; nothing to check");
+            return;
+        }
+        pass_after_text(&ctx, |ctx| assert_eq!(faces.usable(ctx), faces, "bound from the next pass"));
+    }
+
+    /// Fonts registered in later passes get the Nerd Font symbols too.
+    #[test]
+    fn symbols_bound_to_families_added_in_later_passes() {
+        let ctx = egui::Context::default();
+        let mut reg = FontRegistry::new();
+        let (a, b) = (FontFamily::Name("ezssh-test:a".into()), FontFamily::Name("ezssh-test:b".into()));
+        pass_after_text(&ctx, |ctx| reg.add_symbols(ctx, &a));
+        pass_after_text(&ctx, |ctx| reg.add_symbols(ctx, &b));
+        pass_after_text(&ctx, |ctx| {
+            ctx.fonts(|f| {
+                for fam in [&a, &b] {
+                    let names = f.definitions().families.get(fam);
+                    assert!(names.is_some_and(|n| n.iter().any(|n| n.starts_with(SYMBOLS_NAME))), "{fam:?}: {names:?}");
+                }
+            })
+        });
     }
 
     #[test]

@@ -328,7 +328,10 @@ impl<'a> TerminalView<'a> {
         }
 
         // Cell metrics.
-        let font = FontId::new(term.view.font_size, term.view.faces.regular.clone());
+        // A font registered this pass is only bound from the next one;
+        // measure and draw with what egui has now.
+        let faces = term.view.faces.usable(&ctx);
+        let font = FontId::new(term.view.font_size, faces.regular.clone());
         let (glyph_w, row_h) = ctx.fonts_mut(|f| (f.glyph_width(&font, 'M'), f.row_height(&font)));
         // Width stays exact so a run of ASCII glyphs laid out as one galley
         // lines up with the grid; height snaps to device pixels so rows and
@@ -388,7 +391,7 @@ impl<'a> TerminalView<'a> {
         update_hover(term, &ctx, rect, layer, hovered);
 
         let paint_started = Instant::now();
-        paint(ui, term, style, rect, focused, &font, ppp);
+        paint(ui, term, style, rect, focused, &faces, ppp);
         term.view.last_paint = paint_started.elapsed();
 
         // IME: tell the platform where the cursor is so candidate windows
@@ -1146,7 +1149,8 @@ fn visible_matches(find: Option<&Find>, top: i32, bottom: i32) -> Vec<Match> {
     f.matches.iter().filter(|m| m.start().line.0 <= bottom && m.end().line.0 >= top).cloned().collect()
 }
 
-fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: bool, font: &FontId, ppp: f32) {
+fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: bool, faces: &Faces, ppp: f32) {
+    let font = &FontId::new(term.view.font_size, faces.regular.clone());
     let painter = ui.painter_at(rect);
     let palette = &style.palette;
     let default_bg = palette.background;
@@ -1154,7 +1158,6 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
 
     let v = &term.view;
     let (cell, origin, cols, rows) = (v.cell, v.origin, v.cols, v.rows);
-    let faces = v.faces.clone();
     let hover = v.hover.clone();
     let match_bg = mix(default_bg, palette.ansi[3], 0.35);
 
