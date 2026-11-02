@@ -1,12 +1,11 @@
-//! `update-dialog.tsx` + `lib/updater.ts`: check GitHub for a newer
+//! The update dialog: check GitHub for a newer
 //! release, show the version and notes, download and verify the signed
 //! installer, install it and start the new version.
 //!
 //! The launch check runs once per start, after the settings load, when
 //! `updates.checkOnLaunch` is on and `updates.intervalDays` have passed
-//! since the last successful check (`layout.json`, as the webview kept it
-//! in localStorage). A found update opens the dialog; failures of the
-//! launch check are only logged, as before. The status-bar button opens
+//! since the last successful check (kept in `layout.json`). A found update
+//! opens the dialog; failures of the launch check are only logged. The status-bar button opens
 //! the dialog any time and carries a dot while an update is known.
 //!
 //! Copies that cannot replace themselves (portable archives, `cargo run`)
@@ -27,7 +26,7 @@ use crate::style::{alpha, font, font_semibold, size, tokens};
 use crate::views::vault_dialogs::para;
 use crate::widgets::{self, Dialog, Tone};
 
-/// "Installed" stays up this long before the restart (the webview's 800 ms).
+/// "Installed" stays up this long before the restart.
 const RESTART_DELAY: Duration = Duration::from_millis(800);
 
 enum Phase {

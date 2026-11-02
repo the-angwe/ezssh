@@ -9,7 +9,6 @@ use crate::error::{AppError, Result};
 use crate::events::Events;
 
 use crate::local::LocalRegistry;
-use crate::sftp::upload_stream::UploadStreamRegistry;
 use crate::sftp::SftpRegistry;
 use crate::ssh::ConnectionRegistry;
 use crate::sync::SyncManager;
@@ -32,11 +31,6 @@ pub struct AppState {
     /// the SSH driver task must be able to drop SFTP state when the underlying
     /// transport dies, otherwise `SftpHandle`s leak past connection teardown.
     pub sftp: Arc<SftpRegistry>,
-    /// In-flight streaming uploads. One entry per concurrent
-    /// `sftp_upload_begin` call; chunks are pushed via
-    /// `sftp_upload_chunk` until `sftp_upload_finish` or
-    /// `sftp_upload_abort`. See `sftp::upload_stream`.
-    pub upload_streams: Arc<UploadStreamRegistry>,
     /// Cancel flags of path-based transfers (`sftp_upload*`, `sftp_download*`)
     /// from ticket to end. See `api::sftp::sftp_transfer_cancel`.
     pub transfers: Arc<crate::sftp::transfer::TransferRegistry>,
@@ -82,7 +76,6 @@ impl AppState {
             unlock_locked_until_unix: AtomicI64::new(0),
             ssh: Arc::new(ConnectionRegistry::new()),
             sftp: Arc::new(SftpRegistry::new()),
-            upload_streams: Arc::new(UploadStreamRegistry::new()),
             transfers: Arc::new(crate::sftp::transfer::TransferRegistry::new()),
             local: Arc::new(LocalRegistry::new()),
             xserver: Arc::new(XServerManager::new()),
@@ -105,24 +98,12 @@ impl AppState {
         self.sftp.remove(id).await;
         self.ssh.close(id).await;
     }
-
-    /// Chunks pushed into a connection's frontend output channel. The SSH
-    /// and local id spaces are disjoint (local ids carry bit 48), so the
-    /// first registry that knows the id answers. `None` once the
-    /// connection is gone.
-    pub async fn output_sent(&self, id: u64) -> Option<u64> {
-        use std::sync::atomic::Ordering;
-        if let Some(c) = self.ssh.get(id).await {
-            return Some(c.output_sent.load(Ordering::Relaxed));
-        }
-        self.local.get(id).await.map(|c| c.output_sent.load(Ordering::Relaxed))
-    }
 }
 
 /// The database path every ezTerm / ezSsh build uses:
 /// `<local data dir>/ZerosAndOnes/ezTerm/ezterm.sqlite` (platform-specific
-/// root from `directories`). Kept until the cut-over so the native build
-/// opens the same database as the Tauri one.
+/// root from `directories`). Kept from ezTerm so ezSsh opens the database
+/// an ezTerm install left behind.
 pub fn default_db_path() -> Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("com", "ZerosAndOnes", "ezTerm").ok_or_else(|| {
         AppError::Io(std::io::Error::new(

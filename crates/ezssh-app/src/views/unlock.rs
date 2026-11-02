@@ -1,4 +1,4 @@
-//! `unlock-screen.tsx`: create the vault on first run, else unlock it.
+//! The unlock screen: create the vault on first run, else unlock it.
 
 use egui::{Align2, Color32, CornerRadius, CursorIcon, Frame, Key, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, Ui, Vec2, vec2};
 use ezssh_core::api;
@@ -79,8 +79,7 @@ impl UnlockState {
     }
 }
 
-/// Length-weight + character-class heuristic of `password-strength.ts`
-/// (0..=4).
+/// Password strength from length and character classes (0..=4).
 pub fn score_password(pw: &str) -> usize {
     if pw.is_empty() {
         return 0;
@@ -211,7 +210,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     vault_dialogs::unlock_dialogs(app, ui.ctx());
 }
 
-/// The four-segment strength bar and its caption (`password-strength.ts`),
+/// The four-segment strength bar and its caption,
 /// shared with the change-password dialog.
 pub(crate) fn strength_meter(ui: &mut Ui, pw: &str, w: f32) {
     let t = tokens(ui.ctx());
@@ -302,7 +301,7 @@ mod tests {
     use super::score_password;
 
     #[test]
-    fn strength_scores_match_the_webview() {
+    fn strength_scores() {
         assert_eq!(score_password(""), 0);
         assert_eq!(score_password("abc"), 0);
         assert_eq!(score_password("abcdefgh"), 1);

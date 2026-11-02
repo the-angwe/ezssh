@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn only_http_schemes_like_the_webview() {
+    fn only_http_schemes() {
         let t = term_with(b"ftp://host/x mailto:a@b.c", 80);
         assert_eq!(at(&t, 0, 2), None);
         assert_eq!(at(&t, 0, 15), None);

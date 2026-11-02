@@ -1,13 +1,15 @@
 // Writes the Lucide icons the app uses as SVG files into ../assets/icons,
-// from the lucide-react package the webview build already depends on, so
-// both builds draw the same artwork (Lucide is ISC licensed; see
-// assets/icons/LICENSE).
+// from an installed lucide-react package (Lucide is ISC licensed; see
+// assets/icons/LICENSE). The version written to assets/icons/VERSION is
+// the package's.
 //
 // Strokes are white: the app tints each icon with `Image::tint`, which
 // multiplies, so one rasterisation per size serves every colour.
 //
-// Usage (from the repo root, after `npm --prefix ui ci`):
-//   node crates/ezssh-app/tools/gen_icons.mjs
+// Usage:
+//   npm install --prefix /tmp/lucide --no-save lucide-react@1.57.0
+//   node crates/ezssh-app/tools/gen_icons.mjs /tmp/lucide/node_modules/lucide-react
+// The package folder can also come from LUCIDE_REACT_DIR.
 // Aliases (Trash2 → trash in 1.57) have no data of their own; list the
 // target name. Add a name to ICONS (the kebab-case file name under
 // lucide-react/dist/esm/icons) and to `icons.rs`, then rerun.
@@ -31,8 +33,11 @@ const ICONS = [
 ];
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repo = join(here, '..', '..', '..');
-const lucide = join(repo, 'ui', 'node_modules', 'lucide-react');
+const lucide = process.argv[2] ?? process.env.LUCIDE_REACT_DIR;
+if (!lucide) {
+  console.error('usage: node gen_icons.mjs <path to node_modules/lucide-react> (or set LUCIDE_REACT_DIR)');
+  process.exit(2);
+}
 const out = join(here, '..', 'assets', 'icons');
 
 const escape = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');

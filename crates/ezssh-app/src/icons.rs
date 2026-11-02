@@ -1,4 +1,4 @@
-//! Lucide icons (the set `lucide-react` draws in the webview build),
+//! Lucide icons (from the `lucide-react` package),
 //! vendored as white-stroke SVGs by `tools/gen_icons.mjs` and tinted per
 //! use. egui_extras' SVG loader rasterises each icon once per pixel size.
 

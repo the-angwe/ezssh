@@ -1,7 +1,6 @@
 //! Directory listing for WSL connections. Shells out to GNU `ls -la
 //! --time-style=+%s` inside the distro and parses the symbolic-mode
-//! lines back into the `SftpEntry` shape the frontend already consumes
-//! for SSH SFTP listings.
+//! lines back into the `SftpEntry` shape of SSH SFTP listings.
 //!
 //! Why not `find -printf` / `stat -c …`? `ls -la` is by far the most
 //! widely deployed (GNU coreutils ships in every mainstream WSL distro
@@ -135,7 +134,7 @@ fn join_remote(parent: &str, name: &str) -> String {
 /// Translate the 10-character symbolic mode string (`drwxr-xr-x` etc.)
 /// into the standard POSIX mode word, including the high-nibble file-
 /// type bits. Matches what russh-sftp returns in `FileAttributes.permissions`
-/// so the frontend's mode column doesn't need a kind-aware branch.
+/// so the file pane's mode column doesn't need a kind-aware branch.
 fn parse_mode_str(s: &str) -> u32 {
     let b = s.as_bytes();
     let mut mode: u32 = match b[0] {

@@ -258,13 +258,14 @@ mod tests {
     }
 
     #[test]
-    fn input_deserializes_from_frontend_dynamic_json() {
-        // Exact JSON the forward-dialog builds for a persistent dynamic
-        // forward (dest_addr:'' dest_port:0).
-        let json = r#"{"name":"socks","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080,"dest_addr":"","dest_port":0,"auto_start":1}"#;
-        let parsed: ForwardInput = serde_json::from_str(json).expect("dynamic ForwardInput must deserialize");
-        assert_eq!(parsed.kind, "dynamic");
-        validate_input(&parsed).expect("dynamic input must validate");
+    fn dynamic_input_without_destination_validates() {
+        // What the forward dialog saves for a persistent dynamic forward.
+        let mut d = base();
+        d.kind = "dynamic".into();
+        d.bind_port = 1080;
+        d.dest_addr = String::new();
+        d.dest_port = 0;
+        validate_input(&d).expect("dynamic input must validate");
     }
 
     #[tokio::test]

@@ -1,11 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Usage question / discussion
-    url: https://github.com/ZerosAndOnesLLC/ezTerm/discussions
+    url: https://github.com/the-angwe/ezssh/discussions
     about: For Q&A, ideas, or anything that isn't a confirmed bug or feature request.
   - name: Security vulnerability
-    url: https://github.com/ZerosAndOnesLLC/ezTerm/blob/main/SECURITY.md
+    url: https://github.com/the-angwe/ezssh/blob/main/SECURITY.md
     about: Please follow SECURITY.md — do not file public issues for security bugs.
-  - name: Documentation
-    url: https://ezterm.zerosandones.us/docs/
-    about: Docs site — install guide, feature walkthroughs, troubleshooting.

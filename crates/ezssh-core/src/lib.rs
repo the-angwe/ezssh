@@ -4,8 +4,7 @@
 //! local and WSL shells, port forwards, the credential vault, the SQLite
 //! store, cloud sync, backups, MobaXterm import, the VcXsrv manager and the
 //! in-app updater.
-//! UI shells (the Tauri adapter in `src-tauri`, the native egui app) hold
-//! an [`AppState`], call [`api`] functions and receive output through the
+//! The app (`ezssh-app`) holds an [`AppState`], call [`api`] functions and receive output through the
 //! sinks in [`events`].
 
 pub mod api;

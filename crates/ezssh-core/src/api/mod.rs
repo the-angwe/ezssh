@@ -1,8 +1,6 @@
-//! The former Tauri commands as plain async functions on `AppState`.
-//!
-//! One module per command group, one function per command, with the same
-//! names and parameters as the old `invoke()` surface, so the Tauri adapter
-//! and the native shell call the same code.
+//! What the UI can ask the core to do, as plain async functions on
+//! `AppState`: one module per area (sessions, SFTP, vault, …). The app
+//! runs them on its tokio runtime (`ezssh-app/src/core.rs`).
 
 pub mod backup;
 pub mod credentials;
@@ -21,7 +19,7 @@ pub mod xserver;
 
 /// Returns `Ok(())` only when the vault is currently unlocked.
 ///
-/// Call this at the top of every invoke-handler command that reads or writes
+/// Call this at the top of every `api` function that reads or writes
 /// vault-protected data. The vault/status commands (`vault_status`,
 /// `vault_init`, `vault_unlock`, `vault_lock`) are exempt, as is the narrow
 /// whitelist in `settings_get` that allows the unlock screen to load the

@@ -1,9 +1,7 @@
 //! The terminal font list shared by the session dialog and the terminal's
 //! Font… picker: "(default)" plus the monospace families installed on this
-//! machine (`ezssh_term::fonts::monospace_families`). The webview's
-//! `lib/fonts.ts` had a fixed list per OS, which hid installed fonts (e.g.
-//! "JetBrains Mono NL") and offered missing ones; that list is now only the
-//! fallback when the system scan finds nothing. Users can still type any
+//! machine (`ezssh_term::fonts::monospace_families`). A fixed list per OS
+//! is the fallback when the system scan finds nothing. Users can still type any
 //! family in the session dialog; the picker shows "(custom)" for values
 //! that are not in the list, without overwriting them.
 

@@ -6,15 +6,16 @@ confirmed by hand (tmux, Claude Code). Phase 2 (core extraction) built
 Phase 4 (app shell, `crates/ezssh-app`) built 2026-11-01, §12. Phase 5
 (dialogs; passwords moved onto sessions) built 2026-11-01, §13. Phase 6
 (file pane) built 2026-11-02, §14. Phase 7 (packaging, updater, update
-dialog) built 2026-11-02, §15. Proposal written
+dialog) built 2026-11-02, §15. Phase 8 (cut-over: webview app, site and
+spike removed, version 2.0.0-beta0) done 2026-11-02, §16. Proposal written
 2026-10-29 against ezTerm v1.14.0 (`feat/176-terminal-palettes` on top of
 v1.13.1).
 
 ezSsh is a permanent fork of ezTerm (github.com/ZerosAndOnesLLC/ezTerm),
 decided 2026-10-30. The rework happens on the fork; nothing goes upstream.
-The Tauri build keeps its ezTerm product name, identifier and data paths
-until the cut-over (phase 8), so existing installs keep opening the same
-database.
+The native build keeps ezTerm's data paths, so it opens an existing ezTerm
+database. Paths into `ui/`, `src-tauri/` and `site/` below refer to the
+tree before phase 8 (`git show 66d1be8:<path>`).
 
 ## 1. Goal and constraints
 
@@ -255,7 +256,7 @@ until phase 7 because phase 1 makes the core a library both shells use.
 | 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, find, font picker; passwords bound to sessions. **Built 2026-11-01, §13** (update dialog moved to phase 7) | 2 weeks |
 | 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress. **Built 2026-11-02, §14** | 1 week |
 | 7 | Packaging and updater | update dialog (from phase 5), cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs **Built 2026-11-02, §15** | 1 week |
-| 8 | Cut-over | delete `ui/`, `src-tauri/`, Tauri deps; README, CLAUDE.md, CONTRIBUTING, site docs; release v2.0.0 through the v1 update channel | days |
+| 8 | Cut-over | delete `ui/`, `src-tauri/`, Tauri deps; README, CLAUDE.md, CONTRIBUTING, site docs; release v2.0.0 through the v1 update channel. **Done 2026-11-02, §16**: site and spike removed too; version 2.0.0-beta0; v1 installs cannot be updated (upstream key) | days |
 
 Total: roughly 10–12 working weeks for one person, less with the current
 pace of AI-assisted porting since most of it is mechanical translation of
@@ -1170,3 +1171,98 @@ publishes without `latest.json`. The Tauri workflow is
   renderer for size.
 - Phase 8: delete `ui/`, `src-tauri/` and `release-tauri.yml` (the
   packages already use their own copy of the icons).
+
+## 16. Phase 8 results (2026-11-02)
+
+Cut-over. The repository is the native app only; version `2.0.0-beta0`.
+
+### 16.1 Removed
+
+- `ui/` (Next.js + xterm.js, including the HTML mockups in `ui/design`),
+  `src-tauri/` (adapter, splash, Tauri updater, installer hooks, icons),
+  `site/` (Astro site and its mockups), `crates/ezssh-spike` (phase 1 test
+  window; its results stay in §9), the root `package.json`, `ezterm.png`,
+  `.github/workflows/release-tauri.yml` and `site.yml`, the CI `ui` and
+  `site` jobs, `docs/superpowers/` (webview-era specs and plans) and the
+  webview design notes (`docs/design/critique.md`, `design-system.md`,
+  `implementation-notes.md`; tokens now live in `style.rs`). The lockfile
+  went from 946 to 738 packages (Tauri, wry, webkit2gtk, gtk).
+- Core API only the Tauri adapter declared (the webview's components
+  never called them either): `forward_stop_all`, `wsl_list_distros`,
+  `known_host_list` / `known_host_remove`, `sftp_chmod`,
+  `credential_list_with_session_passwords`; and the webview file pane's
+  upload paths `sftp_upload_bytes` (256 MB in-memory cap) and
+  `sftp_upload_begin` / `_chunk` / `_finish` / `_abort` with
+  `sftp/upload_stream.rs` and `AppState.upload_streams`. Below them:
+  `upload_bytes` in `sftp::transfer` and `wslfs::transfer`,
+  `wslfs::ops::chmod`, `db::known_hosts::remove`,
+  `db::credentials::list_with_session_passwords`, the per-connection
+  `output_sent` counters of the stall watchdog, the empty `ssh_smoke` test
+  and its `integration` feature, the `async-channel` and `bytes`
+  dependencies, and the Tauri `resources/vcxsrv` probe path.
+- `db::sessions::bind_password` no longer claims an unowned password row
+  or copies another session's row when a password session names one in
+  `credential_id`: only the Tauri picker sent that. Password sessions
+  ignore `credential_id`; unowned rows from ezTerm are still listed (and
+  deletable) in the credentials manager, legacy backups still give each
+  session its own copy, and duplicate still copies the row.
+- The `palette::matches_the_webview_palettes` test (it read
+  `ui/lib/palettes.ts`).
+
+### 16.2 Kept for ezTerm data
+
+Data paths (`ZerosAndOnes/ezTerm/ezterm.sqlite`, per-user VcXsrv under
+`zerosandones/ezterm`), the backup magic, the sync object name, the vault
+verifier, migration history, settings keys and values, palette ids and
+the `layout.json` view-mode ids. Comments that described ports of
+webview files now describe the code; where a value matters because ezTerm
+wrote it, they say so.
+
+### 16.3 Changed
+
+- User-visible names: backup / restore dialogs and file names
+  (`ezssh-backup-<date>.json`), sync placeholders, the forward conflict
+  message ("another ezSsh tab"), the restore preview's version label.
+- `tools/gen_icons.mjs` takes the lucide-react folder as an argument or
+  `LUCIDE_REACT_DIR` (there is no `ui/node_modules` any more).
+- `build.sh` / `build.cmd`: run, build, release (`dist`), package, test,
+  clean. CI: one `rust` job on `--workspace` plus `cargo audit`.
+- README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, CLAUDE.md, RELEASING,
+  UPDATER_SIGNING, issue and PR templates point at the fork and describe
+  the native app. Release notes `docs/release-notes/v2.0.0-beta0.md`.
+
+### 16.4 Findings
+
+1. **"Release v2.0.0 through the v1 update channel" (§5) is not
+   possible.** ezTerm v1 checks upstream's
+   `ZerosAndOnesLLC/ezTerm/releases/latest/download/latest.json` and
+   verifies with upstream's minisign key, neither of which the fork
+   controls. ezTerm users install ezSsh once by hand; it opens their
+   database.
+2. **The switch is one way.** Upstream ezTerm runs the sqlx migrator
+   with default settings, which refuses a database that has an applied
+   migration it does not know (`VersionMissing`). ezSsh applies
+   `20261101120000_session_owned_passwords` on first start, so ezTerm can
+   no longer open that database afterwards. The release notes and README
+   say to back up first or try ezSsh with `--db` on a copy.
+3. `2.0.0-beta0` is a semver pre-release: the release job marks it as a
+   GitHub pre-release, the stable channel (`releases/latest`) never sees
+   it, the pre-release channel does. Pre-release identifiers compare as
+   text, so `beta10` < `beta2`. In a deb, `-beta0` is the Debian revision
+   and sorts above a bare `2.0.0`; the updater installs with `dpkg -i`,
+   which allows that downgrade, so beta → final still updates.
+
+### 16.5 Verification
+
+`cargo check --workspace --all-targets` with `-D warnings`, `cargo clippy
+--workspace --all-targets -- -D warnings`, `cargo test --workspace`
+(core 115 unit + integration, app 104, term 73 + 9, release 7, testsrv)
+all green on Linux. No release was tagged and nothing was built on
+Windows or macOS (§15.7 still applies).
+
+### 16.6 Left for the user
+
+- Generate the update key and set the two secrets (§15.7), commit, tag
+  `v2.0.0-beta0`, check the draft, publish.
+- The ezTerm-era release notes (`docs/release-notes/v0.*`, `v1.*`) are
+  kept as history.

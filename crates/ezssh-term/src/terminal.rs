@@ -5,8 +5,7 @@
 //! [`Feeder::feed`], which runs the VT parser straight into the locked
 //! `Term` and asks egui for a repaint. The UI thread locks the `Term`
 //! only to paint, resize, select or scroll. This is the arrangement Zed
-//! uses and replaces the IPC channel / arm-detach buffering / stall
-//! watchdog of the webview build.
+//! uses.
 
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -678,7 +677,7 @@ mod tests {
     #[test]
     fn multiline_paste_detection() {
         assert_eq!(multiline_paste_lines("ls -la"), None);
-        // A trailing newline alone does not count (trimEnd in terminal.tsx).
+        // A trailing newline alone does not count.
         assert_eq!(multiline_paste_lines("ls -la\n"), None);
         assert_eq!(multiline_paste_lines("a\nb"), Some(2));
         assert_eq!(multiline_paste_lines("a\r\nb\rc\n\n"), Some(3));

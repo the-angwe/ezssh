@@ -1,6 +1,6 @@
-//! The window's UI font: the system UI face, as the webview's
-//! `'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif`
-//! resolved. egui's bundled fonts stay behind it as fallback.
+//! The window's UI font: the system UI face (Segoe UI Variable / Segoe UI
+//! on Windows, the system UI font elsewhere). egui's bundled fonts stay
+//! behind it as fallback.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

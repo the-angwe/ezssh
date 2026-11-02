@@ -369,7 +369,7 @@ async fn insert_imported_session(
     s: &ParsedMobaSession,
     credential_id: Option<i64>,
 ) -> Result<()> {
-    // Defaults match the UI's new-session defaults (see session-dialog.tsx).
+    // Defaults match the session editor's new-session defaults.
     // `credential_id` is attached when a referenced key file was read into
     // the vault; otherwise the session lands with no credential and the
     // user attaches one later from the session dialog.

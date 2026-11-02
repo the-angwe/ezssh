@@ -7,17 +7,17 @@ body:
     attributes:
       value: |
         Thanks for taking the time to file a bug. Before submitting, please check
-        [open issues](https://github.com/ZerosAndOnesLLC/ezTerm/issues) for an
+        [open issues](https://github.com/the-angwe/ezssh/issues) for an
         existing report.
 
-        **Security issue?** Don't post here — see [SECURITY.md](https://github.com/ZerosAndOnesLLC/ezTerm/blob/main/SECURITY.md).
+        **Security issue?** Don't post here — see [SECURITY.md](https://github.com/the-angwe/ezssh/blob/main/SECURITY.md).
 
   - type: input
     id: version
     attributes:
-      label: ezTerm version
-      description: From Help → About, or `ezterm --version`.
-      placeholder: "v1.3.4"
+      label: ezSsh version
+      description: Shown at the right of the status bar.
+      placeholder: "2.0.0-beta0"
     validations:
       required: true
 
@@ -66,9 +66,10 @@ body:
     attributes:
       label: Relevant logs
       description: |
-        Paste any relevant output from `%LOCALAPPDATA%\ezterm\logs\` (Windows)
-        or `~/.local/share/ezterm/logs/` (Linux/macOS). Redact hostnames,
-        usernames, or other sensitive info before pasting.
+        Start ezSsh from a terminal with
+        `RUST_LOG=ezssh_app=debug,ezssh_core=debug,ezssh_term=debug` and paste
+        what it prints. Redact hostnames, usernames, or other sensitive info
+        before pasting.
       render: shell
     validations:
       required: false

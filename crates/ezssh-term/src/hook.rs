@@ -1,7 +1,7 @@
 //! The VT handler the parser drives: alacritty's `Term` with two sequences
 //! taken over.
 //!
-//! - **OSC 52** goes through [`crate::osc52`] (the `osc52.ts` policy:
+//! - **OSC 52** goes through [`crate::osc52`] (our policy:
 //!   lenient base64, size cap before decoding, reads refused, live on/off)
 //!   instead of alacritty's strict decoder.
 //! - **Colour queries** (OSC 4 / 10 / 11 / 12 with `?`) are answered here,

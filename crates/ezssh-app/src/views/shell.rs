@@ -1,4 +1,4 @@
-//! `main-shell.tsx` + `tabs-shell.tsx` layout: sidebar (or its collapsed
+//! The main layout: sidebar (or its collapsed
 //! rail) on the left, tab strip and MDI area in the middle, status bar at
 //! the bottom, and the shell-level dialogs on top.
 

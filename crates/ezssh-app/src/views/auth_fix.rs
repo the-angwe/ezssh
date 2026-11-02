@@ -1,4 +1,4 @@
-//! `auth-fix-overlay.tsx`: shown over a tab whose SSH login failed. Fix the
+//! The auth-fix overlay: shown over a tab whose SSH login failed. Fix the
 //! username, the method and the password or key without opening the full
 //! session dialog, then save and reconnect. Painted over the tab's terminal
 //! only, not window-wide.
@@ -273,7 +273,7 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     }
 
     if cancel {
-        // As in the webview: cancelling the fix closes the tab. Dropping
+        // Cancelling the fix closes the tab. Dropping
         // `fix` wipes the typed password.
         tracing::debug!(tab, "auth_fix: cancelled, closing the tab");
         app.close_tab(tab);

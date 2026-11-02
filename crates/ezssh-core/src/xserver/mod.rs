@@ -1,6 +1,6 @@
 //! VcXsrv (GPLv2, free) lifecycle manager.
 //!
-//! ezTerm does not bundle an X server; it delegates to VcXsrv on Windows
+//! ezSsh has no X server of its own; it delegates to VcXsrv on Windows
 //! and manages its lifecycle per-display with reference counting. The
 //! first SSH session that opts into X11 forwarding brings VcXsrv up on
 //! `:0`; subsequent sessions share the same display; the server exits
@@ -23,24 +23,17 @@ use crate::error::{AppError, Result};
 pub const DEFAULT_DISPLAY: u8 = 0;
 
 /// Where to look for vcxsrv.exe **as a system install**. Checked after
-/// the bundled copies under the ezTerm binary (see `detect_install_path`).
+/// the bundled copy next to the ezSsh binary (see `detect_install_path`).
 const VCXSRV_CANDIDATES: &[&str] = &[
     r"C:\Program Files\VcXsrv\vcxsrv.exe",
     r"C:\Program Files (x86)\VcXsrv\vcxsrv.exe",
 ];
 
-/// Relative paths under the ezTerm binary's directory where VcXsrv may
-/// live. Two layouts are supported:
-///
-/// - `vcxsrv/vcxsrv.exe` — portable tar.xz release: VcXsrv sits next to
-///   `ezterm.exe` at the top of the extracted folder.
-/// - `resources/vcxsrv/vcxsrv.exe` — MSI / NSIS installer: Tauri places
-///   `bundle.resources` entries under `<install>/resources/`, so after
-///   a normal install the tree lives there.
-const BUNDLED_VCXSRV_RELS: &[&str] = &[
-    "vcxsrv/vcxsrv.exe",
-    "resources/vcxsrv/vcxsrv.exe",
-];
+/// Path under the ezSsh binary's directory where a bundled VcXsrv lives:
+/// the portable tar.xz has `vcxsrv/` next to `ezssh.exe`, and the NSIS /
+/// MSI installers place their `vcxsrv` resource there too
+/// (`[package.metadata.packager] resources` in `ezssh-app/Cargo.toml`).
+const BUNDLED_VCXSRV_REL: &str = "vcxsrv/vcxsrv.exe";
 
 pub struct XServerManager {
     displays: Mutex<HashMap<u8, DisplayEntry>>,
@@ -72,22 +65,20 @@ impl XServerManager {
     }
 
     /// Return the VcXsrv install path if we can find it. Priority:
-    /// 1. Bundled next to the ezTerm binary — either `vcxsrv/` (portable
-    ///    tar.xz) or `resources/vcxsrv/` (MSI / NSIS installer). Lets
-    ///    "install ezTerm" Just Work without a separate VcXsrv install.
-    /// 2. Per-user install at `<data_dir>/ezTerm/vcxsrv/vcxsrv.exe` —
-    ///    populated by the in-app "Install VcXsrv" flow so users of
-    ///    the dev / portable build can self-provision.
+    /// 1. Bundled next to the ezSsh binary (`vcxsrv/`, portable tar.xz and
+    ///    installers). Lets "install ezSsh" Just Work without a separate
+    ///    VcXsrv install.
+    /// 2. Per-user install at `<data_dir>/vcxsrv/vcxsrv.exe` (the ezTerm
+    ///    data folder, see [`user_install_dir`]) — populated by the in-app
+    ///    "Install VcXsrv" flow, by ezSsh or by an earlier ezTerm.
     /// 3. `C:\Program Files\VcXsrv\` and the x86 variant — user's own
     ///    system install (useful for dev builds / `cargo run`).
     pub fn detect_install_path() -> Option<PathBuf> {
         if let Ok(exe) = std::env::current_exe()
             && let Some(dir) = exe.parent() {
-                for rel in BUNDLED_VCXSRV_RELS {
-                    let bundled = dir.join(rel);
-                    if bundled.exists() {
-                        return Some(bundled);
-                    }
+                let bundled = dir.join(BUNDLED_VCXSRV_REL);
+                if bundled.exists() {
+                    return Some(bundled);
                 }
             }
         if let Some(user) = user_install_path()
@@ -162,7 +153,9 @@ impl XServerManager {
     }
 }
 
-/// Per-user VcXsrv install directory. Used by the in-app installer
+/// Per-user VcXsrv install directory, in ezTerm's data folder so a copy an
+/// ezTerm install provisioned is found (and removed by the uninstallers'
+/// `%APPDATA%\zerosandones\ezterm\data\vcxsrv`). Used by the in-app installer
 /// (see `install_vcxsrv`) and picked up by `detect_install_path` when
 /// neither the bundled copy nor a system install is present.
 pub fn user_install_dir() -> Option<PathBuf> {

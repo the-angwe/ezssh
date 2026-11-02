@@ -1,4 +1,4 @@
-//! Cloud-sync Tauri commands (Phase 1 — local folder).
+//! Cloud sync: local folder or S3-compatible bucket.
 
 use chrono::{TimeZone, Utc};
 use std::path::PathBuf;
@@ -244,9 +244,8 @@ async fn sync_configure_s3_inner(
 }
 
 /// Download the remote object to a temp file and return its absolute
-/// path. The frontend hands that path + the backup passphrase to the
-/// existing RestoreDialog — same preview + selection flow as a manual
-/// backup file.
+/// path. The UI hands that path + the backup passphrase to the restore
+/// dialog — same preview + selection flow as a manual backup file.
 pub async fn sync_pull_to_temp(state: &AppState) -> Result<String> {
     require_unlocked(state).await?;
     let kind = state.sync.target_kind().await;

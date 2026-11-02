@@ -1,11 +1,9 @@
-//! Window layout that the webview kept in localStorage (`ezterm.*` keys):
-//! view mode, tile grid, sidebar and SFTP pane widths, SFTP columns, the
-//! last update check. Kept
-//! in `layout.json` next to the database. It is per-install convenience,
+//! Window layout: view mode, tile grid, sidebar and SFTP pane widths, SFTP
+//! columns, the last update check. Kept in `layout.json` next to the
+//! database. It is per-install convenience,
 //! not a preference, so backups and sync never carry it.
 //!
-//! Minimized tabs (`ezterm.minimizedTabs`) are not persisted: tabs do not
-//! survive a restart, so their ids would never match again.
+//! Minimized tabs are not persisted: tabs do not survive a restart, so their ids would never match again.
 
 use std::path::{Path, PathBuf};
 
@@ -72,8 +70,7 @@ pub struct Layout {
     pub sidebar_width: f32,
     pub sftp_pane_width: f32,
     pub sftp_columns: SftpColumns,
-    /// Unix time of the last successful update check (the webview's
-    /// `ezterm.updater.lastCheckAt`).
+    /// Unix time of the last successful update check.
     pub last_update_check: Option<i64>,
 }
 
@@ -91,8 +88,7 @@ impl Default for Layout {
 }
 
 /// On-disk shape. Every field optional so a file from an older or newer
-/// build still loads; bad values fall back per field, like the webview's
-/// `read*` helpers.
+/// build still loads; bad values fall back per field.
 #[derive(Default, Serialize, Deserialize)]
 struct Stored {
     view_mode: Option<String>,

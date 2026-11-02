@@ -1,6 +1,6 @@
 //! A plaintext secret passed into the core (a session password typed in a
 //! dialog). Zeroized on drop, never printed by `Debug`, and not
-//! serializable, so it cannot leak into logs or IPC replies.
+//! serializable, so it cannot leak into logs or saved files.
 
 use serde::{Deserialize, Deserializer};
 use zeroize::Zeroizing;

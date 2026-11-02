@@ -1,20 +1,18 @@
-//! `sftp-pane.tsx` + `sftp-breadcrumb.tsx` + `sftp-file-row.tsx` +
-//! `transfer-status.tsx`: the file pane docked on the left of an SSH or
-//! WSL tab (SFTP on the tab's own connection, or the WSL share).
+//! The file pane docked on the left of an SSH or WSL tab (SFTP on the
+//! tab's own connection, or the WSL share): breadcrumb, file list,
+//! transfers and their progress.
 //!
-//! Differences from the webview, all because the native app gets real
-//! paths from the OS:
 //! - drops and the Upload button use the path-based core transfers
-//!   (`sftp_upload_many`), so there is no size cap and no 1 MB chunk
-//!   pipeline; one progress strip shows uploads and downloads alike;
-//! - a dropped folder is walked here (no `webkitGetAsEntry`);
+//!   (`sftp_upload_many`), so there is no size cap; one progress strip
+//!   shows uploads and downloads alike;
+//! - a dropped folder is walked here;
 //! - winit 0.30 reports no pointer position during an OS drag and no file
 //!   drops at all on Wayland, so a drop lands in the visible pane's
 //!   current folder (no per-folder drop targets), and the list's
 //!   right-click menu offers "Upload folder…" for desktops without drops;
 //! - a failed listing keeps the previous folder instead of showing its
 //!   entries under the new path, and a reconnect reopens the browser in
-//!   the folder it showed (the webview's stayed on the dead connection).
+//!   the folder it showed.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -51,7 +49,7 @@ const EARLY_TTL: Duration = Duration::from_secs(60);
 
 // ---------------------------------------------------------------- helpers
 
-/// `formatSize` of `sftp-file-row.tsx`.
+/// A file size for the list: B, KB, MB, GB.
 pub fn format_size(bytes: u64) -> String {
     const K: f64 = 1024.0;
     let b = bytes as f64;
@@ -1731,7 +1729,7 @@ mod tests {
     }
 
     #[test]
-    fn sizes_and_modes_match_the_webview() {
+    fn sizes_and_modes() {
         assert_eq!(format_size(0), "0 B");
         assert_eq!(format_size(1023), "1023 B");
         assert_eq!(format_size(1536), "1.5 KB");

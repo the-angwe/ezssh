@@ -1,19 +1,22 @@
 # ezSsh
 
-> **ezSsh is a permanent fork of [ezTerm](https://github.com/ZerosAndOnesLLC/ezTerm).**
-> It is being rebuilt as a single native Rust app (egui + alacritty_terminal)
-> without the webview; see [the rework plan](docs/design/native-rework-plan.md).
-> Until that lands, the shipped build below is still the Tauri app and still
-> calls itself ezTerm (same binary name, settings and data folder).
+A free, open-source SSH client with a MobaXterm-style session manager,
+encrypted credential vault, terminal, SFTP side-pane, WSL and local-shell
+tabs, port forwards and X11 forwarding. One native Rust program: an
+[egui](https://github.com/emilk/egui) window around an
+[alacritty_terminal](https://crates.io/crates/alacritty_terminal) terminal,
+no webview.
 
-A free, open-source Windows SSH client with a MobaXterm-style session manager,
-encrypted credential vault, xterm-compatible terminal, SFTP side-pane, WSL and
-local-shell tabs, and X11 forwarding.
+ezSsh is a permanent fork of [ezTerm](https://github.com/ZerosAndOnesLLC/ezTerm)
+(Tauri + Next.js + xterm.js), rebuilt natively from version 2.0; the rework is
+documented in [docs/design/native-rework-plan.md](docs/design/native-rework-plan.md).
+It opens the database of an existing ezTerm install: sessions, folders,
+credentials, known hosts and settings carry over, and ezTerm backups and sync
+bundles restore.
 
-**Status:** pre-release. v0.11.0 is the first tagged build with the full SSH +
-WSL + X11 feature set. Windows-first; Linux and macOS binaries are produced by
-the release pipeline but only the SSH / SFTP / terminal features are meaningful
-on those platforms.
+**Status:** 2.0.0-beta0, the first native build. Windows-first; Linux and
+macOS builds come from the same release pipeline, where WSL, local Windows
+shells and the bundled X server do not apply.
 
 **Licence:** GNU General Public License, version 3 — see [LICENSE](LICENSE).
 
@@ -42,7 +45,7 @@ on those platforms.
   matching sessions.
 
 ### Terminal
-- xterm.js with **full 16-colour + 256-colour + 24-bit truecolor** support
+- [alacritty_terminal](https://crates.io/crates/alacritty_terminal) with **full 16-colour + 256-colour + 24-bit truecolor** support
   (remote sees `TERM=xterm-256color`).
 - Copy / Paste (`Ctrl+Shift+C` / `Ctrl+Shift+V` / `Shift+Insert`), Select All,
   Clear Scrollback, Find (`Ctrl+Shift+F`) with case-sensitive / regex toggles.
@@ -50,13 +53,15 @@ on those platforms.
 - **OSC 52 clipboard writes** — programs on the remote end (Claude Code,
   neovim, tmux) can copy to your local clipboard through SSH. Reads are
   refused so a remote host can never pull clipboard contents.
+- Clickable links (URLs and OSC 8 hyperlinks), bracketed paste, mouse
+  reporting for tmux / vim / htop, kitty keyboard protocol.
 - Per-session font size, scrollback depth, cursor style, env vars, keepalive,
   connect timeout, initial command, compression.
 
 ### Settings
 
 - **Settings panel** (sidebar menu or the status-bar gear). Every control
-  saves on change. Terminal colour palette (ezTerm dark / light, Campbell,
+  saves on change. Terminal colour palette (ezSsh dark / light, Campbell,
   Solarized, Dracula, Gruvbox, Nord, One Dark, Monokai, Tango, and the
   GNOME / GitHub / Google light + dark pairs from Ptyxis — applied live to
   open tabs), defaults for new sessions (scrollback, font, cursor,
@@ -78,17 +83,21 @@ on those platforms.
   grab-strip on its right edge (200 – 640 px, persisted), Name and Size
   columns resizable from the header (drag, double-click to reset, arrow
   keys when focused; the list scrolls sideways once the columns outgrow
-  the pane) — breadcrumb navigation, right-click context menu (Download, Rename, Delete), drag-drop
-  upload from Explorer with streaming 32 KiB chunks and live progress. WSL
+  the pane) — breadcrumb navigation, multi-select, right-click context menu
+  (Download, Rename, Delete, New folder), drop files and folders from the file
+  manager to upload them, download files and whole folders, live progress
+  with cancel. WSL
   tabs browse the distro's filesystem through the Plan 9 bridge
   (`\\wsl.localhost\<distro>\…`) and shell out to the distro's coreutils
-  for POSIX-aware listing + `chmod` — same UX as MobaXterm's WSL pane,
+  for POSIX-aware listing — same UX as MobaXterm's WSL pane,
   no extra packages required.
 - **Inline auth-fix overlay** — when a connect fails with bad auth / missing
   credential, a dedicated overlay lets the user fix username, auth method, or
   vault credential without leaving the tab. No "close tab and start over" ritual.
+- **Six view modes** (`Ctrl+Shift+W`): tabs, tile horizontally / vertically /
+  grid / auto, and cascade with minimise / maximise / restore.
 - **Status bar** — active-session `user@host`, SFTP cwd, X-server pill,
-  theme + lock buttons.
+  version, theme, settings, update check and lock buttons.
 - **Toasts** for create / rename / delete / import events.
 - Dark by default with a light theme toggle; theme persists per user.
 
@@ -96,111 +105,101 @@ on those platforms.
 - **Vault** — Argon2id KDF → ChaCha20-Poly1305 AEAD for every stored secret.
   Master password unlocks the app; secrets live encrypted at rest in SQLite and
   are zeroised in memory after use.
-- **Credentials** — passwords, private keys, and key passphrases are three
-  distinct kinds so a single stored passphrase can back multiple sessions.
+- **Credentials** — a session's password belongs to that session; private keys
+  and key passphrases are shared credentials that several sessions can use.
+- **Signed updates** — the in-app updater installs only installers signed with
+  the project's update key (minisign), on a stable or pre-release channel.
 - **Known hosts** — stored in SQLite, not `~/.ssh/known_hosts`. Mismatch is a
   hard fail unless the user explicitly trusts the new fingerprint.
 - **Redacted logging** — host / user / fingerprint are the only identifiers
   that appear in traces; secrets never touch logs.
 
-## Website
-
-Project site: <https://ezterm.zerosandones.us/> — landing page, docs,
-screenshots, and changelog. Source lives in [`site/`](site/).
-
-Develop locally:
-
-```bash
-npm --prefix site install     # one-time
-npm --prefix site run dev     # http://localhost:4321/
-npm --prefix site run build   # → site/dist/
-```
-
-The site auto-deploys on every push to `main` that touches `site/**` or
-`docs/release-notes/**` (see `.github/workflows/site.yml`).
-
 ## Install
 
-Pre-built binaries live on the
-[Releases](https://github.com/ZerosAndOnesLLC/ezTerm/releases) page — one
-`tar.xz` per platform:
+Installers and portable archives are on the
+[Releases](https://github.com/the-angwe/ezssh/releases) page:
 
-| Platform | Archive |
-|---|---|
-| Windows x86_64 | `ezTerm_<version>_windows-x64-portable.tar.xz` |
-| Linux x86_64 | `ezTerm_<version>_linux-amd64-portable.tar.xz` |
-| Linux aarch64 | `ezTerm_<version>_linux-aarch64-portable.tar.xz` |
-| macOS aarch64 | `ezTerm_<version>_macos-aarch64-portable.tar.xz` |
+| Platform | Installer | Portable |
+|---|---|---|
+| Windows x86_64 | `ezssh_<version>_x64-setup.exe` (per user) or `ezssh_<version>_x64_en-US.msi` | `ezSsh_<version>_windows-x64-portable.tar.xz` |
+| Linux x86_64 | `ezssh_<version>_x86_64.AppImage`, `ezssh_<version>_amd64.deb` | `ezSsh_<version>_linux-amd64-portable.tar.xz` |
+| Linux aarch64 | `ezssh_<version>_aarch64.AppImage`, `ezssh_<version>_arm64.deb` | `ezSsh_<version>_linux-aarch64-portable.tar.xz` |
+| macOS aarch64 | `ezssh_<version>_aarch64.app.tar.gz` (unsigned) | `ezSsh_<version>_macos-aarch64-portable.tar.xz` |
 
-Extract, run the `ezterm` / `ezterm.exe` binary. No install step required — the
-UI is embedded in the executable.
+Installed copies update themselves from the release's signed `latest.json`;
+portable copies link to the release instead.
+
+ezSsh installs next to ezTerm (its own identifier, `xyz.angwe.ezssh`) and uses
+ezTerm's data folder, so quit ezTerm before starting ezSsh on the same
+database. The first start upgrades that database, after which ezTerm no
+longer opens it; back it up first if you may go back. ezTerm v1 installs do
+not update into ezSsh: install ezSsh once by hand.
 
 **Runtime dependencies:**
-- **Windows** — the release tarball bundles VcXsrv in a `vcxsrv/` subfolder
-  next to `ezterm.exe`, so X11 forwarding works out of the box. If you'd
-  rather use a system install, delete the bundled folder and install
-  [VcXsrv](https://sourceforge.net/projects/vcxsrv/) at
-  `%ProgramFiles%\VcXsrv\` — ezTerm falls back to that path.
-- **Linux** — needs `webkit2gtk-4.1` and `libssl` (matches the build host).
+- **Windows** — the installers and the portable archive bundle
+  [VcXsrv](https://sourceforge.net/projects/vcxsrv/) next to `ezssh.exe`, so
+  X11 forwarding works out of the box; a system install at
+  `%ProgramFiles%\VcXsrv\` is used when the bundled copy is missing. Software
+  rendering (WARP) is used automatically on machines without a usable GPU
+  (VMs, RDP).
+- **Linux** — xkbcommon, fontconfig, the X11 or Wayland client libraries, and
+  Vulkan or EGL (the deb lists them). No webkit2gtk.
 
-## Dev quickstart
+## Development
 
 ```bash
-# one-time
-cargo install tauri-cli --version '^2.0' --locked
-cargo install sqlx-cli --no-default-features --features sqlite --locked
-cp .env.example .env
-npm --prefix ui install
-
-# run (uses cargo tauri dev, which runs the Next.js dev server + Rust)
-cargo tauri dev
+cargo run -p ezssh-app                          # the real database
+cargo run -p ezssh-app -- --db /tmp/x/ezterm.sqlite   # a throwaway one
+cargo run -p ezssh-app -- --help                # renderer and other options
 ```
 
-Use `cargo tauri dev`, not `cargo run` — the latter fails with
-`frontendDist "../ui/out" doesn't exist` because `ui/out/` is a build artifact.
-If you must use `cargo run`, build the UI first:
-`npm --prefix ui run build && cargo run`.
+Linux needs the xkbcommon / xcb headers to build
+(`libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev`).
+`./build.sh` (or `build.cmd` on Windows) wraps the usual commands.
 
 ### Tests + linters
 
 ```bash
-cargo test -p ezterm -p ezssh-core
-npm --prefix ui run typecheck
-npm --prefix ui run lint
-npm --prefix ui test
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+The app and terminal tests drive the real UI headless with
+[egui_kittest](https://crates.io/crates/egui_kittest); `EZSSH_UI_SHOTS=<dir>`
+also renders their screens to PNG. File-pane and updater tests run against
+`crates/ezssh-testsrv`, an in-process SSH / SFTP / HTTP server.
 
 ### Local release build
 
 ```bash
-cargo tauri build        # full MSI + NSIS installers on Windows
-cargo build --release    # raw self-contained binary in target/release/
+cargo build -p ezssh-app --profile dist        # target/dist/ezssh (fat LTO)
+cargo packager -p ezssh-app -f deb,appimage    # installers, see crates/ezssh-app/packaging/
 ```
 
 ## Architecture
 
 ```
-ezTerm/
+ezssh/
 ├── crates/
-│   ├── ezssh-core/  Rust: SSH/SFTP, vault, DB, local PTY, forwards, sync, backup, X server mgmt
-│   ├── ezssh-term/  native terminal widget (rework, not shipped yet)
-│   └── ezssh-spike/ native test window (rework phase 1)
-├── src-tauri/       Tauri shell: thin #[tauri::command] wrappers over ezssh-core
-├── ui/              Next.js app (static export embedded into the Rust binary)
-├── migrations/      sqlx migrations (SQLite)
-└── .github/         release workflow
+│   ├── ezssh-core/     backend: SSH / SFTP, vault, DB, local PTY, WSL fs, forwards,
+│   │                   sync, backup, import, X server, updater; `api::*` on `&AppState`
+│   ├── ezssh-term/     terminal widget: alacritty_terminal model, egui painter,
+│   │                   key / mouse encoding, palettes, fonts
+│   ├── ezssh-app/      the `ezssh` binary: window, sidebar, tabs, dialogs, file pane
+│   ├── ezssh-testsrv/  SSH + SFTP + HTTP test server (tests and manual checks)
+│   └── ezssh-release/  update key, installer signatures, latest.json
+├── migrations/         sqlx migrations (SQLite)
+└── .github/            CI and release workflows
 ```
 
-- **Command boundary** — all SSH / SFTP / vault / local-PTY / X-server ops live
-  in Rust behind Tauri commands. The UI is a renderer + keyboard capture; no
-  protocol logic in TypeScript.
-- **Terminal data path** — shell output flows from Rust to the UI as raw
-  bytes over a Tauri IPC channel the UI creates before it calls
-  `ssh_connect` / `local_connect`; the UI buffers until its keystroke
-  handler is wired, then arms the channel. Close and error are
-  `ssh:close:<id>` / `ssh:error:<id>` events (shared by SSH and local PTY
-  drivers). Keystrokes flow the other way through `ssh_write` /
-  `local_write` commands. A watchdog fails the tab if the channel stalls.
+- **One process** — eframe owns the main thread; a tokio runtime on a
+  background thread owns every connection. The UI calls `ezssh_core::api::*`
+  and gets the result back on the UI thread; async events (transfers,
+  forward status, update progress) arrive through `events::EventSink`.
+- **Terminal data path** — the SSH or PTY reader task feeds output straight
+  into the tab's terminal model and asks for a repaint; the UI thread only
+  locks the model to paint, resize, select or search. Keystrokes are encoded
+  by `ezssh-term` and written to the connection.
 - **Session kinds** — a single `sessions` table with a `session_kind` column
   (`ssh` / `wsl` / `local`) re-purposes `host` + `username` per kind. The
   connect flow dispatches to either the russh client (SSH) or the
@@ -211,25 +210,27 @@ ezTerm/
 
 ## Releases
 
-See [docs/RELEASING.md](docs/RELEASING.md) for the tag-push workflow. tl;dr:
-bump the version in `Cargo.toml`, push a `v*` tag, GitHub Actions produces the
-four `tar.xz` archives and opens a draft release for you to review.
+See [docs/RELEASING.md](docs/RELEASING.md). tl;dr: bump the version in
+`Cargo.toml`, add `docs/release-notes/v<version>.md`, push a `v<version>` tag;
+GitHub Actions builds the installers and portable archives, signs them, writes
+`latest.json` and opens a draft release for you to review.
 
 ## Licence
 
-ezTerm is licensed under the **GNU General Public License, version 3** (GPLv3
+ezSsh is licensed under the **GNU General Public License, version 3** (GPLv3
 only — not "or later"). See [LICENSE](LICENSE) for the full text.
 
 Third-party components retain their own licences:
+- `egui`, `eframe`, `alacritty_terminal` — MIT / Apache 2.0
 - `russh`, `russh-sftp` — Apache 2.0
 - `sqlx`, `tokio` — MIT / Apache 2.0
 - `portable-pty` — MIT
-- `xterm.js` — MIT
-- `lucide-react` — ISC
-- VcXsrv (not bundled; user-installed) — GPL v2
+- Lucide icons — ISC
+- Symbols Nerd Font — MIT
+- VcXsrv (bundled on Windows) — GPL v2
 
 ## Contributing
 
-Issues and PRs welcome at <https://github.com/ZerosAndOnesLLC/ezTerm>. Please
-run `cargo test`, `npm --prefix ui run typecheck`, `npm --prefix ui run lint`, and `npm --prefix ui test`
-before opening a PR.
+Issues and PRs welcome at <https://github.com/the-angwe/ezssh>; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Please run `cargo test --workspace` and
+`cargo clippy --workspace --all-targets -- -D warnings` before opening a PR.

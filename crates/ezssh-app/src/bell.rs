@@ -1,4 +1,4 @@
-//! `terminal.bell = sound`: the webview's 880 Hz, 80 ms tick.
+//! `terminal.bell = sound`: an 880 Hz, 80 ms tick.
 //!
 //! No audio library: Windows has `Beep`; elsewhere a tiny WAV of the same
 //! tone is written once to the temp directory and handed to the first

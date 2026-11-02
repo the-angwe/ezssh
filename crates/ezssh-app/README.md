@@ -1,42 +1,43 @@
 # ezssh-app
 
-The native ezSsh window: an eframe (egui 0.37) shell around
-`ezssh-core` (backend) and `ezssh-term` (terminal widget). Rework phases 4
-(shell), 5 (dialogs), 6 (file pane) and 7 (packaging, updater) of
-`docs/design/native-rework-plan.md` (results in §12 to §15).
+The ezSsh window: an eframe (egui 0.37) shell around `ezssh-core`
+(backend) and `ezssh-term` (terminal widget). Design and history:
+`docs/design/native-rework-plan.md` (§12 to §16).
 
 ```sh
-cargo run -p ezssh-app --release                 # the real database (shared with the Tauri build)
+cargo run -p ezssh-app --release                 # the real database
 cargo run -p ezssh-app --release -- --db /tmp/x/ezterm.sqlite   # a throwaway one
 cargo run -p ezssh-app -- --renderer warp        # software rendering (VMs, RDP)
 RUST_LOG=ezssh_app=debug,ezssh_core=debug cargo run -p ezssh-app
 cargo packager -p ezssh-app -f deb,appimage      # installers into target/packages (packaging/README.md)
 ```
 
-The binary is `ezssh`. Without `--db` it opens the same `ezterm.sqlite`
-as the installed ezTerm app. Running both on the same database at once is
-untested; quit ezTerm first. Window layout (view mode, tile grid, sidebar width, SFTP
-pane width and columns, last update check) is kept in `layout.json` next to the database.
+The binary is `ezssh`. Without `--db` it opens `ezterm.sqlite` in the data
+folder ezTerm used, so an existing ezTerm install's sessions, credentials
+and settings carry over. Running ezTerm and ezSsh on the same database at
+once is untested; quit ezTerm first. Window layout (view mode, tile grid,
+sidebar width, SFTP pane width and columns, last update check) is kept in
+`layout.json` next to the database.
 
 ## Layout
 
-| File | Ports |
+| File | Holds |
 |---|---|
-| `app.rs` | `page.tsx` vault gate, `main-shell.tsx` (settings hydrate, WSL / local-shell autodetect, idle lock, quit confirm, Ctrl+B / Ctrl+Shift+W) |
-| `core.rs` | `invoke()`: a tokio runtime owns the `AppState`; `Core::call(future, continuation)` runs the continuation on the UI thread |
-| `conn.rs` | `terminal.tsx` connect state machine, `ssh.ts` (output straight into the terminal, per-attempt generations instead of arm / detach, no stall watchdog) |
-| `settings.rs` | `lib/settings.ts` (spec, parse, normalise, write-through with rollback) |
-| `tabs.rs` | `lib/tabs-store.ts`, cascade geometry of `use-mdi-drag.ts` / `use-mdi-resize.ts` |
-| `layout.rs` | the `ezterm.*` localStorage keys |
-| `style.rs`, `icons.rs`, `ui_font.rs` | `globals.css` tokens, Lucide icons (`tools/gen_icons.mjs`), system UI font |
-| `widgets.rs` | `.btn-*`, `.icon-btn`, dialog shell, `context-menu.tsx`, `resize-handle.tsx`, `status-dot.tsx`, `empty-state.tsx` |
-| `toasts.rs`, `bell.rs` | `lib/toast.ts` + `toast-region.tsx`; the 880 Hz bell |
-| `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); the font list (installed monospace families, `lib/fonts.ts` as fallback) |
+| `app.rs` | start-up, the vault gate, settings hydrate, WSL / local-shell autodetect, idle lock, quit confirm, Ctrl+B / Ctrl+Shift+W |
+| `core.rs` | a tokio runtime owns the `AppState`; `Core::call(future, continuation)` runs the continuation on the UI thread |
+| `conn.rs` | the connect state machine per tab: output straight into the terminal, per-attempt generations, reconnect, error routing |
+| `settings.rs` | app preferences: spec, parse, normalise, write-through with rollback |
+| `tabs.rs` | open tabs, view mode, cascade geometry |
+| `layout.rs` | `layout.json` |
+| `style.rs`, `icons.rs`, `ui_font.rs` | colour / size / type tokens, Lucide icons (`tools/gen_icons.mjs`), system UI font |
+| `widgets.rs` | buttons, icon buttons, the dialog card, context menus, resize handles, status dots, empty states |
+| `toasts.rs`, `bell.rs` | toasts (four kinds); the 880 Hz bell |
+| `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | dialog form controls; native file dialogs (rfd); the shared credentials list; the font list (installed monospace families, OS presets as fallback) |
 | `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
-| `views/sftp.rs` (phase 6) | `sftp-pane.tsx`, `sftp-breadcrumb.tsx`, `sftp-file-row.tsx`, `transfer-status.tsx`: the file pane (SFTP or the WSL share), OS drops of files and folders, progress strips, row and list menus |
-| `views/update.rs` (phase 7) | `update-dialog.tsx`, `lib/updater.ts`: launch check (cadence in `layout.json`), status-bar button with a dot, download progress, install, restart; the updater itself is `ezssh_core::updater` |
-| `packaging/` (phase 7) | icons, NSIS strings, WiX fragment, `portable.txt`; the cargo-packager config is `[package.metadata.packager]` in `Cargo.toml` |
-| `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `appearance` (replaced `font_picker`), `xserver`, `backup`, `restore`, `sync`, `import` |
+| `views/` (dialogs) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `appearance`, `xserver`, `backup`, `restore`, `sync`, `import` |
+| `views/sftp.rs` | the file pane (SFTP or the WSL share), OS drops of files and folders, progress strips, row and list menus |
+| `views/update.rs` | launch check (cadence in `layout.json`), status-bar button with a dot, download progress, install, restart; the updater itself is `ezssh_core::updater` |
+| `packaging/` | icons, NSIS strings, WiX fragment, `portable.txt`; the cargo-packager config is `[package.metadata.packager]` in `Cargo.toml` |
 
 ## Tests
 
@@ -56,8 +57,8 @@ to PNG.
 
 ## Manual checklist (things the headless tests cannot show)
 
-1. Start against a copy of a real database: the tree, colours and badges
-   match the ezTerm app.
+1. Start against a copy of a real ezTerm database: the tree, colours and
+   badges match what ezTerm showed.
 2. Double-click an SSH session: host-key prompt on first connect, then a
    working shell; vim, htop, tmux, Claude Code.
 3. Window close (title-bar ✕, Alt+F4) with a connected tab asks first;

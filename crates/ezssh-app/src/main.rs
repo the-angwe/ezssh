@@ -15,8 +15,8 @@ USAGE:
     ezssh [OPTIONS]
 
 OPTIONS:
-    --db PATH               Database file (default: the ezTerm data path,
-                            shared with the Tauri build)
+    --db PATH               Database file (default: the data folder ezTerm
+                            used, so existing installs open their database)
     --renderer wgpu|warp|glow
                             wgpu picks the best GPU and falls back to a software
                             adapter (WARP on Windows); warp forces software;

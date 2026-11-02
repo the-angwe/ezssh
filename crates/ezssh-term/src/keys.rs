@@ -507,7 +507,7 @@ mod tests {
     }
 
     /// What xterm.js (`common/input/Keyboard.ts`) sends for these keys, so
-    /// muscle memory and remote key bindings carry over from the webview.
+    /// remote key bindings made for xterm-compatible terminals keep working.
     #[test]
     fn xterm_js_legacy_table() {
         const CS: Mods = Mods { shift: true, alt: false, ctrl: true, super_: false };

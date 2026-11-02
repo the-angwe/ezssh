@@ -1,10 +1,9 @@
 //! Terminal fonts: a named system font in up to four faces (regular, bold,
 //! italic, bold italic) registered as egui font families.
 //!
-//! The session's `font_family` value is resolved the way the webview did
-//! it: a CSS-like stack, tried left to right, ending in the same default
-//! stack as `ui/lib/xterm.ts` (`DEFAULT_FONT_STACK`). Glyphs the chosen
-//! font lacks fall back to the bundled "Symbols Nerd Font Mono" (Nerd Font
+//! The session's `font_family` value is a CSS-like stack (the format the
+//! ezTerm app stored), tried left to right, ending in the default stack.
+//! Glyphs the chosen font lacks fall back to the bundled "Symbols Nerd Font Mono" (Nerd Font
 //! icons, Powerline) and then to eframe's system fallback (CJK, emoji).
 
 use std::collections::HashMap;
@@ -22,8 +21,7 @@ use fontique::{
 const SYMBOLS_TTF: &[u8] = include_bytes!("../assets/SymbolsNerdFontMono-Regular.ttf");
 const SYMBOLS_NAME: &str = "Symbols Nerd Font Mono";
 
-/// What the webview's `DEFAULT_FONT_STACK` resolves to on each OS
-/// (`ui-monospace` is honoured only by WebKit on macOS, where it is SF Mono).
+/// The default font stack on each OS.
 pub fn default_stack() -> &'static [&'static str] {
     if cfg!(target_os = "macos") {
         &["SF Mono", "Cascadia Mono", "Menlo", "DejaVu Sans Mono", "Consolas"]

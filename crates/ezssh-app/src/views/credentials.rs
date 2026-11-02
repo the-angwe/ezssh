@@ -1,11 +1,12 @@
-//! `credentials-dialog.tsx`: the vault's shared credentials (SSH keys and
+//! The credentials manager: the vault's shared credentials (SSH keys and
 //! key passphrases) with rename, rotate secret, add, and delete with a
 //! warning that lists the sessions using it. Sessions reference these by
 //! id, so every change applies to all of them at once.
 //!
 //! Session passwords are saved with their session (the core lists only
 //! shared rows), so there is no password group. An unowned password left
-//! by the ezTerm app's picker shows in a small delete-only group.
+//! by the ezTerm app's password picker (in a database it wrote) shows in a
+//! small delete-only group.
 
 use egui::{Align, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui, UiBuilder, vec2};
 use ezssh_core::api;

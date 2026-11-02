@@ -1,4 +1,4 @@
-//! `restore-dialog.tsx`: open a backup (or a pulled sync bundle), unlock
+//! The restore dialog: open a backup (or a pulled sync bundle), unlock
 //! it with its passphrase, pick what to restore from the decrypted tree,
 //! then `backup_restore`.
 //!
@@ -194,7 +194,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 fn pick_file(app: &App, serial: u64) {
     app.pick_path(
-        Pick::Open { title: "Restore ezTerm backup", filters: vec![Filter { name: "ezTerm backup", extensions: &["json"] }] },
+        Pick::Open { title: "Restore ezSsh backup", filters: vec![Filter { name: "ezSsh backup", extensions: &["json"] }] },
         move |app, path| {
             let Some(d) = app.dialogs.restore.as_mut().filter(|d| d.serial == serial) else {
                 return;
@@ -331,7 +331,7 @@ fn after_restore(app: &mut App, s: &RestoreSummary) {
     );
 }
 
-/// The toast body of `sessions-sidebar.tsx`, plus the renamed items.
+/// The result toast's body, plus the renamed items.
 fn summary_text(s: &RestoreSummary) -> String {
     let parts = [
         count(s.sessions_created, "session", "sessions"),
@@ -356,7 +356,7 @@ fn summary_text(s: &RestoreSummary) -> String {
 fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
     let t = tokens(ui.ctx());
     let version = format!("v{}", p.app_version);
-    shared::rich(ui, &[(Span::Muted, "Created "), (Span::Mono, &p.created_at), (Span::Muted, " · ezTerm "), (Span::Mono, &version)]);
+    shared::rich(ui, &[(Span::Muted, "Created "), (Span::Mono, &p.created_at), (Span::Muted, " · version "), (Span::Mono, &version)]);
 
     // Folders.
     let all = p.folders.iter().map(|f| f.id);

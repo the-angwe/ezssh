@@ -1,4 +1,4 @@
-//! `sync-dialog.tsx`: cloud sync to a local folder (Dropbox, OneDrive, …)
+//! The sync dialog: cloud sync to a local folder (Dropbox, OneDrive, …)
 //! or an S3-compatible bucket. Status polls every 3 s while open; "Pull
 //! from cloud" downloads the S3 bundle to a temp file and hands it to the
 //! restore dialog.
@@ -21,7 +21,7 @@ use crate::icons::Icon;
 use crate::style::{alpha, size, tokens};
 use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
 
-/// The webview's `setInterval(refresh, 3000)`.
+/// How often the open dialog refreshes the sync status.
 const POLL: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -218,7 +218,7 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     let browse_w = 86.0;
                     let w = ui.available_width() - browse_w - 8.0;
-                    let r = form::input(ui, &mut dlg.path, InputOpts::new(r"C:\Users\you\Dropbox\ezterm").mono().width(w));
+                    let r = form::input(ui, &mut dlg.path, InputOpts::new(r"C:\Users\you\Dropbox\ezssh").mono().width(w));
                     if Ghost::new("Browse").icon(Icon::FolderOpen).show(ui).clicked() {
                         *act = Some(Act::Browse);
                     }
@@ -237,14 +237,14 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
                 let w = (ui.available_width() - 8.0) / 2.0;
                 ui.vertical(|ui| {
                     ui.set_width(w);
-                    shared::labeled(ui, "Bucket", |ui| form::input(ui, &mut dlg.s3_bucket, InputOpts::new("ezterm-sync").mono().width(w)));
+                    shared::labeled(ui, "Bucket", |ui| form::input(ui, &mut dlg.s3_bucket, InputOpts::new("ezssh-sync").mono().width(w)));
                 });
                 ui.vertical(|ui| {
                     ui.set_width(w);
                     shared::labeled(ui, "Region", |ui| form::input(ui, &mut dlg.s3_region, InputOpts::new("auto").mono().width(w)));
                 });
             });
-            shared::labeled(ui, "Key prefix (optional)", |ui| form::input(ui, &mut dlg.s3_prefix, InputOpts::new("ezterm/").mono()));
+            shared::labeled(ui, "Key prefix (optional)", |ui| form::input(ui, &mut dlg.s3_prefix, InputOpts::new("ezssh/").mono()));
             shared::labeled(ui, "Access key ID", |ui| form::input(ui, &mut dlg.s3_access_key_id, InputOpts::new("").mono()));
             shared::labeled(ui, "Secret access key", |ui| form::secret(ui, &mut dlg.s3_secret, "", &mut dlg.show, None));
             passphrase_fields(ui, &mut dlg.s3_pass, &mut dlg.s3_pass2, &mut dlg.show);
@@ -339,7 +339,7 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
 }
 
 /// The core's RFC 3339 timestamp in local time, `YYYY-MM-DD HH:MM:SS`
-/// (the webview's `toLocaleString`). Anything else is shown as stored.
+/// Anything else is shown as stored.
 fn display_time(s: &str) -> String {
     display_time_in(s, &chrono::Local)
 }

@@ -16,13 +16,6 @@ pub async fn credential_list(state: &AppState) -> Result<Vec<CredentialMeta>> {
     credentials::list(&state.db).await
 }
 
-/// [`credential_list`] plus session passwords, for the Tauri webview's
-/// picker only (the native app never picks a password).
-pub async fn credential_list_with_session_passwords(state: &AppState) -> Result<Vec<CredentialMeta>> {
-    require_unlocked(state).await?;
-    credentials::list_with_session_passwords(&state.db).await
-}
-
 pub async fn credential_create(
     state: &AppState,
     kind: String,

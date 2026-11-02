@@ -33,13 +33,14 @@ copy.
 
 | File | Used by |
 |---|---|
-| `icons/` | installer, desktop entry, `.app` and window icons (copied from `src-tauri/icons`) |
+| `icons/` | installer, desktop entry, `.app` and window icons (the ezTerm icon set) |
 | `nsis/English.nsh` | cargo-packager's English strings with the uninstall checkbox reworded: it removes the per-user VcXsrv (`nsis.appdata-paths`), never the database or the vault |
-| `wix/remove-user-vcxsrv.wxs` | MSI uninstall removes the per-user VcXsrv (as the Tauri MSI did) |
+| `wix/remove-user-vcxsrv.wxs` | MSI uninstall removes the per-user VcXsrv |
 | `portable.txt` | marker in the portable archives |
 
-Data paths are those of the ezTerm Tauri build (`ezterm.sqlite` under
-`zerosandones/ezterm`), so an installed ezSsh opens the existing database.
+Data paths are those ezTerm used (`ezterm.sqlite` under
+`ZerosAndOnes/ezTerm`, the per-user VcXsrv under `zerosandones/ezterm`),
+so an installed ezSsh opens an existing ezTerm database.
 The install identity is new (`xyz.angwe.ezssh`, product ezSsh), so it
 installs next to ezTerm, not over it.
 

@@ -1,9 +1,9 @@
 [workspace]
-members = ["src-tauri", "crates/ezssh-core", "crates/ezssh-term", "crates/ezssh-spike", "crates/ezssh-app", "crates/ezssh-testsrv", "crates/ezssh-release"]
+members = ["crates/ezssh-core", "crates/ezssh-term", "crates/ezssh-app", "crates/ezssh-testsrv", "crates/ezssh-release"]
 resolver = "3"
 
 [workspace.package]
-version = "1.14.0"
+version = "2.0.0-beta0"
 edition = "2024"
 license = "GPL-3.0-only"
 repository = "https://github.com/the-angwe/ezssh"

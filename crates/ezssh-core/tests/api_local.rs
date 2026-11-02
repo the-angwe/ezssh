@@ -85,7 +85,7 @@ async fn local_shell_round_trip() {
     let conn = api::local::local_connect(&state, session.id, 80, 24, Box::new(Collect(buf.clone())))
         .await
         .expect("local connect");
-    assert!(state.output_sent(conn.connection_id).await.is_some());
+    assert!(state.local.get(conn.connection_id).await.is_some());
 
     api::local::local_resize(&state, conn.connection_id, 100, 30).await.unwrap();
     api::local::local_write(&state, conn.connection_id, b"echo ezssh-$((40+2)); exit\n".to_vec())

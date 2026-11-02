@@ -135,7 +135,7 @@ async fn password_lives_and_dies_with_its_session() {
 }
 
 #[tokio::test]
-async fn key_slots_take_shared_rows_only_and_the_tauri_flow_still_works() {
+async fn key_slots_take_shared_rows_only_and_password_sessions_ignore_credential_id() {
     let (_dir, st) = state().await;
     let pw_session = api::sessions::session_create(&st, ssh("a", "password", Some("pw"))).await.unwrap();
     // A key session may not point at another session's password.
@@ -143,43 +143,30 @@ async fn key_slots_take_shared_rows_only_and_the_tauri_flow_still_works() {
     bad.credential_id = pw_session.credential_id;
     assert!(matches!(api::sessions::session_create(&st, bad).await, Err(AppError::Validation(_))));
 
-    // Tauri picker: create a shared password row, then save a session naming it.
-    let shared = api::credentials::credential_create(&st, "password".into(), "legacy".into(), "picked".into())
+    // An unowned password row, as the ezTerm app's picker left them: listed
+    // (the credentials manager offers to delete it), never attached by
+    // naming it, and deletable.
+    let unowned = api::credentials::credential_create(&st, "password".into(), "legacy".into(), "picked".into())
         .await
         .unwrap();
-    let mut legacy = ssh("c", "password", None);
-    legacy.credential_id = Some(shared.id);
-    let c = api::sessions::session_create(&st, legacy).await.unwrap();
-    assert_eq!(c.credential_id, Some(shared.id));
-    assert_eq!(stored_password(&st, &c).await, Some(("picked".into(), Some(c.id))));
-    // Claimed, so it left the shared list.
-    assert!(api::credentials::credential_list(&st).await.unwrap().is_empty());
-    // Picking another session's password (the webview lists them) copies it.
-    let mut other = ssh("d", "password", None);
-    other.credential_id = Some(shared.id);
-    let d = api::sessions::session_create(&st, other).await.unwrap();
-    assert_ne!(d.credential_id, Some(shared.id));
-    assert_eq!(stored_password(&st, &d).await, Some(("picked".into(), Some(d.id))));
-
-    // The webview's list holds the session passwords, named after their session.
-    let picker = api::credentials::credential_list_with_session_passwords(&st).await.unwrap();
-    assert!(picker.iter().any(|x| x.label == "c" && x.kind == "password"));
-    assert!(api::credentials::credential_list(&st).await.unwrap().is_empty());
-
-    // Edit in the webview: it re-selects the session's own row by id (kept),
-    // or adds a new password and names it (replaces the own row; the unique
-    // index used to make this fail).
-    let mut same = ssh("c-renamed", "password", None);
-    same.credential_id = c.credential_id;
-    let c2 = api::sessions::session_update(&st, c.id, same).await.unwrap();
+    let mut naming = ssh("c", "password", Some("own"));
+    naming.credential_id = Some(unowned.id);
+    let c = api::sessions::session_create(&st, naming).await.unwrap();
+    assert_ne!(c.credential_id, Some(unowned.id));
+    assert_eq!(stored_password(&st, &c).await, Some(("own".into(), Some(c.id))));
+    // Naming another session's password neither shares nor copies it.
+    let mut other = ssh("c", "password", None);
+    other.credential_id = pw_session.credential_id;
+    let c2 = api::sessions::session_update(&st, c.id, other).await.unwrap();
     assert_eq!(c2.credential_id, c.credential_id);
-    let fresh = api::credentials::credential_create(&st, "password".into(), "new".into(), "rotated".into()).await.unwrap();
-    let mut rotate = ssh("c-renamed", "password", None);
-    rotate.credential_id = Some(fresh.id);
-    let c3 = api::sessions::session_update(&st, c.id, rotate).await.unwrap();
-    assert_eq!(stored_password(&st, &c3).await, Some(("rotated".into(), Some(c.id))));
-    // One own row per session, no orphans: a, c, d.
-    assert_eq!(credential_rows(&st).await, 3);
+    assert_eq!(stored_password(&st, &c2).await.unwrap().0, "own");
+
+    let listed = api::credentials::credential_list_detailed(&st).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!((listed[0].id, listed[0].kind.as_str()), (unowned.id, "password"));
+    api::credentials::credential_delete(&st, unowned.id).await.unwrap();
+    // One own row per session, no orphans: a, c.
+    assert_eq!(credential_rows(&st).await, 2);
 }
 
 #[tokio::test]
@@ -245,7 +232,8 @@ async fn legacy_bundle_with_a_shared_password_gives_each_session_a_copy() {
     assert!(preview.credentials.is_empty());
     assert!(preview.sessions.iter().all(|s| s.has_password));
 
-    // Old UIs also tick the password credential; it must not land as a shared row.
+    // A selection naming the password credential (the ezTerm app's restore
+    // dialog listed it) must not land it as a shared row.
     let sel = api::backup::SelectionSpec { session_ids: vec![1, 2], credential_ids: vec![7], ..Default::default() };
     api::backup::backup_restore(&st, path, "backup-pass".into(), sel).await.unwrap();
     let sessions = api::sessions::session_list(&st).await.unwrap();

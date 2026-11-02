@@ -1,6 +1,5 @@
-//! Open tabs and the workspace layout around them: a port of
-//! `ui/lib/tabs-store.ts` plus the cascade geometry of `use-mdi-drag.ts` /
-//! `use-mdi-resize.ts`. Pure state; the terminals live in the app, keyed by
+//! Open tabs and the workspace layout around them, including the cascade
+//! window geometry. Pure state; the terminals live in the app, keyed by
 //! [`TabId`].
 
 use std::collections::{HashMap, HashSet};
@@ -45,7 +44,8 @@ impl ViewMode {
     pub const ALL: [ViewMode; 6] =
         [ViewMode::Tabs, ViewMode::TileH, ViewMode::TileV, ViewMode::TileGrid, ViewMode::Cascade, ViewMode::Auto];
 
-    /// The id the webview stored (`ezterm.viewMode`).
+    /// The stored id (`layout.json`; the same values the ezTerm app kept in
+    /// `ezterm.viewMode`).
     pub fn id(self) -> &'static str {
         match self {
             Self::Tabs => "tabs",
@@ -107,7 +107,7 @@ impl CascadeGeom {
 
     /// Where the frame is drawn in an area of `area_w` × `area_h`: stored
     /// geometry clamped so it never leaks off-screen after a window
-    /// resize. Display only; nothing is written back (as in `tab-slot.tsx`).
+    /// resize. Display only; nothing is written back.
     pub fn displayed(&self, area_w: f32, area_h: f32) -> (f32, f32, f32, f32) {
         let w = self.w.min(CASCADE_MIN_W.max(area_w));
         let h = self.h.min(CASCADE_MIN_H.max(area_h));
@@ -223,8 +223,7 @@ impl Tab {
 
 /// One-line description of where a session goes: `user@host[:port]` for
 /// SSH, `user@distro` (or the distro) for WSL, the program for local
-/// shells. The webview formatted every kind as SSH, which showed local
-/// shells as `@/bin/sh:0`.
+/// shells.
 pub fn session_summary(s: &Session) -> String {
     match s.session_kind.as_str() {
         "local" => s.host.clone(),

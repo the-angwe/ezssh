@@ -1,7 +1,6 @@
-//! Small building blocks shared by the views, each the egui form of one
-//! class or component of the webview: `.btn-primary` / `.btn-ghost` /
-//! `.icon-btn`, the dialog shell, `context-menu.tsx`, `resize-handle.tsx`,
-//! `status-dot.tsx`, `empty-state.tsx`.
+//! Small building blocks shared by the views: buttons (primary, ghost,
+//! icon), the dialog card, context menus, the pane resize handle, status
+//! dots and empty states.
 
 use std::time::Duration;
 
@@ -295,7 +294,7 @@ pub fn paint_icon_button(ui: &Ui, resp: &Response, rect: Rect, icon: Icon, icon_
     focus_ring(ui, resp, rect);
 }
 
-/// An icon button (the webview's `.icon-btn` / `IconBtn`) painted at a
+/// An icon button painted at a
 /// given rect, with a screen-reader `label` apart from its `tooltip`.
 pub struct IconBtn<'a> {
     icon: Icon,
@@ -307,8 +306,7 @@ pub struct IconBtn<'a> {
     hover_tone: Option<Color32>,
     hover_bg: Option<Color32>,
     enabled: bool,
-    /// When false it is painted only while hovered or focused (the
-    /// webview's `opacity-0 group-hover:opacity-100 focus:opacity-100`).
+    /// When false it is painted only while hovered or focused.
     visible: bool,
 }
 
@@ -371,7 +369,7 @@ pub fn focus_ring(ui: &Ui, resp: &Response, rect: Rect) {
 
 // ---------------------------------------------------------------- status
 
-/// `status-dot.tsx`: a 6 px dot by status; errors show the alert icon.
+/// A 6 px dot by status; errors show the alert icon.
 pub fn status_dot(ui: &Ui, center: Pos2, status: TabStatus, icon_size: f32) {
     let t = tokens(ui.ctx());
     let color = match status {
@@ -386,7 +384,7 @@ pub fn status_dot(ui: &Ui, center: Pos2, status: TabStatus, icon_size: f32) {
     ui.painter().circle_filled(center, 3.0, color);
 }
 
-/// Tailwind's `animate-pulse` opacity (1 → 0.5 → 1 over 2 s). Keeps the
+/// A pulsing opacity (1 → 0.5 → 1 over 2 s). Keeps the
 /// frame clock running while anything pulses.
 pub fn pulse(ctx: &egui::Context) -> f32 {
     ctx.request_repaint_after(Duration::from_millis(50));
@@ -396,7 +394,8 @@ pub fn pulse(ctx: &egui::Context) -> f32 {
 
 // ---------------------------------------------------------------- empty state
 
-/// `empty-state.tsx`. Returns the action button's response, if any.
+/// An empty pane: icon, title, body and an optional action button. Returns
+/// the action button's response, if any.
 pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str, action: Option<(&str, bool)>, compact: bool) -> Option<Response> {
     let t = tokens(ui.ctx());
     let mut out = None;
@@ -476,7 +475,7 @@ const STRIP_HEAD_H: f32 = 42.0;
 const FULL_HEAD_H: f32 = 56.0;
 const FOOTER_H: f32 = 52.0;
 
-/// The dialog card of the webview (`w-[…px]`, `max-h-[90vh]`): surface,
+/// The dialog card (fixed width, at most 90 % of the window high): surface,
 /// border, 3 px radius and dialog shadow over a dimmed backdrop, with a
 /// header, a padded body that scrolls once it no longer fits, and a
 /// footer.
@@ -707,7 +706,7 @@ pub fn dialog_heading(ui: &mut Ui, icon: Icon, icon_color: Color32, icon_size: f
     });
 }
 
-/// The webview's `.input`: surface-2 field with a border and accent focus.
+/// A text input: surface-2 field with a border and accent focus.
 pub fn text_input(ui: &mut Ui, value: &mut String, hint: &str, width: f32, password: bool) -> Response {
     let t = tokens(ui.ctx());
     let edit = egui::TextEdit::singleline(value)
@@ -770,7 +769,7 @@ impl<A> MenuEntry<A> {
     }
 }
 
-/// `context-menu.tsx`: a popup at the pointer that closes on a choice,
+/// A context menu: a popup at the pointer that closes on a choice,
 /// Escape or a press outside it.
 pub struct Menu<A> {
     pub pos: Pos2,
@@ -886,7 +885,7 @@ pub struct Bounds {
     pub default: f32,
 }
 
-/// `resize-handle.tsx`: a 4 px strip on the right edge of a pane. Drag
+/// A pane resize handle: a 4 px strip on the right edge of a pane. Drag
 /// resizes, double-click restores the default, and when focused (click
 /// it, or Tab) ←/→ step 16 px (Shift: 64), Home restores the default and
 /// End goes to the maximum.

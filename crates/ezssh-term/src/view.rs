@@ -41,7 +41,7 @@ const BLINK: Duration = Duration::from_millis(600);
 /// idle window does not repaint forever.
 const BLINK_IDLE_STOP: Duration = Duration::from_secs(300);
 /// Ctrl+wheel: one font step per 40 px of wheel travel, one wheel notch
-/// being 100 px (what WebView2 reports), as in `terminal.tsx`.
+/// being 100 px.
 const ZOOM_STEP_PX: f32 = 40.0;
 const WHEEL_NOTCH_PX: f32 = 100.0;
 
@@ -110,8 +110,7 @@ impl Default for TermStyle {
     }
 }
 
-/// Connection state painted over the terminal (the webview's overlay
-/// card). The app owns the state machine; the widget only draws it.
+/// Connection state painted over the terminal as a card. The app owns the state machine; the widget only draws it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Overlay {
     Connecting { summary: String },
@@ -428,8 +427,8 @@ impl<'a> TerminalView<'a> {
         show_find(&ctx, term, rect, id);
         show_menu(&ctx, term, style, id, &mut actions);
         if let Some(o) = overlay {
-            // Dim the terminal under the card (bg at 70 %, as the webview
-            // did), on the widget's own layer so the card stays on top.
+            // Dim the terminal under the card (bg at 70 %), on the
+            // widget's own layer so the card stays on top.
             let bg = to_c32(style.palette.background);
             ui.painter_at(rect).rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 178));
             show_overlay(&ctx, rect, id, o, &mut actions);
@@ -577,7 +576,7 @@ fn handle_keyboard(
             Event::Key { key, pressed, repeat, modifiers, .. } => {
                 let mods = Mods::from_egui(*modifiers);
                 if *pressed {
-                    // Terminal shortcuts (webview build parity).
+                    // Terminal shortcuts.
                     let ctrl_shift = mods.ctrl && mods.shift && !mods.alt;
                     match key {
                         egui::Key::C if ctrl_shift => {
@@ -1392,8 +1391,7 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
         }
     }
 
-    // Visual bell: a short inset ring in the palette's yellow (the
-    // webview's ring-warning).
+    // Visual bell: a short inset ring in the palette's yellow.
     if let Some(at) = term.view.bell_at {
         let age = at.elapsed();
         if age < BELL_FLASH {

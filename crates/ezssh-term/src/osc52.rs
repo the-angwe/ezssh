@@ -10,7 +10,7 @@
 //! (`?` payload) is refused, because answering it would let any remote
 //! program read the local clipboard.
 //!
-//! Port of `ui/lib/osc52.ts`, with its tests. alacritty's own handler
+//! alacritty's own handler
 //! decodes with a strict base64 engine (padding required), which would drop
 //! the unpadded payloads Rust and Go programs send, so the terminal routes
 //! OSC 52 here instead (see `hook.rs`).

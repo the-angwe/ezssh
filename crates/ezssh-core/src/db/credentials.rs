@@ -98,20 +98,6 @@ pub async fn list_detailed(pool: &SqlitePool) -> Result<Vec<CredentialDetail>> {
         .collect())
 }
 
-/// The Tauri picker's list: the shared rows plus every session password,
-/// labelled with its session's name. The old webview selects a session's
-/// password by id and drops a selection it cannot find, so it must see
-/// them; saving a session that names another session's password copies
-/// it (see `db::sessions`).
-pub async fn list_with_session_passwords(pool: &SqlitePool) -> Result<Vec<CredentialMeta>> {
-    Ok(sqlx::query_as::<_, CredentialMeta>(
-        "SELECT c.id, c.kind, COALESCE(s.name, c.label) AS label FROM credentials c \
-         LEFT JOIN sessions s ON s.id = c.session_id ORDER BY c.id DESC",
-    )
-    .fetch_all(pool)
-    .await?)
-}
-
 /// Every row, session passwords included (backups and sync bundles).
 pub async fn list_for_export(pool: &SqlitePool) -> Result<Vec<ExportRow>> {
     Ok(sqlx::query_as::<_, ExportRow>("SELECT id, kind, label, session_id FROM credentials ORDER BY id")

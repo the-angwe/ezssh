@@ -1,5 +1,5 @@
-//! `mdi-area.tsx` / `tab-slot.tsx` / `cascade-chrome.tsx` /
-//! `minimized-strip.tsx`: the six view modes. Hidden tabs are not painted,
+//! The tab area in its six view modes (tabs, tiled, grid, cascade with
+//! its window chrome and minimized strip, auto). Hidden tabs are not painted,
 //! but their terminals keep running, so connections survive mode switches.
 
 use egui::{CursorIcon, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, vec2};

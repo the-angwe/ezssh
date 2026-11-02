@@ -1,4 +1,4 @@
-//! One module per webview component group.
+//! The app's screens, panes and dialogs, one module per group.
 
 pub mod appearance;
 pub mod auth_fix;

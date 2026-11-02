@@ -1,4 +1,4 @@
-//! `backup-dialog.tsx`: export an encrypted backup in three steps:
+//! The backup dialog: export an encrypted backup in three steps:
 //! master-password reauth, backup passphrase + confirm, save-as dialog →
 //! `backup_create`. Also holds the field helpers the backup / restore /
 //! sync / import dialogs share (the card is `widgets::Dialog::data`).
@@ -175,9 +175,9 @@ fn save(app: &mut App, dlg: &mut BackupDialog) {
     dlg.picking = true;
     app.pick_path(
         Pick::Save {
-            title: "Save encrypted ezTerm backup",
-            file_name: format!("ezterm-backup-{}.json", today_utc()),
-            filters: vec![Filter { name: "ezTerm backup", extensions: &["json"] }],
+            title: "Save encrypted ezSsh backup",
+            file_name: format!("ezssh-backup-{}.json", today_utc()),
+            filters: vec![Filter { name: "ezSsh backup", extensions: &["json"] }],
         },
         |app, path| {
             let Some(mut d) = app.dialogs.backup.take() else {
@@ -219,7 +219,7 @@ fn create(app: &mut App, dlg: &mut BackupDialog, path: PathBuf) {
     );
 }
 
-/// The toast body of `sessions-sidebar.tsx`. Session passwords are counted
+/// The result toast's body. Session passwords are counted
 /// with the credentials, so the label says so.
 fn summary_text(s: &BackupSummary) -> String {
     let parts = [
@@ -257,7 +257,7 @@ pub(crate) fn join_or(parts: &[Option<String>], empty: &str) -> String {
     if s.is_empty() { empty.to_string() } else { s }
 }
 
-/// Today's date in UTC as `YYYY-MM-DD` (the webview's `toISOString`).
+/// Today's date in UTC as `YYYY-MM-DD`.
 fn today_utc() -> String {
     chrono::Utc::now().format("%Y-%m-%d").to_string()
 }

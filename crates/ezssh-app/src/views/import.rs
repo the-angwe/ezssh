@@ -1,4 +1,4 @@
-//! `import-mobaxterm-dialog.tsx`: preview a MobaXterm session file
+//! The MobaXterm import dialog: preview a MobaXterm session file
 //! (`.mxtsessions` / `MobaXterm.ini`), choose how to treat duplicates,
 //! import.
 
@@ -229,7 +229,7 @@ fn run_import(app: &mut App, dlg: &mut ImportDialog) {
     );
 }
 
-/// The toast of `sessions-sidebar.tsx`: (title, body, missing keys).
+/// The result toast: (title, body, missing keys).
 fn result_toast(r: &MobaImportResult) -> (&'static str, String, bool) {
     let parts = [
         count(r.created, "created", "created"),

@@ -19,12 +19,10 @@ const UNLOCK_BASE_COOLDOWN_SECS: i64 = 30;
 /// Hard cap on cooldown (seconds) regardless of failure count.
 const UNLOCK_MAX_COOLDOWN_SECS: i64 = 300;
 
-/// Server-side sentinel for `vault_reset`. The Tauri command requires
-/// the caller to send this exact string; any other path (a stray
-/// invoke from inside the webview, a rogue page reached via the xterm
-/// web-links addon, a future XSS in a session label rendered into the
-/// React tree) can't trigger a wipe without knowing it. The "DELETE"
-/// the UI asks the user to type is mapped to this on submit.
+/// Sentinel for `vault_reset`: the caller must send this exact string, so
+/// no call path other than the reset dialog can wipe the vault by
+/// accident. The "DELETE" the UI asks the user to type is mapped to this
+/// on submit.
 const RESET_CONFIRMATION_TOKEN: &str = "DELETE-MY-VAULT";
 
 pub async fn vault_status(state: &AppState) -> Result<&'static str> {
@@ -339,10 +337,8 @@ pub struct ResetResult {
 /// sessions list intact (minus their credential references).
 ///
 /// Requires an explicit confirmation token (the UI asks the user to
-/// type "DELETE" and maps it to the sentinel). Without that token a
-/// stray invoke from inside the webview — a future XSS in a session
-/// label, a rogue page reached via the xterm web-links addon — can't
-/// silently wipe the vault.
+/// type "DELETE" and maps it to the sentinel), so no other call path
+/// can silently wipe the vault.
 ///
 /// Snapshots the DB first so a user who panic-clicks can pull data
 /// back from the file we wrote. Also closes every active connection

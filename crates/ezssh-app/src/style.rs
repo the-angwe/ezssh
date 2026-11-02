@@ -1,9 +1,9 @@
-//! Design tokens: the colours, sizes and type scale of `ui/app/globals.css`
-//! and `ui/tailwind.config.ts`, turned into an egui `Style`.
+//! Design tokens: the colours, sizes and type scale of the app, turned into
+//! an egui `Style`.
 //!
 //! Views read colours from [`Tokens`] (one per theme, fetched with
-//! [`tokens`]) rather than from egui's visuals, so a row, a badge or a tab
-//! looks the same as its Tailwind original.
+//! [`tokens`]) rather than from egui's visuals, so rows, badges and tabs
+//! look the same everywhere.
 
 use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle, Vec2, Visuals};
 
@@ -16,8 +16,7 @@ pub enum Theme {
 }
 
 impl Theme {
-    /// Parse the stored `theme` value; anything but `light` is dark, as in
-    /// `ui/lib/theme.ts`.
+    /// Parse the stored `theme` value; anything but `light` is dark.
     pub fn from_setting(s: Option<&str>) -> Self {
         if s == Some("light") { Self::Light } else { Self::Dark }
     }
@@ -106,8 +105,8 @@ pub fn alpha(c: Color32, alpha: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(r, g, b, (alpha.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
 
-/// `c` painted at `a` opacity over `base`, as an opaque colour. Used where
-/// the webview layered a translucent token over a known background.
+/// `c` painted at `a` opacity over `base`, as an opaque colour, for a
+/// translucent token over a known background.
 pub fn over(base: Color32, c: Color32, a: f32) -> Color32 {
     let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * a).round() as u8;
     let [br, bg, bb, _] = base.to_array();
@@ -115,7 +114,7 @@ pub fn over(base: Color32, c: Color32, a: f32) -> Color32 {
     Color32::from_rgb(mix(br, cr), mix(bg, cg), mix(bb, cb))
 }
 
-/// Tailwind's text scale (`design-system.md` §3): xs 11, sm 12, base 13,
+/// The text scale: xs 11, sm 12, base 13,
 /// md 14, lg 15 px.
 pub mod size {
     pub const XS: f32 = 11.0;

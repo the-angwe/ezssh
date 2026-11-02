@@ -1,6 +1,5 @@
 use serde::Serialize;
 
-use crate::db::known_hosts::{self, KnownHost};
 use crate::error::Result;
 use crate::ssh::{self, ConnectRequest};
 use crate::state::AppState;
@@ -65,18 +64,4 @@ pub async fn ssh_disconnect(state: &AppState, connection_id: u64) -> Result<()> 
     // per-connection `SftpHandle` (audit I-1).
     state.close_connection(connection_id).await;
     Ok(())
-}
-
-pub async fn known_host_list(state: &AppState) -> Result<Vec<KnownHost>> {
-    super::require_unlocked(state).await?;
-    known_hosts::list(&state.db).await
-}
-
-pub async fn known_host_remove(
-    state: &AppState,
-    host: String,
-    port: i64,
-) -> Result<()> {
-    super::require_unlocked(state).await?;
-    known_hosts::remove(&state.db, &host, port).await
 }

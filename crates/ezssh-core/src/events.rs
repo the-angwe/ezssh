@@ -3,15 +3,12 @@
 //! Two paths, kept separate on purpose:
 //!
 //! - [`OutputSink`]: terminal bytes of one connection. Hot path, one sink
-//!   per connection, handed to `ssh_connect` / `local_connect`. The Tauri
-//!   shell forwards into an IPC channel; the native shell feeds the
-//!   terminal model directly.
+//!   per connection, handed to `ssh_connect` / `local_connect`. The app
+//!   feeds the terminal model directly.
 //! - [`EventSink`]: everything else that happens asynchronously (a
 //!   connection closed, a forward changed state, transfer progress). One
 //!   sink per [`AppState`](crate::state::AppState).
 //!
-//! Neither trait knows about event names or JSON. The Tauri adapter maps
-//! [`Event`] onto its historic event names and payloads.
 
 use std::sync::{Arc, mpsc};
 
@@ -22,7 +19,7 @@ use crate::ssh::forwards::RuntimeForwardSummary;
 pub trait OutputSink: Send + 'static {
     /// Deliver one chunk of output. Returns `false` once the consumer is
     /// gone; the caller keeps reading (the connection is torn down through
-    /// its own close path) but stops counting delivered chunks.
+    /// its own close path) and logs that once.
     fn send(&self, bytes: &[u8]) -> bool;
 }
 

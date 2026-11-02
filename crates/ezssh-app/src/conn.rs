@@ -1,11 +1,9 @@
 //! Terminal connections: the glue between a tab's [`Terminal`] and the
-//! core's SSH / local PTY connections, and the connect state machine of
-//! `ui/components/terminal.tsx`.
+//! core's SSH / local PTY connections, and the connect state machine.
 //!
 //! - Output: the core's reader task feeds the terminal directly through
 //!   [`FeedSink`]. Every connect attempt has a generation number; a sink
-//!   whose generation is no longer current drops its bytes (the webview's
-//!   `detach()`), so a late chunk from a torn-down connection never lands
+//!   whose generation is no longer current drops its bytes, so a late chunk from a torn-down connection never lands
 //!   in the reconnected one.
 //! - Input: [`TabPty`] is the terminal's `Pty`. Keystrokes, query answers
 //!   and resizes go into a per-connection queue drained by one writer task
@@ -13,7 +11,7 @@
 //!   produced while the handshake is still running (bash asks for the
 //!   cursor position during prompt setup) waits for the connection id
 //!   instead of being lost. The terminal outlives connections: a reconnect
-//!   attaches a new queue and keeps the scrollback, as xterm.js did.
+//!   attaches a new queue and keeps the scrollback.
 
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -221,7 +219,7 @@ pub enum ConnectFailure {
     Other(String),
 }
 
-/// The webview's `isAuthError`: anything the auth-fix flow can help with.
+/// Anything the auth-fix flow can help with.
 fn is_auth_error(e: &AppError) -> bool {
     match e {
         AppError::AuthFailed => true,
@@ -249,7 +247,7 @@ pub fn classify(e: &AppError, family: Family) -> ConnectFailure {
     }
 }
 
-/// Text of a close event, as the webview showed it: non-zero exit status
+/// Text of a close event: non-zero exit status
 /// and signals are worth showing; a clean end reads as a plain disconnect.
 pub fn close_text(reason: &CloseReason) -> Option<String> {
     match reason {
@@ -429,7 +427,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn close_text_matches_the_webview() {
+    fn close_texts() {
         assert_eq!(close_text(&CloseReason::Exit(0)), None);
         assert_eq!(close_text(&CloseReason::Ended), None);
         assert_eq!(close_text(&CloseReason::Exit(130)).as_deref(), Some("exit 130"));

@@ -292,7 +292,7 @@ fn sync_local_folder_push_status_and_pull_handoff() {
 
     h.get_by_label("Push now").click();
     wait_s(h, 10, "push queued", |a| a.dialogs.sync.as_ref().is_some_and(|d| d.msg.as_deref() == Some("Push queued — will write within a few seconds.")));
-    assert!(h.query_by_label("Pull from cloud").is_none(), "pull is S3 only, as in the webview");
+    assert!(h.query_by_label("Pull from cloud").is_none(), "pull is S3 only");
 
     // Pull hands its temp file to the restore dialog; a local bundle is the
     // same format, so it previews with the sync passphrase.

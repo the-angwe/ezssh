@@ -1,11 +1,10 @@
-//! The vault dialogs: `change-password-dialog.tsx` and
-//! `recovery-code-dialog.tsx` (sidebar root menu), and the unlock screen's
-//! `recovery-unlock-dialog.tsx` and `reset-vault-dialog.tsx`, on
+//! The vault dialogs: change password and recovery code (sidebar root
+//! menu), and the unlock screen's recovery unlock and vault reset, on
 //! `widgets::Dialog` with a title strip.
 //!
 //! Typed secrets live in `Zeroizing` strings, so closing a dialog (dropping
-//! its state) wipes them. Escape and the backdrop follow each TSX file's
-//! gating: never while a call runs or while a one-time result is shown.
+//! its state) wipes them. Escape and the backdrop close a dialog, but
+//! never while a call runs or while a one-time result is shown.
 
 use egui::text::LayoutJob;
 use egui::{Align, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, TextFormat, Ui, vec2};
@@ -22,8 +21,7 @@ use crate::widgets::{self, Dialog, Ghost, Tone};
 
 /// The word the reset dialog asks for.
 const CONFIRM_WORD: &str = "DELETE";
-/// What `api::vault::vault_reset` wants once the user typed the word (the
-/// Tauri build maps it the same way in `lib/tauri.ts`).
+/// What `api::vault::vault_reset` wants once the user typed the word.
 const RESET_TOKEN: &str = "DELETE-MY-VAULT";
 
 // ---------------------------------------------------------------- shared bits
@@ -112,7 +110,7 @@ fn success_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 }
 
 /// Every tab, closed. A password change or a reset ends all connections in
-/// the core, and the webview's page reload dropped its tabs with them.
+/// the core.
 fn close_all_tabs(app: &mut App) {
     let ids: Vec<TabId> = app.tabs.tabs.iter().map(|t| t.id).collect();
     tracing::debug!(tabs = ids.len(), "vault: closing every tab");
@@ -129,7 +127,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 // ---------------------------------------------------------------- change password
 
-/// `change-password-dialog.tsx`.
+/// Change the master password.
 #[derive(Default)]
 pub struct ChangePassword {
     old: Zeroizing<String>,
@@ -318,11 +316,9 @@ fn submit_change_password(app: &mut App) {
     );
 }
 
-/// The webview reloaded the page here. The core already locked the vault
-/// and closed every connection, so the native equivalent is: close the
-/// (dead) tabs and show the unlock screen. Unlocking again reloads
-/// settings, sessions and credentials (`App::on_unlocked`), which is what
-/// the reload achieved.
+/// The core already locked the vault and closed every connection: close
+/// the (dead) tabs and show the unlock screen. Unlocking again reloads
+/// settings, sessions and credentials (`App::on_unlocked`).
 fn finish_change_password(app: &mut App) {
     tracing::info!("vault: password changed, back to the unlock screen");
     close_all_tabs(app);
@@ -351,7 +347,7 @@ enum Phase {
     Failed(String),
 }
 
-/// `recovery-code-dialog.tsx`: re-authenticate, (re)generate, show once.
+/// Recovery code: re-authenticate, (re)generate, show once.
 #[derive(Default)]
 pub struct RecoveryCode {
     phase: Phase,
@@ -597,7 +593,7 @@ fn submit_recovery_code(app: &mut App) {
 
 // ---------------------------------------------------------------- unlock screen
 
-/// `recovery-unlock-dialog.tsx`.
+/// Unlock with the recovery code.
 #[derive(Default)]
 pub struct RecoveryUnlock {
     code: Zeroizing<String>,
@@ -606,7 +602,7 @@ pub struct RecoveryUnlock {
     focused: bool,
 }
 
-/// `reset-vault-dialog.tsx`: typed confirmation, then the snapshot path.
+/// Reset the vault: typed confirmation, then the snapshot path.
 #[derive(Default)]
 pub struct ResetVault {
     typed: String,

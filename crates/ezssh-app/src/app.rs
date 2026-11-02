@@ -1,6 +1,6 @@
-//! The window: start-up, the vault gate (`ui/app/page.tsx`), the frame
-//! loop and the app-wide behaviour of `main-shell.tsx` (settings hydrate,
-//! autodetect, idle lock, quit confirmation, global shortcuts).
+//! The window: start-up, the vault gate, the frame loop and the app-wide
+//! behaviour (settings hydrate, autodetect, idle lock, quit confirmation,
+//! global shortcuts).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -113,7 +113,7 @@ pub struct App {
 }
 
 const XSERVER_POLL: Duration = Duration::from_secs(5);
-/// How often the idle-lock clock is checked (the webview's 15 s ticker).
+/// How often the idle-lock clock is checked.
 const IDLE_TICK: Duration = Duration::from_secs(15);
 
 impl App {
@@ -181,8 +181,9 @@ impl App {
 
     // ------------------------------------------------------------ vault
 
-    /// The vault was unlocked (or created): show the workspace and do what
-    /// `main-shell.tsx` does on mount.
+    /// The vault was unlocked (or created): show the workspace, load
+    /// settings, sessions and credentials, and seed the WSL / local shell
+    /// folders.
     pub(crate) fn on_unlocked(&mut self) {
         tracing::info!("app: unlocked");
         self.screen = Screen::Main;
@@ -203,7 +204,7 @@ impl App {
         self.sidebar.reload(&self.core);
         self.creds.reload(&self.core);
         // WSL first, then local shells; each is idempotent, and both
-        // report what they did, as in the webview.
+        // report what they did.
         self.core.call(
             "wsl_autodetect_seed",
             |st| async move { api::local::wsl_autodetect_seed(&st).await },
@@ -232,8 +233,7 @@ impl App {
     }
 
     /// Lock the vault. Open tabs and their connections stay up behind the
-    /// unlock screen (the Settings hint promises that; the webview
-    /// unmounted and reconnected them instead).
+    /// unlock screen (the Settings hint promises that).
     pub(crate) fn lock(&mut self) {
         if !matches!(self.screen, Screen::Main) {
             return;

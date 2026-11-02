@@ -18,7 +18,7 @@ pub async fn settings_get(state: &AppState, key: String) -> Result<Option<String
 }
 
 /// Every stored key/value pair. Used once at unlock to hydrate the
-/// frontend settings store instead of one round trip per key.
+/// app's settings instead of one round trip per key.
 pub async fn settings_list(state: &AppState) -> Result<Vec<(String, String)>> {
     require_unlocked(state).await?;
     settings::list_all(&state.db).await

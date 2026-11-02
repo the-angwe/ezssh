@@ -37,13 +37,9 @@ pub struct Connection {
     #[allow(dead_code)]
     pub x11_display: Option<u8>,
     /// Per-connection port-forwarding runtime. Created empty at insert
-    /// time; populated by `commands::forwards::forward_start` and by
+    /// time; populated by `api::forwards::forward_start` and by
     /// the auto-start scan in `connect_impl`.
     pub forwards: std::sync::Arc<crate::ssh::forwards::Forwards>,
-    /// Chunks pushed into the frontend's output channel. The driver
-    /// increments it; `terminal_output_sent` reads it so the frontend's
-    /// stall watchdog can compare against what it has received.
-    pub output_sent: Arc<AtomicU64>,
 }
 
 pub enum ConnectionInput {

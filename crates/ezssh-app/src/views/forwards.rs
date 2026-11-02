@@ -1,5 +1,4 @@
-//! `forwards-pane.tsx` + `forward-dialog.tsx` + `lib/forwards.ts`: the
-//! 280 px port-forward pane docked in an SSH tab (saved and tab-only
+//! Port forwards: the 280 px pane docked in an SSH tab (saved and tab-only
 //! forwards with live status), its add / edit dialog, and the session
 //! dialog's Forwards tab (`ForwardsConfigPane`).
 //!
@@ -23,7 +22,7 @@ use crate::style::{alpha, font, font_semibold, size, tokens};
 use crate::tabs::TabId;
 use crate::widgets::{self, Ghost, IconBtn, Menu, MenuEntry, MenuResult, Tone};
 
-// ---------------------------------------------------------------- lib/forwards.ts
+// ---------------------------------------------------------------- labels
 
 /// The fields a label is made of, from a saved row or a runtime spec.
 struct LabelParts<'a> {
@@ -98,7 +97,7 @@ fn kind_icon(k: ForwardKind) -> Icon {
     }
 }
 
-/// `KIND_TONE`: Tailwind blue-400 / amber-400 / emerald-400 (both themes).
+/// Colour per forward kind: blue / amber / emerald (both themes).
 fn kind_tone(k: ForwardKind) -> Color32 {
     match k {
         ForwardKind::Local => Color32::from_rgb(96, 165, 250),
@@ -107,7 +106,7 @@ fn kind_tone(k: ForwardKind) -> Color32 {
     }
 }
 
-/// Tailwind amber-500: the neutral "conflict" tone.
+/// Amber: the neutral "conflict" tone.
 const AMBER_500: Color32 = Color32::from_rgb(245, 158, 11);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,7 +145,7 @@ fn upsert(rows: &mut Vec<RuntimeForwardSummary>, rf: RuntimeForwardSummary) {
 
 /// A status event: a stopped saved forward drops its runtime row (the
 /// saved row stays, idle); a stopped tab-only forward keeps its row with
-/// the new status, as the webview did.
+/// the new status.
 fn apply_status(rows: &mut Vec<RuntimeForwardSummary>, rf: RuntimeForwardSummary) {
     if matches!(rf.status, ForwardStatus::Stopped) {
         if rf.persistent_id.is_some() {
@@ -188,7 +187,7 @@ pub struct ForwardsState {
     /// Runtime forwards per connection id.
     runtime: HashMap<u64, RuntimeList>,
     /// Frame each view last drew; a view not drawn the frame before
-    /// reloads its saved list, as the webview's remount did.
+    /// reloads its saved list.
     seen: HashMap<ViewKey, u64>,
     dialog: Option<ForwardDialog>,
     menu: Option<(TabId, Menu<Action>)>,
@@ -372,7 +371,7 @@ fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
                 move |st| async move { api::forwards::forward_stop(&st, cid, rid).await },
                 move |app, r| match r {
                     // A stopped tab-only row would linger with nothing to
-                    // stop; Stop removes it (the webview kept it forever).
+                    // stop; Stop removes it.
                     Ok(()) if drop_row => {
                         if let Some(list) = app.forwards.runtime.get_mut(&cid) {
                             list.rows.retain(|x| x.runtime_id != rid);
@@ -791,7 +790,7 @@ impl ForwardDialog {
         (1..1024).contains(&parse_port(&self.bind_port))
     }
 
-    /// `submit`'s checks, in the webview's order and wording.
+    /// The dialog's checks, first failure wins.
     fn validate(&self) -> Result<Valid, &'static str> {
         if self.bind_addr.trim().is_empty() {
             return Err("Bind address is required");

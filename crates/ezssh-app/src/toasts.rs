@@ -1,5 +1,5 @@
-//! Toasts: `ui/lib/toast.ts` (four kinds, 4 / 6 / 8 / 4 s) and
-//! `toast-region.tsx` (bottom-right stack, newest at the bottom).
+//! Toasts: four kinds (shown 4 / 6 / 8 / 4 s) in a bottom-right stack,
+//! newest at the bottom.
 
 use std::time::{Duration, Instant};
 

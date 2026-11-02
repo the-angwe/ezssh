@@ -1,6 +1,7 @@
-//! App-wide preferences, a port of `ui/lib/settings.ts`: one flat map of
-//! dotted keys, each with a typed spec (default, kind, bounds). Values live
-//! in the SQLite `app_settings` table as strings, are loaded once at unlock
+//! App-wide preferences: one flat map of dotted keys, each with a typed
+//! spec (default, kind, bounds). Keys and values are the ones the ezTerm
+//! app stored, so existing databases keep their settings. Values live in
+//! the SQLite `app_settings` table as strings, are loaded once at unlock
 //! and written through on every change (no Save button).
 //!
 //! Per-session values (scrollback, font, keepalive, …) win over the
@@ -265,7 +266,7 @@ mod tests {
         for spec in SPEC {
             assert_eq!(s.get(spec.key), &spec.default_value(), "{}", spec.key);
         }
-        // Same key set as settings.ts (21 keys).
+        // The 21 keys existing databases may hold.
         assert_eq!(SPEC.len(), 21);
     }
 

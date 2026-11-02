@@ -33,8 +33,7 @@ pub struct ConnectRequest {
     pub disable_x11: bool,
     /// Where shell output goes. Created by the UI before it calls
     /// connect, so a consumer exists before the first byte arrives (the
-    /// Tauri shell wraps an IPC channel; the native shell feeds the
-    /// terminal model).
+    /// app feeds the terminal model).
     pub output: Output,
 }
 
@@ -469,7 +468,6 @@ async fn connect_impl(
         forwarded_tcpip_dispatch.clone(),
     ));
     let forwards_for_scan = forwards.clone();
-    let output_sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
     deps.ssh
         .insert(Connection {
             id,
@@ -480,7 +478,6 @@ async fn connect_impl(
             ssh_handle: handle_arc.clone(),
             x11_display,
             forwards,
-            output_sent: output_sent.clone(),
         })
         .await;
 
@@ -565,7 +562,6 @@ async fn connect_impl(
             id,
             events: deps.events.clone(),
             output: req.output,
-            output_sent,
             handle: handle_arc,
             ssh_reg,
             sftp_reg,
@@ -780,8 +776,6 @@ struct Driver {
     id: u64,
     events: Events,
     output: Output,
-    /// Chunks delivered to `output`; read by `AppState::output_sent`.
-    output_sent: Arc<std::sync::atomic::AtomicU64>,
     handle: Arc<Handle<ClientHandler>>,
     // Registries the driver cleans up in every exit branch.
     ssh_reg: Arc<ConnectionRegistry>,
@@ -799,7 +793,6 @@ async fn drive_channel(
         id,
         events,
         output,
-        output_sent,
         handle,
         ssh_reg,
         sftp_reg,
@@ -809,6 +802,7 @@ async fn drive_channel(
     let closed = |reason: CloseReason| {
         events.emit(Event::Closed { connection_id: id, reason });
     };
+    let mut consumer_gone = false;
     loop {
         tokio::select! {
             maybe_msg = channel.wait() => {
@@ -819,8 +813,9 @@ async fn drive_channel(
                     // anything observed here.
                     Some(russh::ChannelMsg::Data { data })
                     | Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
-                        if output.send(&data) {
-                            output_sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if !output.send(&data) && !consumer_gone {
+                            consumer_gone = true;
+                            tracing::debug!(connection_id = id, "ssh: output consumer gone, dropping output until close");
                         }
                     }
                     Some(russh::ChannelMsg::ExitStatus { exit_status }) => {

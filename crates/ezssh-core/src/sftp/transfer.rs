@@ -22,8 +22,7 @@ pub(crate) const CHUNK: usize = 32 * 1024;
 /// always emitted regardless of this throttle.
 const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 
-/// Progress of one transfer, delivered as `Event::Transfer` (the Tauri shell
-/// re-emits it on `sftp:transfer:{id}`). A transfer emits throttled
+/// Progress of one transfer, delivered as `Event::Transfer`. A transfer emits throttled
 /// mid-transfer events plus a final event with `done = true`: plain for
 /// success, with `error = Some(..)` if it failed, with `cancelled = true`
 /// (and no error) if it was cancelled.
@@ -34,9 +33,6 @@ pub struct TransferProgress {
     pub total_bytes: u64,
     pub done: bool,
     pub error: Option<String>,
-    /// Left out of the JSON when false, so the webview's payload is as
-    /// before (it never cancels).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub cancelled: bool,
 }
 
@@ -161,7 +157,7 @@ pub(crate) async fn remove_partial_local(transfer_id: u64, path: &Path) {
 /// Holds the SFTP session lock for the full duration of the transfer — SFTP
 /// operations on a single session are not safely interleaved, and the common
 /// case is one transfer at a time. Concurrent uploads would require per-file
-/// sessions, which is a post-v0.3 concern.
+/// sessions.
 pub async fn upload(
     events: &Events,
     handle: &SftpHandle,
@@ -219,41 +215,6 @@ pub async fn upload(
                     Err(e)
                 }
             }
-        })
-        .await;
-
-    if let Err(e) = &result {
-        emit_end(events, transfer_id, total, e);
-    }
-    result
-}
-
-/// Same as `upload` but reads from an in-memory buffer. Used for drag-drop
-/// uploads in the SFTP pane: Windows (and all Chromium-based webviews) don't
-/// expose a source file path on HTML5 drops for security reasons, so the
-/// frontend reads the dropped file via FileReader and ships the bytes.
-/// Caller is expected to have already bounded the byte count.
-pub async fn upload_bytes(
-    events: &Events,
-    handle: &SftpHandle,
-    transfer_id: u64,
-    bytes: &[u8],
-    remote_path: &str,
-) -> Result<()> {
-    let total = bytes.len() as u64;
-    let result: Result<()> = handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-            let mut w = s.create(remote_path).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
-            let mut sent: u64 = 0;
-            let mut ticker = Ticker::new(events, transfer_id);
-            for chunk in bytes.chunks(CHUNK) {
-                w.write_all(chunk).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
-                sent += chunk.len() as u64;
-                ticker.tick(sent, total);
-            }
-            w.shutdown().await.map_err(|e| AppError::Sftp(format!("close: {e}")))?;
-            emit_done(events, transfer_id, sent, total);
-            Ok(())
         })
         .await;
 

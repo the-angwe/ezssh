@@ -1,38 +1,12 @@
 # ---------- Rust / Cargo ----------
 debug
 target
-src-tauri/target
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
 
-# ---------- Tauri ----------
-src-tauri/gen/
-src-tauri/WixTools/
-src-tauri/*.msi
-src-tauri/*.exe
-
-# VcXsrv payload is pulled in during CI (Chocolatey install → copy into
-# src-tauri/vcxsrv/) so it gets bundled as a Windows resource. The tree
-# is large (~10 MB) and recreated every build, so keep it out of git —
-# but track `.gitkeep` so the directory itself exists and the bundler
-# glob (tauri.windows.conf.json: "vcxsrv/**/*") always matches.
-src-tauri/vcxsrv/*
-!src-tauri/vcxsrv/.gitkeep
-
-# ---------- Node / Next.js ----------
-node_modules/
-.next/
-out/
-dist/
-build/
-.turbo/
-.pnpm-store/
-tsconfig.tsbuildinfo
-
-# ---------- Updater signing keys (NEVER commit these) ----------
-.tauri-updater-key
-.tauri-updater-key.pub
+# ---------- Update signing key (NEVER commit it; docs/UPDATER_SIGNING.md) ----------
+ezssh-update.key
 
 # ---------- Env & secrets ----------
 .env
@@ -54,12 +28,6 @@ Thumbs.db
 
 # ---------- Logs ----------
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Root package-lock (no root deps — file would just be an empty lock)
-/package-lock.json
 
 # ---------- Claude Code runtime ----------
 .claude/
@@ -70,5 +38,4 @@ yarn-error.log*
 # ---------- Release staging scratch (gh release download) ----------
 tmp-release-hashes/
 .release-notes-*.md
-.superpowers/
 target-test/

@@ -7,7 +7,7 @@ the app (`crates/ezssh-core/updater.pub`). Until that file holds a key,
 workflow publishes releases without `latest.json`, so no installed copy is
 offered them.
 
-The formats are the ones `tauri-plugin-updater` used: minisign keys and
+The formats are the ones ezTerm's `tauri-plugin-updater` used: minisign keys and
 signatures, each base64-wrapped into one line, `latest.json` with
 `{version, notes, pub_date, platforms}`. The signature's trusted comment
 names the release version, and the app refuses an installer whose
@@ -85,13 +85,10 @@ old key is not compromised, sign one last release with the old key that
 already contains the new `updater.pub`, so installed copies move over on
 their own.
 
-## The Tauri build
+## ezTerm installs
 
-The webview build (`src-tauri`, `.github/workflows/release-tauri.yml`,
-manual runs only) keeps its own updater: `tauri-plugin-updater` with the
-public key in `src-tauri/tauri.conf.json` and the `TAURI_SIGNING_PRIVATE_KEY`
-/ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets. That key is upstream
-ezTerm's; this fork does not have its private half, so the Tauri updater
-of this repository cannot sign anything until the key there is replaced
-too (`cargo tauri signer generate`). The Tauri build is removed at the
-native cut-over (rework phase 8).
+ezTerm (the Tauri build this fork started from) updates through
+`tauri-plugin-updater` from upstream's releases with upstream's key, which
+this fork does not have. ezTerm installs therefore never see ezSsh
+releases; users install ezSsh once by hand, and it opens their existing
+database.

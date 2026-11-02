@@ -1,4 +1,4 @@
-//! `sessions-sidebar.tsx`: the folder / session tree with drag and drop,
+//! The sessions sidebar: the folder / session tree with drag and drop,
 //! context menus, and the small folder / session dialogs. The session
 //! editor and the root menu's dialogs live in their own modules.
 

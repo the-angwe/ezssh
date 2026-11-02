@@ -1,11 +1,10 @@
 //! The bridge between the UI thread and `ezssh-core`.
 //!
 //! A tokio runtime on background threads owns the [`AppState`] and every
-//! connection, as in the Tauri build. The UI calls [`Core::call`] with an
-//! `api::*` future and a continuation; when the future finishes, the
-//! continuation is queued and run on the UI thread with `&mut App` at the
-//! start of the next frame ([`Core::take_jobs`]). That replaces `invoke()`
-//! and its promise.
+//! connection. The UI calls [`Core::call`] with an `api::*` future and a
+//! continuation; when the future finishes, the continuation is queued and
+//! run on the UI thread with `&mut App` at the start of the next frame
+//! ([`Core::take_jobs`]).
 
 use std::future::Future;
 use std::path::Path;

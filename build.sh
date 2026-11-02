@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# ezTerm build helper. Works in Git Bash on Windows, WSL, macOS, and Linux.
+# ezSsh build helper. Works in Git Bash on Windows, WSL, macOS, and Linux.
 #
 # Usage:
-#   ./build.sh            # install deps, start dev (cargo tauri dev)
-#   ./build.sh dev        # same as above
-#   ./build.sh build      # install, UI build, cargo build (debug)
-#   ./build.sh run        # install, UI build, cargo run
-#   ./build.sh release    # install, UI build, cargo tauri build (.msi / bundle)
-#   ./build.sh test       # cargo test + npm lint + npm typecheck
-#   ./build.sh clean      # remove ui/out, ui/node_modules, target/
+#   ./build.sh            # cargo run (debug), the real database
+#   ./build.sh run        # same as above; extra arguments go to ezssh
+#   ./build.sh build      # cargo build (debug)
+#   ./build.sh release    # cargo build --profile dist → target/dist/ezssh
+#   ./build.sh package    # installers for this OS via cargo-packager
+#   ./build.sh test       # cargo test + clippy
+#   ./build.sh clean      # remove target/
 #   ./build.sh help
 set -euo pipefail
 
@@ -21,69 +21,48 @@ require() {
   command -v "$1" >/dev/null 2>&1 || err "$1 not found in PATH. Install it and retry."
 }
 
-ensure_ui_deps() {
-  if [ ! -d ui/node_modules ]; then
-    color "Installing frontend dependencies (first run only — takes a minute)"
-    npm --prefix ui install --no-audit --no-fund
-  fi
-}
-
-ensure_ui_built() {
-  ensure_ui_deps
-  if [ ! -f ui/out/index.html ] || ! grep -q "_next" ui/out/index.html 2>/dev/null; then
-    color "Building frontend static export"
-    npm --prefix ui run build
-  fi
-}
-
-cmd="${1:-dev}"
+cmd="${1:-run}"
+[ $# -gt 0 ] && shift
 
 case "$cmd" in
-  dev)
-    require cargo; require npm
-    ensure_ui_deps
-    color "Starting cargo tauri dev (UI runs via beforeDevCommand)"
-    exec cargo tauri dev
+  run)
+    require cargo
+    color "cargo run -p ezssh-app"
+    exec cargo run -p ezssh-app -- "$@"
     ;;
 
   build)
-    require cargo; require npm
-    ensure_ui_built
+    require cargo
     color "cargo build (debug)"
-    exec cargo build --manifest-path src-tauri/Cargo.toml
-    ;;
-
-  run)
-    require cargo; require npm
-    ensure_ui_built
-    color "cargo run"
-    exec cargo run --manifest-path src-tauri/Cargo.toml
+    exec cargo build --workspace
     ;;
 
   release)
-    require cargo; require npm
-    ensure_ui_deps
-    color "cargo tauri build (release bundle)"
-    exec cargo tauri build
+    require cargo
+    color "cargo build --profile dist (fat LTO, a few minutes)"
+    exec cargo build -p ezssh-app --profile dist --locked
+    ;;
+
+  package)
+    require cargo
+    command -v cargo-packager >/dev/null 2>&1 \
+      || err "cargo-packager not found. Install it: cargo install cargo-packager --locked"
+    color "cargo packager (see crates/ezssh-app/packaging/README.md)"
+    exec cargo packager -p ezssh-app --release "$@"
     ;;
 
   test)
-    require cargo; require npm
-    ensure_ui_deps
+    require cargo
     color "cargo test"
-    cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv -p ezssh-release
+    cargo test --workspace
     color "cargo clippy"
-    cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv -p ezssh-release --all-targets -- -D warnings
-    color "npm typecheck"
-    npm --prefix ui run typecheck
-    color "npm lint"
-    npm --prefix ui run lint
+    cargo clippy --workspace --all-targets -- -D warnings
     color "All checks passed."
     ;;
 
   clean)
-    color "Removing ui/out, ui/node_modules, target/"
-    rm -rf ui/out ui/node_modules src-tauri/target target
+    color "Removing target/"
+    rm -rf target
     color "Clean."
     ;;
 

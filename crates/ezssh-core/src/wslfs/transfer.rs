@@ -1,7 +1,7 @@
 //! Chunked upload/download for WSL connections. Mirrors
 //! `sftp/transfer.rs` byte-for-byte on the event side (same
-//! `Event::Transfer` + `TransferProgress` payload) so the
-//! frontend `TransferStatus` strip doesn't need to know whether the
+//! `Event::Transfer` + `TransferProgress` payload) so the file
+//! pane's progress strip doesn't need to know whether the
 //! transfer is real SFTP or a Plan 9 copy.
 //!
 //! Why not `tokio::fs::copy`? It's faster but emits no progress and
@@ -67,37 +67,6 @@ pub async fn upload(
         if matches!(e, AppError::TransferCancelled) {
             remove_partial_local(transfer_id, &unc).await;
         }
-        emit_end(events, transfer_id, total, e);
-    }
-    result
-}
-
-pub async fn upload_bytes(
-    events: &Events,
-    handle: &WslFsHandle,
-    transfer_id: u64,
-    bytes: &[u8],
-    remote_path: &str,
-) -> Result<()> {
-    let total = bytes.len() as u64;
-    let unc = handle.linux_to_unc(remote_path);
-
-    let result: Result<()> = async {
-        let mut remote = tokio::fs::File::create(&unc).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
-        let mut sent: u64 = 0;
-        let mut ticker = Ticker::new(events, transfer_id);
-        for chunk in bytes.chunks(CHUNK) {
-            remote.write_all(chunk).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
-            sent += chunk.len() as u64;
-            ticker.tick(sent, total);
-        }
-        remote.flush().await?;
-        emit_done(events, transfer_id, sent, total);
-        Ok(())
-    }
-    .await;
-
-    if let Err(e) = &result {
         emit_end(events, transfer_id, total, e);
     }
     result

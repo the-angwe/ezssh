@@ -187,17 +187,6 @@ pub async fn forward_stop(
     Ok(())
 }
 
-pub async fn forward_stop_all(
-    state: &AppState,
-    connection_id: u64,
-) -> Result<()> {
-    require_unlocked(state).await?;
-    let conn = state.ssh.get(connection_id).await
-        .ok_or(AppError::NotFound)?;
-    conn.forwards.stop_all().await;
-    Ok(())
-}
-
 pub(crate) fn spec_from_db(f: &db::forwards::Forward) -> Result<ForwardSpec> {
     let kind = match f.kind.as_str() {
         "local"   => ForwardKind::Local,
@@ -255,7 +244,7 @@ pub(crate) async fn start_inner(
     let rf = match started {
         Ok(rf) => rf,
         Err(AppError::PortConflict(msg)) => {
-            // Neutral: the bind address is owned by another ezTerm tab,
+            // Neutral: the bind address is owned by another ezSsh tab,
             // another window/process, or this session already forwards it.
             // Emit an amber Conflict status (the pane keeps Start available
             // so the user can take it over) and return Ok — no error toast,

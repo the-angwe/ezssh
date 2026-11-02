@@ -242,7 +242,7 @@ fn forwards_pane_status_menu_and_dialog() {
     );
     crate::views::forwards::on_event(
         app,
-        status(3, None, spec("", ForwardKind::Remote, 8080), ForwardStatus::Conflict { message: "bind 127.0.0.1:8080 in use (another ezTerm tab?)".into() }),
+        status(3, None, spec("", ForwardKind::Remote, 8080), ForwardStatus::Conflict { message: "bind 127.0.0.1:8080 in use (another ezSsh tab?)".into() }),
     );
     h.run_steps(3);
     assert!(h.query_by_label("Stop Postgres dev").is_some(), "running row offers Stop");

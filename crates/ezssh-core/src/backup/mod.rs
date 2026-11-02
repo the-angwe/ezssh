@@ -156,7 +156,7 @@ pub fn encrypt_bundle(bundle: &Bundle, passphrase: &str) -> Result<Vec<u8>> {
 /// fails (wrong passphrase or tampered bytes).
 pub fn decrypt_bundle(bytes: &[u8], passphrase: &str) -> Result<Bundle> {
     let env: BackupEnvelope = serde_json::from_slice(bytes)
-        .map_err(|_| AppError::Validation("not an ezTerm backup file".into()))?;
+        .map_err(|_| AppError::Validation("not an ezSsh / ezTerm backup file".into()))?;
     if env.magic != MAGIC {
         return Err(AppError::Validation("wrong backup file magic".into()));
     }

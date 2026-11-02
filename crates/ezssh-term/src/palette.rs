@@ -1,11 +1,10 @@
 //! Terminal colour palettes.
 //!
-//! The 17 built-in palettes of `ui/lib/palettes.ts` (#176), same ids and
-//! colours, so the `terminal.palette` setting means the same thing in both
-//! builds. `ezterm-dark` is the palette the app shipped with before
-//! palettes were selectable. The palette does not follow the window theme;
-//! it is its own setting. Ids keep their `ezterm-` prefix because they are
-//! stored values; only the labels say ezSsh.
+//! 17 built-in palettes (#176). `ezterm-dark` is the palette the app
+//! shipped with before palettes were selectable. The palette does not
+//! follow the window theme; it is its own setting. Ids are the stored
+//! `terminal.palette` values (the ezTerm app wrote the same ones), so they
+//! keep their `ezterm-` prefix; only the labels say ezSsh.
 
 use alacritty_terminal::vte::ansi::NamedColor;
 pub use alacritty_terminal::vte::ansi::Rgb;
@@ -468,34 +467,6 @@ mod tests {
         assert_eq!(by_id("no-such-palette").id, DEFAULT_PALETTE);
         assert_eq!(by_id("").id, DEFAULT_PALETTE);
         assert_eq!(by_id("constructor").id, DEFAULT_PALETTE);
-    }
-
-    /// Until the webview build is deleted (phase 8), both builds must show
-    /// the same colours for the same setting.
-    #[test]
-    fn matches_the_webview_palettes() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../ui/lib/palettes.ts");
-        let Ok(ts) = std::fs::read_to_string(path) else {
-            eprintln!("skipped: {path} not found");
-            return;
-        };
-        let to_hex = |c: Rgb| format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b);
-        for p in PALETTES {
-            let at = ts.find(&format!("id: '{}'", p.id)).unwrap_or_else(|| panic!("{} missing in palettes.ts", p.id));
-            let entry = &ts[at..at + ts[at..].find("],").expect("ansi list end")];
-            for (field, c) in [
-                ("background", p.background),
-                ("foreground", p.foreground),
-                ("cursor", p.cursor),
-                ("cursorAccent", p.cursor_accent),
-                ("selectionBackground", p.selection_background),
-            ] {
-                assert!(entry.contains(&format!("{field}: '{}'", to_hex(c))), "{} {field}", p.id);
-            }
-            let ansi: Vec<String> = entry.split("ansi: [").nth(1).unwrap().split('\'').skip(1).step_by(2).map(str::to_string).collect();
-            assert_eq!(ansi, p.ansi.iter().map(|c| to_hex(*c)).collect::<Vec<_>>(), "{} ansi", p.id);
-            assert!(entry.contains(&format!("light: {}", p.light)), "{} light", p.id);
-        }
     }
 
     #[test]

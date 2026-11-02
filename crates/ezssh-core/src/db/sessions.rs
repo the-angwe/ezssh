@@ -20,8 +20,8 @@ pub struct Session {
     pub initial_command: Option<String>,
     pub scrollback_lines: i64,
     pub font_size: i64,
-    /// CSS font-family string. Empty string means "use the app default
-    /// stack" (Cascadia Mono + fallbacks, defined in lib/xterm.ts).
+    /// CSS-like font stack (the format ezTerm stored; see
+    /// `ezssh_term::fonts`). Empty string means "use the app default".
     pub font_family: String,
     pub cursor_style: String, // 'block' | 'bar' | 'underline'
     pub compression: i64,     // 0 | 1 (SQLite has no bool)
@@ -86,8 +86,7 @@ pub struct SessionInput {
 /// What to do with a session's own password row when it is saved.
 #[derive(Debug)]
 pub enum PasswordOp {
-    /// Keep the stored one (or claim the unowned row `credential_id`
-    /// names: the Tauri picker's create-then-attach flow).
+    /// Keep the stored one.
     Keep,
     /// Store this ciphertext, replacing any previous password.
     Set { nonce: Vec<u8>, ciphertext: Vec<u8> },
@@ -250,11 +249,8 @@ pub async fn update_with(pool: &SqlitePool, id: i64, input: &SessionInput, passw
     get(pool, id).await
 }
 
-/// kind, owning session, nonce, ciphertext of a credentials row.
-type CredRow = (String, Option<i64>, Vec<u8>, Vec<u8>);
-
 /// Point `sessions.credential_id` of a `password` session at its own row
-/// (writing, claiming or keeping it), or drop the own row when the session
+/// (writing or keeping it), or drop the own row when the session
 /// uses another auth type. Key and passphrase slots may only name shared
 /// rows.
 async fn bind_password(
@@ -287,38 +283,9 @@ async fn bind_password(
     }
     let bound = match op {
         PasswordOp::Set { nonce, ciphertext } => Some(store_own(tx, id, &input.name, owned, nonce, ciphertext).await?),
-        // The Tauri picker names a password row instead of sending one.
-        PasswordOp::Keep => match input.credential_id {
-            Some(c) if Some(c) != owned => {
-                let row: Option<CredRow> =
-                    sqlx::query_as("SELECT kind, session_id, nonce, ciphertext FROM credentials WHERE id = ?")
-                        .bind(c)
-                        .fetch_optional(&mut **tx)
-                        .await?;
-                match row {
-                    // Just created by the picker: claim it (the old own row
-                    // goes first, the unique index allows one per session).
-                    Some((kind, None, _, _)) if kind == "password" => {
-                        if let Some(o) = owned {
-                            sqlx::query("DELETE FROM credentials WHERE id = ?").bind(o).execute(&mut **tx).await?;
-                        }
-                        sqlx::query("UPDATE credentials SET session_id = ? WHERE id = ?").bind(id).bind(c).execute(&mut **tx).await?;
-                        tracing::debug!(session = id, credential = c, "sessions: claimed an unowned password row");
-                        Some(c)
-                    }
-                    // Another session's password: copy it, never share it.
-                    Some((kind, Some(other), nonce, ciphertext)) if kind == "password" => {
-                        tracing::debug!(session = id, from_session = other, "sessions: copying another session's password");
-                        Some(store_own(tx, id, &input.name, owned, &nonce, &ciphertext).await?)
-                    }
-                    _ => {
-                        tracing::debug!(session = id, credential = c, "sessions: not a password row, keeping the own password");
-                        owned
-                    }
-                }
-            }
-            _ => owned,
-        },
+        // `credential_id` is ignored here: a password session only ever
+        // uses its own row.
+        PasswordOp::Keep => owned,
     };
     sqlx::query("UPDATE sessions SET credential_id = ?, key_passphrase_credential_id = NULL WHERE id = ?")
         .bind(bound)

@@ -2,8 +2,6 @@
 //! `local/mod.rs` for the data-flow overview.
 
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::thread;
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -88,18 +86,18 @@ pub async fn spawn(
 
     // Reader: bytes → the UI's output sink; EOF or read error →
     // `Event::Closed` with no exit status.
-    let output_sent = Arc::new(AtomicU64::new(0));
-    let reader_sent = output_sent.clone();
     let reader_events = state.events.clone();
     let reader_id = id;
     thread::spawn(move || {
         let mut buf = vec![0u8; 8192];
+        let mut consumer_gone = false;
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if output.send(&buf[..n]) {
-                        reader_sent.fetch_add(1, Ordering::Relaxed);
+                    if !output.send(&buf[..n]) && !consumer_gone {
+                        consumer_gone = true;
+                        tracing::debug!(connection_id = reader_id, "local: output consumer gone, dropping output until close");
                     }
                 }
                 Err(e) => {
@@ -144,7 +142,6 @@ pub async fn spawn(
         .insert(Connection {
             id,
             stdin: tx,
-            output_sent,
             wsl_meta,
         })
         .await;

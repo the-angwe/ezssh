@@ -1,6 +1,6 @@
-//! `xserver-missing-dialog.tsx`: X11 forwarding is on but no X server is
+//! The X server dialog: X11 forwarding is on but no X server is
 //! installed; install the bundled VcXsrv (Windows only), or connect
-//! without X11. Cancel closes the tab, as in the webview.
+//! without X11. Cancel closes the tab.
 
 use egui::text::LayoutJob;
 use egui::{FontId, Id, RichText, TextFormat, Ui};

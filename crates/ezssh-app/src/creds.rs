@@ -1,8 +1,7 @@
 //! The shared credentials list (private keys and key passphrases; session
 //! passwords live on their session). The session dialog's pickers and the
 //! credentials manager read it; whoever changes a credential calls
-//! [`CredCache::reload`], which replaces `credential-events.ts`'s
-//! broadcast: every picker sees the new list on the next frame.
+//! [`CredCache::reload`]: every picker sees the new list on the next frame.
 
 use ezssh_core::api;
 use ezssh_core::db::credentials::CredentialMeta;

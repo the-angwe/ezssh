@@ -6,8 +6,8 @@
 
 <!-- Checklist of what was verified. Examples:
 - [ ] `cargo check` passes
-- [ ] `cargo test -p ezterm -p ezssh-core`
-- [ ] `npm --prefix ui run typecheck && npm --prefix ui run lint`
+- [ ] `cargo test --workspace`
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings`
 - [ ] Manually connected via SSH / WSL / local shell
 - [ ] Screenshots attached for UI changes
 -->

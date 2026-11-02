@@ -1,76 +1,79 @@
 # Releasing
 
-The release pipeline lives in [`.github/workflows/release.yml`](../.github/workflows/release.yml)
-and produces one `tar.xz` archive per supported platform, attached to a
-draft GitHub Release that you review and publish by hand.
+The release pipeline lives in [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+A `v*` tag builds every platform, signs the installers, writes the updater
+manifest and opens a draft GitHub Release that you review and publish by
+hand.
 
-## Supported targets
+## What gets built
 
-| Platform | Runner | Rust target | Archive |
+| Platform | Runner | Installers (cargo-packager) | Portable |
 |---|---|---|---|
-| Windows x86_64 | `windows-latest` | `x86_64-pc-windows-msvc` | `ezTerm_<version>_windows-x64-portable.tar.xz` |
-| Linux x86_64 | `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `ezTerm_<version>_linux-amd64-portable.tar.xz` |
-| Linux aarch64 | `ubuntu-24.04-arm` | `aarch64-unknown-linux-gnu` | `ezTerm_<version>_linux-aarch64-portable.tar.xz` |
-| macOS aarch64 | `macos-latest` | `aarch64-apple-darwin` | `ezTerm_<version>_macos-aarch64-portable.tar.xz` |
+| Windows x86_64 | `windows-latest` | `ezssh_<v>_x64-setup.exe` (NSIS, per user), `ezssh_<v>_x64_en-US.msi` | `ezSsh_<v>_windows-x64-portable.tar.xz` |
+| Linux x86_64 | `ubuntu-latest` | `ezssh_<v>_x86_64.AppImage`, `ezssh_<v>_amd64.deb` | `ezSsh_<v>_linux-amd64-portable.tar.xz` |
+| Linux aarch64 | `ubuntu-24.04-arm` | `ezssh_<v>_aarch64.AppImage`, `ezssh_<v>_arm64.deb` | `ezSsh_<v>_linux-aarch64-portable.tar.xz` |
+| macOS aarch64 | `macos-latest` | `ezssh_<v>_aarch64.app.tar.gz` (unsigned, not notarised) | `ezSsh_<v>_macos-aarch64-portable.tar.xz` |
 
-Every published file follows `ezTerm_<version>_<platform>…`: the Tauri
-bundler's installers (`_x64_en-US.msi`, `_x64-setup.exe`, `_amd64.deb`,
-`_arm64.deb`, `_amd64.AppImage`, `_aarch64.AppImage`), the macOS updater
-bundle (`_macos-aarch64.app.tar.gz`), and the portable archives above.
+The Windows installers and portable archive carry VcXsrv (installed from
+Chocolatey on the runner, staged at `target/vcxsrv`). Each portable
+archive holds the binary, README, LICENSE and a `portable.txt` marker that
+tells the updater to link to the release instead of replacing that copy.
+Packaging config: `[package.metadata.packager]` in
+`crates/ezssh-app/Cargo.toml`, details in
+[`crates/ezssh-app/packaging/README.md`](../crates/ezssh-app/packaging/README.md).
 
-Each archive contains a single self-contained binary (Tauri embeds the
-Next.js static export at build time), `README.md`, and `LICENSE`. No
-installer — copy the binary wherever you want and run it.
+The release job then signs every installer with `ezssh-release`
+(secrets `EZSSH_SIGNING_KEY` / `EZSSH_SIGNING_KEY_PASSWORD`), verifies the
+signatures against `crates/ezssh-core/updater.pub`, writes `latest.json`
+(notes from `docs/release-notes/<tag>.md`), checks that every URL in it is
+an asset of the release, and writes `SHA256SUMS`. Without the secret the
+release is still created, but with no `latest.json`, so no installed copy
+is offered it. One-time key setup: [UPDATER_SIGNING.md](UPDATER_SIGNING.md).
 
 ## Cut a release
 
-1. **Bump the version** in `Cargo.toml` (workspace.package.version).
-   Commit. Push.
-2. **Tag the commit**: `git tag v0.11.0 && git push origin v0.11.0`.
-3. Watch the `release` workflow in the Actions tab. All four build jobs
-   run in parallel (~10 min on free tier); the final `publish draft
-   release` job attaches the artifacts to a draft release.
-4. Open the draft release on GitHub, write release notes, attach any
-   migration caveats, and **Publish**.
+1. **Bump the version** in the workspace `Cargo.toml`
+   (`[workspace.package] version`) and run `cargo check` so `Cargo.lock`
+   follows. The tag must equal this version; the workflow fails otherwise
+   (the binary reports it to the updater, so a mismatch would offer the
+   same update forever).
+2. **Write the notes** in `docs/release-notes/v<version>.md`. They become
+   the GitHub release body and the `notes` of `latest.json`, which the
+   update dialog shows.
+3. Commit, push, then **tag**: `git tag v2.0.0 && git push fork v2.0.0`.
+4. Watch the `release` workflow in the Actions tab. The four build jobs run
+   in parallel; `publish draft release` attaches everything to a draft.
+5. Open the draft on GitHub, check the assets, and **Publish**. Installed
+   copies see the release from then on (drafts are invisible to them).
 
-`workflow_dispatch` also triggers the build jobs if you want to
-smoke-test the pipeline without tagging — artifacts land on the
-workflow run but no GitHub Release is created.
+A version with a `-` (`2.0.0-beta0`) is published as a GitHub
+pre-release, which only copies set to the pre-release update channel are
+offered; the stable channel reads `releases/latest`, which skips
+pre-releases. Pre-release identifiers compare as text (`beta10` sorts
+before `beta2`), so keep them to one digit or use `beta.N`.
+
+`workflow_dispatch` runs the build jobs without a tag to smoke-test the
+pipeline: artifacts land on the workflow run, no release is created.
+
+The `prune` job keeps the newest 20 releases (drafts and pre-releases
+included) and deletes older ones with their tags.
 
 ## Platform caveats
 
-- **Windows** — the binary is self-contained. WSL and local-shell
-  sessions work. X11 forwarding requires the user to install
-  [VcXsrv](https://sourceforge.net/projects/vcxsrv/) separately;
-  bundling it in an installer is v0.12 work.
-- **Linux** — the binary requires `webkit2gtk-4.1` + `libssl` at
-  runtime (same as the build host). WSL autodetect returns empty,
-  `cmd.exe` / `pwsh.exe` local shells won't spawn, and the
-  `%ProgramFiles%\VcXsrv` path probe is a no-op. Only SSH + SFTP
-  sessions are usable out of the box.
-- **macOS** — same as Linux for the Windows-specific features. The
-  archive contains a plain executable, not a `.app` bundle; users may
-  need to allow it in System Settings → Privacy & Security on first
-  launch (Gatekeeper blocks unsigned binaries). Signing / notarisation
-  would eliminate that prompt but needs secrets.
+- **Windows** — WSL, local shells and the bundled X server work. The
+  executable has no embedded icon yet.
+- **Linux** — WSL autodetect returns nothing and `cmd.exe` / `pwsh.exe`
+  local shells won't spawn; SSH, SFTP, forwards and `/etc/shells` local
+  shells work. The deb's dependencies are listed in the packager config.
+- **macOS** — same as Linux for the Windows-specific features. The `.app`
+  is unsigned, so Gatekeeper asks on first launch (System Settings →
+  Privacy & Security). Signing and notarisation need secrets.
 
-## Why `gh release` and not an action?
+## Cutting a release by hand
 
-`gh` is pre-installed on every GitHub runner and the CLI is the same
-locally and in CI — matches what we use in other repos. No third-party
-action in the release job (build jobs still use stable first-party
-actions like `actions/checkout`, `actions/setup-node`, and
-`dtolnay/rust-toolchain`). If you ever want to cut a release without
-tagging, you can download the workflow artifacts locally and run:
+`gh` is the same locally and in CI. With the workflow artifacts downloaded
+into `artifacts/` and signed as in the release job:
 
 ```bash
-gh release create v0.11.0 --generate-notes --draft artifacts/*.tar.xz
+gh release create v2.0.0 --draft --notes-file docs/release-notes/v2.0.0.md artifacts/*
 ```
-
-## Why not `cargo tauri build` with installers?
-
-`tauri-action` would produce MSI + NSIS on Windows, DMG on macOS, and
-DEB + AppImage on Linux — all useful eventually. Current setup asks
-for `tar.xz` only, so we short-circuit to `cargo build --release` and
-archive the raw binary. Swap back to `tauri-action` when ready to ship
-proper installers.

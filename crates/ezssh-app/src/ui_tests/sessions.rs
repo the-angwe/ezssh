@@ -122,7 +122,7 @@ fn ssh_password_session_create_edit_and_switch_to_key() {
     open_new(h);
     shot(h, "session-new");
 
-    // Validation, as the webview: name first.
+    // Validation: name first.
     h.get_by_label("Create session").click();
     h.run_steps(3);
     assert!(alert(h, "Name is required"));

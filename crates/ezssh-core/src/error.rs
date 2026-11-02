@@ -37,8 +37,8 @@ pub enum AppError {
     #[error("ssh: {0}")]
     Ssh(String),
 
-    /// A forward's bind address is already taken — by another ezTerm tab,
-    /// another ezTerm window/process, or (for remote) the same session
+    /// A forward's bind address is already taken — by another ezSsh tab,
+    /// another ezSsh window/process, or (for remote) the same session
     /// already forwarding that port. Not a failure the user needs to fix:
     /// the surfacing layer renders it as a neutral "in use elsewhere"
     /// state with Start still available, not a red error.

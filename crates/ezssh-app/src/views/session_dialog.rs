@@ -1,4 +1,4 @@
-//! `session-dialog.tsx`: New / Edit session, a 760 px dialog with a side
+//! The session editor: New / Edit session, a 760 px dialog with a side
 //! rail (General, Terminal, Advanced, Forwards for SSH). Esc closes,
 //! Ctrl+Enter saves.
 //!
@@ -130,7 +130,7 @@ impl Draft {
         self.session_kind == "ssh"
     }
 
-    /// Header subtitle: `user@host:port` for SSH (as the webview), the
+    /// Header subtitle: `user@host:port` for SSH, the
     /// distro / program for WSL and local shells.
     fn summary(&self) -> String {
         let or = |s: &str, d: &str| if s.is_empty() { d.to_string() } else { s.to_string() };
@@ -142,7 +142,7 @@ impl Draft {
         }
     }
 
-    /// The save payload, cleaned as the webview did: blank initial command
+    /// The save payload, cleaned: blank initial command
     /// and starting dir become NULL, blank env rows are dropped.
     fn to_input(&self, password: Option<Secret>) -> SessionInput {
         let ssh = self.is_ssh();
@@ -176,8 +176,8 @@ impl Draft {
     }
 }
 
-/// `validate()` of the webview, with the password rule in place of the
-/// password credential: required unless one is stored already.
+/// The first problem with the draft, if any. A password is required
+/// unless one is stored already.
 fn validate(d: &Draft, password_typed: bool, password_stored: bool) -> Option<&'static str> {
     if d.name.trim().is_empty() {
         return Some("Name is required");
@@ -881,7 +881,7 @@ pub(crate) fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: i
 
 /// A labelled number `.input` committed on Enter / blur, like
 /// `form::number`, but unclamped: out-of-range values are reported by
-/// [`validate`] with the webview's messages.
+/// [`validate`].
 pub(crate) fn number_field(ui: &mut Ui, label: &str, value: &mut i64, width: f32) {
     let draft_id = Id::unique(("session-dialog-number", label));
     let mut draft: String = ui.ctx().data(|d| d.get_temp(draft_id)).unwrap_or_else(|| value.to_string());

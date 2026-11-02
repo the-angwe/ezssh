@@ -5,7 +5,7 @@ use crate::error::{AppError, Result};
 use crate::state::AppState;
 
 // Range limits for advanced session settings. These bound UI inputs and
-// reject garbage from crafted IPC calls; the DB has no matching CHECK
+// reject garbage from any other caller; the DB has no matching CHECK
 // constraints (see migration comment).
 const SCROLLBACK_MIN: i64 = 0;
 const SCROLLBACK_MAX: i64 = 100_000;
@@ -238,7 +238,7 @@ pub async fn session_move(
 
 /// Renumber the sibling sessions in `folder_id` according to the order
 /// in `ids`. Used by the intra-folder drag-and-drop reorder flow: the
-/// frontend computes the final sibling order after a drop and sends
+/// UI computes the final sibling order after a drop and sends
 /// the full ID list, backend renumbers atomically in one transaction.
 pub async fn session_reorder(
     state: &AppState,

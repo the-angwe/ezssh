@@ -26,7 +26,7 @@ const SESSION_TYPE_WSL: &str = "14";
 /// Zero-based index of the private-key-path slot in the `%`-separated SSH
 /// descriptor (after host/port/user/…). When non-empty MobaXterm will use
 /// key auth; when empty it falls back to password auth. MobaXterm never
-/// exports the actual secret, so ezTerm stores only the auth *type* and
+/// exports the actual secret, so ezSsh stores only the auth *type* and
 /// leaves the credential slot blank for the user to wire up.
 const SSH_KEY_FIELD_INDEX: usize = 13;
 
@@ -35,7 +35,7 @@ pub struct ParsedMobaSession {
     /// Folder path from `SubRep`, split on `\`. Empty = root.
     pub folder_path: Vec<String>,
     pub name:     String,
-    /// ezTerm session kind: `"ssh"` or `"wsl"`. Other MobaXterm types
+    /// ezSsh session kind: `"ssh"` or `"wsl"`. Other MobaXterm types
     /// (RDP, VNC, Serial, …) are skipped during parse, not reported here.
     pub session_kind: String,
     /// For ssh: remote hostname. For wsl: distro name (empty = default).

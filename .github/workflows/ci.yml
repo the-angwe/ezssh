@@ -1,16 +1,12 @@
 name: ci
 
-# Runs on every pull request and on pushes to main. Four independent jobs
-# so a UI lint failure doesn't hide a Rust test failure (and vice versa):
+# Runs on every pull request and on pushes to main. Two independent jobs:
 #
 #   rust   — cargo check (warnings are errors), clippy, tests
 #   audit  — cargo audit against the RustSec database (.cargo/audit.toml
 #            lists the accepted, unfixable advisories)
-#   ui     — typecheck, lint, Next.js static export
-#   site   — Astro build + vitest
 #
-# The release workflows (release.yml for ezSsh, release-tauri.yml for the
-# webview build) are the only places installers are built; nothing here
+# release.yml is the only place installers are built; nothing here
 # produces artifacts.
 
 on:
@@ -33,35 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Tauri's generate_context! embeds `frontendDist` (../ui/out) at
-      # compile time and fails if the directory is missing, so the UI is
-      # exported first even though this job never runs it.
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - name: Build UI (Next.js static export)
-        run: |
-          npm --prefix ui ci
-          npm --prefix ui run build
-
-      # Same set as release.yml: webkit2gtk 4.1 plus the desktop libs the
-      # tauri / wry / gtk crates link against, and the xkb / xcb headers
-      # eframe (crates/ezssh-term, crates/ezssh-app) builds against.
+      # Same set as release.yml: the xkb / xcb headers eframe builds
+      # against. Fonts and the GPU are loaded at run time.
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            build-essential \
-            libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            curl wget file xz-utils patchelf
+            build-essential pkg-config \
+            libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -70,24 +45,19 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       # Warnings are errors here, matching the repo rule that cargo check
       # must be clean before every commit.
       - name: cargo check
-        run: cargo check -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv -p ezssh-release --locked --all-targets
+        run: cargo check --workspace --locked --all-targets
         env:
           RUSTFLAGS: -D warnings
 
-      # The backend lives in crates/ezssh-core; src-tauri is its Tauri
-      # adapter; ezssh-term and ezssh-app are the native rework. All are
-      # clippy-clean, so lints are blocking.
       - name: cargo clippy
-        run: cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv -p ezssh-release --locked --all-targets -- -D warnings
+        run: cargo clippy --workspace --locked --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv -p ezssh-release --locked
+        run: cargo test --workspace --locked
 
   audit:
     name: cargo audit
@@ -107,53 +77,3 @@ jobs:
       # vulnerability; unmaintained / unsound notices stay warnings.
       - name: cargo audit
         run: cargo audit
-
-  ui:
-    name: ui
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      - name: Install
-        run: npm --prefix ui ci
-
-      - name: Typecheck
-        run: npm --prefix ui run typecheck
-
-      - name: Lint
-        run: npm --prefix ui run lint
-
-      - name: Test
-        run: npm --prefix ui test
-
-      - name: Build (Next.js static export)
-        run: npm --prefix ui run build
-
-  site:
-    name: site
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: site/package-lock.json
-
-      - name: Install
-        run: npm --prefix site ci
-
-      - name: Test
-        run: npm --prefix site test
-
-      - name: Build
-        run: npm --prefix site run build

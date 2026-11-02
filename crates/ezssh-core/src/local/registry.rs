@@ -7,9 +7,6 @@ use tokio::sync::{mpsc, RwLock};
 pub struct Connection {
     pub id: u64,
     pub stdin: mpsc::UnboundedSender<LocalInput>,
-    /// Chunks pushed into the frontend's output channel by the reader
-    /// thread; read by `terminal_output_sent` for the stall watchdog.
-    pub output_sent: Arc<AtomicU64>,
     /// Set when this connection is a WSL tab. Records the distro
     /// (and optional user) so the file-browser commands can
     /// resolve `\\wsl.localhost\<distro>\` paths and shell out to
@@ -44,8 +41,8 @@ impl LocalRegistry {
 
     pub fn alloc_id(&self) -> u64 {
         // Offset by 1<<48 so local ids can't collide with SSH ids even
-        // across long-running sessions. The frontend picks a command
-        // family by session_kind, not by id, but this keeps the logs
+        // across long-running sessions. The UI picks a command family
+        // by session_kind, not by id, but this keeps the logs
         // unambiguous if a user pastes an id into a bug report.
         (self.next_id.fetch_add(1, Ordering::Relaxed) + 1) | (1u64 << 48)
     }

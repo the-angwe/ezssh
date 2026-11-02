@@ -6,7 +6,7 @@
 //! one `{url, signature}` per `{os}-{arch}-{installer}` key plus a bare
 //! `{os}-{arch}` default). Signatures are minisign, base64-wrapped, made
 //! by `ezssh-release sign`; the public key is `updater.pub` at the crate
-//! root, compiled in. Unlike the Tauri plugin the signed version is
+//! root, compiled in. Unlike tauri-plugin-updater, the signed version is
 //! required: a signature whose trusted comment does not name the
 //! announced version is refused, so an unsigned manifest cannot offer an
 //! older installer under a new version number.

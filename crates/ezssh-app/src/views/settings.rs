@@ -1,4 +1,4 @@
-//! `settings-dialog.tsx`: five sections, every control writes through
+//! The settings dialog: five sections, every control writes through
 //! (no Save button). Per-session values override the Terminal / Sessions
 //! defaults here.
 

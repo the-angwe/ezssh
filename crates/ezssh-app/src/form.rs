@@ -1,8 +1,6 @@
-//! Form controls shared by the phase 5 dialogs, each the egui form of a
-//! webview pattern: `Section` / `Field` / `IconSlot` of `session-dialog.tsx`,
-//! `.input` (text, secret with an eye toggle, number, textarea, select),
-//! checkboxes, the radio cards (`AuthOption` / `KindOption`), the side tabs
-//! (`TabButton`) and `<kbd>`.
+//! Form controls shared by the dialogs: sections and labelled fields, inputs
+//! (text, secret with an eye toggle, number, textarea, select), checkboxes,
+//! radio cards, the side tabs and key caps.
 
 use egui::{Color32, CornerRadius, CursorIcon, Frame, Id, Key, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 
@@ -109,7 +107,7 @@ fn input_font(mono: bool) -> egui::FontId {
     if mono { egui::FontId::monospace(size::BASE) } else { font(size::BASE) }
 }
 
-/// The webview's `.input`: surface-2 field, border, accent when focused,
+/// A text input: surface-2 field, border, accent when focused,
 /// optional leading icon and mono font.
 pub fn input(ui: &mut Ui, value: &mut String, o: InputOpts<'_>) -> Response {
     let t = tokens(ui.ctx());
@@ -159,7 +157,7 @@ pub fn forget_history(ui: &Ui, resp: &Response) {
     }
 }
 
-/// A password field with the eye toggle of `credential-picker.tsx`.
+/// A password field with an eye toggle.
 /// `shown` is the caller's reveal state.
 pub fn secret(ui: &mut Ui, value: &mut String, hint_text: &str, shown: &mut bool, width: Option<f32>) -> Response {
     let t = tokens(ui.ctx());

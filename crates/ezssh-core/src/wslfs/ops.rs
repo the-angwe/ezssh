@@ -40,15 +40,6 @@ pub async fn rename(handle: &WslFsHandle, from: &str, to: &str) -> Result<()> {
         .map_err(|e| AppError::Sftp(format!("rename: {e}")))
 }
 
-pub async fn chmod(handle: &WslFsHandle, path: &str, mode: u32) -> Result<()> {
-    // Only the low 12 bits are the permission word that `chmod` cares
-    // about (high nibble is file type, not settable). Format as octal
-    // with up to four digits so setuid/setgid/sticky come along.
-    let octal = format!("{:o}", mode & 0o7777);
-    handle.wsl_exec(&["chmod", &octal, "--", path]).await?;
-    Ok(())
-}
-
 pub async fn realpath(handle: &WslFsHandle, path: &str) -> Result<String> {
     // The SFTP pane calls realpath(".") on open to discover $HOME; the
     // cached home is materially cheaper than another wsl.exe round

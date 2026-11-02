@@ -63,15 +63,6 @@ pub async fn upsert(
     Ok(())
 }
 
-pub async fn remove(pool: &SqlitePool, host: &str, port: i64) -> Result<()> {
-    sqlx::query("DELETE FROM known_hosts WHERE host = ? AND port = ?")
-        .bind(host)
-        .bind(port)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,7 +88,5 @@ mod tests {
         upsert(&p, "host.example", 22, "ssh-ed25519", "legacy-fp", "sha256:def").await.unwrap();
         let row = get(&p, "host.example", 22).await.unwrap().unwrap();
         assert_eq!(row.fingerprint_sha256, "sha256:def");
-        remove(&p, "host.example", 22).await.unwrap();
-        assert!(get(&p, "host.example", 22).await.unwrap().is_none());
     }
 }

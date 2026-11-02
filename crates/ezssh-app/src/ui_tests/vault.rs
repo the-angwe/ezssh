@@ -365,7 +365,7 @@ fn xserver_dialog_connect_without_x11_and_cancel() {
     assert!(h.state().dialogs.xserver.is_none());
     wait(h, 15, "reconnected", move |a| a.tabs.get(tab).is_some_and(|t| t.status == TabStatus::Connected));
 
-    // Cancel closes the tab, as in the webview.
+    // Cancel closes the tab.
     h.state_mut().dialogs.xserver = Some(XServerDialog::new(tab, "VcXsrv is not installed".into()));
     h.run_steps(3);
     h.get_by_label("Cancel").click();

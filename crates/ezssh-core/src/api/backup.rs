@@ -1,4 +1,4 @@
-//! Backup / restore Tauri commands.
+//! Backup and restore.
 //!
 //! Export gate: master-password reauth (defeats "unlocked-laptop walkup"
 //! exfiltration) + separate backup passphrase wrapping the archive.

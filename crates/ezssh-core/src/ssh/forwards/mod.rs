@@ -66,11 +66,11 @@ pub fn bind_socket(bind_addr: &str, port: u16) -> Result<std::net::SocketAddr> {
 }
 
 /// Format a bind-failure error message. Detects `AddrInUse` and emits
-/// the friendlier "another ezTerm tab?" hint promised by the spec.
+/// the friendlier "another ezSsh tab?" hint promised by the spec.
 pub fn format_bind_error(bind_addr: &str, port: u16, err: &std::io::Error) -> String {
     if err.kind() == std::io::ErrorKind::AddrInUse {
         format!(
-            "bind {bind_addr}:{port} in use (another ezTerm tab, or a different app on this port?)"
+            "bind {bind_addr}:{port} in use (another ezSsh tab, or a different app on this port?)"
         )
     } else if err.kind() == std::io::ErrorKind::PermissionDenied {
         format!(
@@ -106,8 +106,8 @@ pub enum ForwardStatus {
     Running,
     Stopped,
     Error { message: String },
-    /// The bind address is already taken by another ezTerm tab, another
-    /// ezTerm window/process, or (remote) this session already forwarding
+    /// The bind address is already taken by another ezSsh tab, another
+    /// ezSsh window/process, or (remote) this session already forwarding
     /// that port. Neutral, not a failure — the pane shows it amber with
     /// Start still offered so the user can take it over if the other
     /// holder goes away. Emitted instead of `Error` on `PortConflict`.

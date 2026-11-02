@@ -52,23 +52,12 @@ pub async fn local_disconnect(state: &AppState, connection_id: u64) -> Result<()
 }
 
 
-/// Returns the list of installed WSL distros (trimmed, in registered order).
-/// Empty when WSL is not installed or the command fails.
-pub async fn wsl_list_distros(state: &AppState) -> Result<Vec<String>> {
-    require_unlocked(state).await?;
-    Ok(tokio::task::spawn_blocking(detect_wsl_distros_blocking)
-        .await
-        .unwrap_or_default())
-}
-
-/// Serializes concurrent autodetect calls. React 18 strict-mode in the
-/// dev build can fire two mount effects back-to-back before the first
-/// one's promise resolves; without this lock both calls race into a
-/// "find WSL folder → create if missing" sequence and we end up with
-/// two duplicate folders.
+/// Serializes concurrent autodetect calls: two seeds running at once
+/// would both take the "find WSL folder → create if missing" path and
+/// leave two duplicate folders.
 static AUTODETECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Invoked from the frontend once per vault unlock. If WSL is installed,
+/// Called by the UI once per vault unlock. If WSL is installed,
 /// creates (or reuses) a single root-level "WSL" folder and adds one
 /// session per detected distro.
 ///
@@ -160,7 +149,7 @@ pub async fn wsl_autodetect_seed(state: &AppState) -> Result<usize> {
 /// the cross-platform Local Shells autodetect-seed flow.
 static LOCAL_SHELLS_AUTODETECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Invoked from the frontend once per vault unlock on every platform.
+/// Called by the UI once per vault unlock on every platform.
 /// Detects local shells (Unix: `/etc/shells`; Windows: cmd / powershell
 /// / pwsh-if-present), creates (or reuses) a single root-level
 /// "Local Shells" folder, and adds one session per detected shell not
@@ -259,9 +248,7 @@ pub async fn list_local_shells(
     )
 }
 
-/// Returns the current build target as a stable string the frontend
-/// can switch on. Cheaper than pulling in `tauri-plugin-os` for a
-/// single OS branch.
+/// The current build target as a stable string the UI can switch on.
 pub fn platform() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"

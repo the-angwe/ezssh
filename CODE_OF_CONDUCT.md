@@ -1,6 +1,6 @@
 # Code of Conduct
 
-## ezTerm
+## ezSsh
 
 ### Contact
 
@@ -10,7 +10,7 @@ For any questions, concerns, or reports regarding this Code of Conduct, please c
 
 ## 1. Purpose
 
-ezTerm is committed to fostering an open, inclusive, and respectful environment for all contributors, users, and community members. This Code of Conduct outlines the expectations for behavior and the steps for reporting unacceptable conduct.
+ezSsh is committed to fostering an open, inclusive, and respectful environment for all contributors, users, and community members. This Code of Conduct outlines the expectations for behavior and the steps for reporting unacceptable conduct.
 
 ---
 
@@ -22,7 +22,7 @@ This Code of Conduct applies to all project spaces, including but not limited to
 * Issue trackers
 * Documentation
 * Community forums
-* Events and communications related to ezTerm
+* Events and communications related to ezSsh
 
 It applies to all participants, including maintainers, contributors, and users.
 
@@ -82,7 +82,7 @@ Decisions will be made based on the severity and frequency of the violation.
 
 ## 7. Commitment
 
-The ezTerm team is committed to maintaining a safe and welcoming environment for everyone. We value diversity and inclusivity, and we strive to ensure that all participants feel respected and supported.
+The ezSsh team is committed to maintaining a safe and welcoming environment for everyone. We value diversity and inclusivity, and we strive to ensure that all participants feel respected and supported.
 
 ---
 

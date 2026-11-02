@@ -1,6 +1,5 @@
-//! Update check and download for the native app (the Tauri build keeps
-//! tauri-plugin-updater in `src-tauri`). Not gated on the vault: updates
-//! expose no vault data.
+//! Update check and download. Not gated on the vault: updates expose no
+//! vault data.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

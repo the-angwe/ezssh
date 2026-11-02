@@ -1,6 +1,5 @@
-//! The small generic dialogs: `confirm-dialog.tsx`, `prompt-dialog.tsx`,
-//! `move-to-folder-dialog.tsx`, `tile-grid-dialog.tsx` and
-//! `host-key-dialog.tsx`.
+//! The small generic dialogs: confirm, prompt, move to folder, tile grid
+//! and host key.
 
 use std::collections::HashSet;
 
@@ -21,7 +20,7 @@ pub struct Confirm<'a> {
     pub danger: bool,
 }
 
-/// `confirm-dialog.tsx`. The primary button has focus, so Enter confirms;
+/// A confirmation. The primary button has focus, so Enter confirms;
 /// Escape and the backdrop cancel.
 pub fn confirm(ctx: &egui::Context, id: Id, c: Confirm<'_>) -> Option<bool> {
     let t = tokens(ctx);
@@ -107,7 +106,7 @@ impl PromptState {
         self.focused = false;
     }
 
-    /// `prompt-dialog.tsx`: input focused with its text selected, Enter
+    /// Input focused with its text selected, Enter
     /// submits, an empty value is refused in place.
     pub fn show(&mut self, ctx: &egui::Context, id: Id) -> Option<PromptAnswer> {
         let t = tokens(ctx);
@@ -377,7 +376,7 @@ impl TileGridDraft {
 
 // ---------------------------------------------------------------- host key
 
-/// `host-key-dialog.tsx`. Some(true) = trust and connect, Some(false) =
+/// An unknown or changed host key. Some(true) = trust and connect, Some(false) =
 /// cancel. No backdrop dismissal: the choice matters.
 pub fn host_key(ctx: &egui::Context, id: Id, host: &str, port: i64, p: &HostKeyPrompt) -> Option<bool> {
     let t = tokens(ctx);

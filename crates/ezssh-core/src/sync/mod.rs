@@ -3,7 +3,7 @@
 //!
 //! Phase 1 — local folder: point at a folder synced by Dropbox / OneDrive /
 //! iCloud / Google Drive and the encrypted backup stays in sync across
-//! devices without ezTerm touching the cloud provider's APIs.
+//! devices without ezSsh touching the cloud provider's APIs.
 //!
 //! Phase 2 — S3: direct PUT/HEAD/GET on a single object in the user's
 //! bucket (AWS, R2, B2, Wasabi, MinIO, …). ETag-based optimistic

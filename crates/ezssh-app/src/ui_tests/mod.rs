@@ -327,8 +327,8 @@ fn folder_create_drag_drop_and_close_confirm() {
     let tab = open_local(h);
     h.state_mut().request_close_tab(tab);
     h.run_steps(3);
-    // The tab's ✕ and the dialog's button share the label "Close tab", as
-    // in the webview; the dialog's is the one below the strip.
+    // The tab's ✕ and the dialog's button share the label "Close tab";
+    // the dialog's is the one below the strip.
     assert!(h.query_by_label("This tab is connected. Closing it ends the session.").is_some(), "confirmation shown");
     shot(h, "close-confirm");
     let buttons: Vec<_> = h.query_all_by_label("Close tab").collect();

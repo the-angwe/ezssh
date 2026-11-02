@@ -1,4 +1,4 @@
-//! `status-bar.tsx`: connection dot and `user@host`, SFTP cwd, X server
+//! The status bar: connection dot and `user@host`, SFTP cwd, X server
 //! pill, version, theme / settings / updates / lock buttons.
 
 use egui::{Align, FontId, Layout, Pos2, Rect, RichText, Ui, vec2};

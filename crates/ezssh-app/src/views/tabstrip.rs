@@ -1,4 +1,4 @@
-//! `tabs-shell.tsx` strip + `view-mode-toolbar.tsx`.
+//! The tab strip and the view-mode toolbar.
 
 use egui::{CursorIcon, Id, Pos2, Rect, Sense, Stroke, Ui, vec2};
 

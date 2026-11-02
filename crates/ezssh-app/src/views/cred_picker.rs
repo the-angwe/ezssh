@@ -1,11 +1,11 @@
-//! `credential-picker.tsx`: pick a shared private key or key passphrase,
+//! The credential picker: pick a shared private key or key passphrase,
 //! add a new one inline, open the manager. Session passwords are not in
 //! the shared list (they belong to their session), so the kinds here are
 //! `private_key` and `key_passphrase` only.
 //!
 //! The list is `app.creds`; a selection whose credential vanished (deleted
 //! in the manager, or a session row naming a deleted one) is cleared on
-//! the next reload, as the webview's `syncList` did.
+//! the next reload.
 
 use std::sync::{Arc, Mutex};
 
