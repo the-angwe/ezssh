@@ -360,6 +360,22 @@ impl Terminal {
         self.lock().set_options(config);
     }
 
+    /// Scrollback length in lines. Shrinking drops the oldest lines.
+    pub fn set_scrollback(&mut self, lines: usize) {
+        if self.options.scrollback == lines {
+            return;
+        }
+        tracing::debug!(from = self.options.scrollback, to = lines, "term: scrollback");
+        self.options.scrollback = lines;
+        let config = self.options.config();
+        self.lock().set_options(config);
+    }
+
+    /// The options in effect (scrollback, cursor, OSC 52 at creation).
+    pub fn options(&self) -> &TermOptions {
+        &self.options
+    }
+
     /// Paste `text` as typed input: newlines become CR and the text is
     /// wrapped in bracketed-paste markers when the program asked for them.
     /// Jumps to the bottom of the scrollback. No multi-line confirmation
@@ -604,6 +620,24 @@ mod tests {
         let colour = out.windows(4).position(|w| w == b"]10;").expect("colour answer");
         let da = out.windows(3).position(|w| w == b"[?6").expect("DA answer");
         assert!(colour < da, "{:?}", String::from_utf8_lossy(&out));
+    }
+
+    #[test]
+    fn scrollback_resizes_live() {
+        let (mut t, f, _) = setup();
+        t.resize(20, 4, (8, 16));
+        for i in 0..30 {
+            f.feed(format!("line {i}\r\n").as_bytes());
+        }
+        assert_eq!(t.lock().grid().history_size(), 27);
+        t.set_scrollback(5);
+        assert_eq!(t.options().scrollback, 5);
+        assert_eq!(t.lock().grid().history_size(), 5, "oldest lines dropped");
+        t.set_scrollback(100);
+        for i in 0..30 {
+            f.feed(format!("more {i}\r\n").as_bytes());
+        }
+        assert_eq!(t.lock().grid().history_size(), 35, "grows again up to the new limit");
     }
 
     #[test]

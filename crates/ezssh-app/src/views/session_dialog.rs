@@ -404,6 +404,9 @@ impl SessionDialog {
             move |app, r| match r {
                 Ok(s) => {
                     tracing::info!(session = s.id, edit = edit_id.is_some(), "session_dialog: saved");
+                    if edit_id.is_some() {
+                        app.apply_session_terminal(&s);
+                    }
                     if this(app, serial).is_some() {
                         app.dialogs.session = None;
                     }

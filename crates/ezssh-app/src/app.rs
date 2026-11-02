@@ -345,6 +345,66 @@ impl App {
         self.strip.reveal_active = true;
     }
 
+    /// A session row was saved: open tabs of that session take its font
+    /// (size, family), cursor style and scrollback length, each only when
+    /// it changed from what the tab was opened (or last saved) with. An
+    /// unchanged font keeps any live tweak made in the Font… picker; the
+    /// cursor keeps the tab's blink setting.
+    pub(crate) fn apply_session_terminal(&mut self, saved: &ezssh_core::db::sessions::Session) {
+        let ids: Vec<TabId> = self.tabs.tabs.iter().filter(|t| t.session.id == saved.id).map(|t| t.id).collect();
+        if ids.is_empty() {
+            tracing::debug!(session = saved.id, "app: session saved, no open tab");
+            return;
+        }
+        for id in ids {
+            let Some(t) = self.tabs.get_mut(id) else {
+                continue;
+            };
+            let font = t.session.font_size != saved.font_size || t.session.font_family != saved.font_family;
+            let cursor = t.session.cursor_style != saved.cursor_style;
+            let scrollback = t.session.scrollback_lines != saved.scrollback_lines;
+            t.session.font_size = saved.font_size;
+            t.session.font_family = saved.font_family.clone();
+            t.session.cursor_style = saved.cursor_style.clone();
+            t.session.scrollback_lines = saved.scrollback_lines;
+            if !(font || cursor || scrollback) {
+                tracing::debug!(tab = id, session = saved.id, "app: session saved, terminal options unchanged");
+                continue;
+            }
+            let faces = font.then(|| self.fonts.faces(&self.ctx, &saved.font_family));
+            let Some(slot) = self.terms.get_mut(&id) else {
+                tracing::warn!(tab = id, session = saved.id, "app: open tab has no terminal, session options not applied");
+                continue;
+            };
+            if let Some(faces) = faces {
+                slot.term.set_font_size(saved.font_size as f32);
+                slot.term.set_faces(faces);
+            }
+            if cursor {
+                let blink = slot.term.options().cursor_blink;
+                slot.term.set_cursor(CursorKind::from_setting(&saved.cursor_style), blink);
+            }
+            if scrollback {
+                slot.term.set_scrollback(saved.scrollback_lines.max(0) as usize);
+            }
+            tracing::info!(
+                tab = id,
+                session = saved.id,
+                font,
+                size = saved.font_size,
+                family = %saved.font_family,
+                cursor,
+                cursor_style = %saved.cursor_style,
+                scrollback,
+                scrollback_lines = saved.scrollback_lines,
+                "app: session options applied to open tab"
+            );
+            if font {
+                crate::views::font_picker::session_font_changed(self, id);
+            }
+        }
+    }
+
     /// Close without asking (the confirmation already happened).
     pub(crate) fn close_tab(&mut self, id: TabId) {
         tracing::info!(tab = id, "app: close tab");

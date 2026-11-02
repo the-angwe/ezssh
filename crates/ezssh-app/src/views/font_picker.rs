@@ -44,6 +44,18 @@ fn live_family_id(tab: TabId) -> Id {
     Id::unique(("font-picker-live-family", tab))
 }
 
+/// The tab's session font was saved elsewhere (session dialog) and applied
+/// to the terminal: drop the picker's remembered family and, if the picker
+/// is open on that tab, make it read the tab again next frame.
+pub(crate) fn session_font_changed(app: &mut App, tab: TabId) {
+    app.ctx.data_mut(|d| d.remove::<String>(live_family_id(tab)));
+    if let Some(p) = app.dialogs.font_picker.as_mut().filter(|p| p.tab == tab) {
+        tracing::debug!(tab, "font picker: session font saved elsewhere, re-reading the tab");
+        p.live = None;
+        p.size_draft = None;
+    }
+}
+
 enum Action {
     Close,
     Save,

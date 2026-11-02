@@ -429,3 +429,59 @@ fn auth_fix_overlay_is_per_tab_and_cleared_by_lock() {
     h.run_steps(2);
     assert!(h.state().terms.values().all(|s| s.auth_fix.is_none()), "lock clears overlays");
 }
+
+#[test]
+fn session_terminal_options_saved_apply_to_open_tab() {
+    let mut env = start();
+    unlock_fresh(&mut env);
+    let h = &mut env.h;
+    h.state_mut().tabs.sidebar_collapsed = false;
+    h.run_steps(2);
+    let tab = open_local(h);
+    let s = h.state().tabs.get(tab).expect("tab").session.clone();
+    assert_ne!(s.font_size, 20);
+
+    // Font size through the dialog: the open tab follows on save.
+    clear_toasts(h);
+    h.state_mut().dialogs.session = Some(SessionDialog::edit(s.clone()));
+    h.run_steps(3);
+    h.get_by_role_and_label(Role::Tab, "Terminal").click();
+    h.run_steps(3);
+    replace(h, "Font size", "20");
+    replace(h, "Scrollback lines", "123");
+    click(h, Role::Button, "Bar");
+    let blink = h.state().terms[&tab].term.options().cursor_blink;
+    h.get_by_label("Save changes").click();
+    wait(h, 10, "edit saved", |a| a.dialogs.session.is_none());
+    let row = db_session(h, s.id);
+    assert_eq!((row.font_size, row.scrollback_lines, row.cursor_style.as_str()), (20, 123, "bar"));
+    let ts = &h.state().tabs.get(tab).unwrap().session;
+    assert_eq!((ts.font_size, ts.scrollback_lines, ts.cursor_style.as_str()), (20, 123, "bar"));
+    let term = &h.state().terms[&tab].term;
+    assert_eq!(term.font_size(), 20.0, "terminal took the saved size");
+    assert_eq!(term.options().scrollback, 123, "terminal took the saved scrollback");
+    assert_eq!(term.options().cursor, ezssh_term::CursorKind::Bar, "terminal took the saved cursor");
+    assert_eq!(term.options().cursor_blink, blink, "blink is the tab's own setting");
+
+    // Family: the terminal gets the saved family's faces.
+    let family = crate::font_presets::choices().iter().map(|(v, _)| v.clone()).find(|v| !v.is_empty());
+    if let Some(family) = family {
+        let saved = Session { font_family: family.clone(), ..db_session(h, s.id) };
+        let want = {
+            let app = h.state_mut();
+            let ctx = app.ctx.clone();
+            app.fonts.faces(&ctx, &family)
+        };
+        h.state_mut().apply_session_terminal(&saved);
+        h.run_steps(2);
+        assert_eq!(h.state().tabs.get(tab).unwrap().session.font_family, family);
+        assert_eq!(h.state().terms[&tab].term.faces(), &want, "terminal took the saved family");
+    }
+
+    // A save that leaves the font alone keeps a live tweak (Font… picker).
+    h.state_mut().terms.get_mut(&tab).unwrap().term.set_font_size(11.0);
+    let same = h.state().tabs.get(tab).unwrap().session.clone();
+    h.state_mut().apply_session_terminal(&Session { name: "renamed".into(), ..same });
+    h.run_steps(2);
+    assert_eq!(h.state().terms[&tab].term.font_size(), 11.0, "unchanged font keeps the live size");
+}

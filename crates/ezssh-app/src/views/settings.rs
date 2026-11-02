@@ -8,6 +8,8 @@ use egui::{Align, Color32, CornerRadius, Frame, Id, Layout, Margin, Pos2, Rect, 
 use ezssh_term::palette::{self, Palette};
 
 use crate::app::App;
+use crate::font_presets;
+use crate::form;
 use crate::icons::Icon;
 use crate::settings::Value;
 use crate::style::{Theme, alpha, font, font_semibold, size, tokens};
@@ -37,6 +39,9 @@ pub struct SettingsDialog {
     /// Number fields being typed into; written on Enter / blur so an
     /// intermediate prefix ("1" on the way to "13") is never clamped.
     drafts: HashMap<&'static str, String>,
+    /// "Custom…" picked in the font family select (a value that is not an
+    /// installed font shows as custom without it).
+    font_custom: bool,
 }
 
 /// A change made this frame.
@@ -104,7 +109,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 Frame::new().inner_margin(Margin::same(20)).show(ui, |ui| {
                     ui.set_width(content.width() - 40.0);
-                    let mut s = Sec { ui, app, drafts: &mut dlg.drafts, changes: &mut changes };
+                    let mut s = Sec { ui, app, drafts: &mut dlg.drafts, font_custom: &mut dlg.font_custom, changes: &mut changes };
                     match dlg.section {
                         Section::Appearance => s.appearance(),
                         Section::Terminal => s.terminal(),
@@ -136,6 +141,7 @@ struct Sec<'a, 'u> {
     ui: &'u mut Ui,
     app: &'a App,
     drafts: &'a mut HashMap<&'static str, String>,
+    font_custom: &'a mut bool,
     changes: &'a mut Vec<Change>,
 }
 
@@ -170,7 +176,7 @@ impl Sec<'_, '_> {
         self.group("Defaults for new sessions", Some("Each session can override these in its own dialog."), |s| {
             s.int_row("terminal.scrollback", "Scrollback lines", Some("0 disables scrollback."));
             s.int_row("terminal.fontSize", "Font size", None);
-            s.text_row("terminal.fontFamily", "Font family", "(OS default mono stack)");
+            s.font_family_row("terminal.fontFamily", "Font family");
             s.enum_row("terminal.cursorStyle", "Cursor style", None, &[("block", "Block"), ("underline", "Underline"), ("bar", "Bar")]);
             s.bool_row("terminal.cursorBlink", "Cursor blink", Some("Applies to tabs opened after the change."));
         });
@@ -329,12 +335,35 @@ impl Sec<'_, '_> {
         });
     }
 
-    fn text_row(&mut self, key: &'static str, label: &str, placeholder: &str) {
+    /// The session dialog's family list: "(default)", the installed
+    /// monospace fonts, and "Custom…", which adds a free-text box.
+    fn font_family_row(&mut self, key: &'static str, label: &str) {
+        const CUSTOM_FONT: &str = "\u{0}custom";
         let value = self.app.settings.str(key).to_string();
-        self.row(label, None, |s, ui| {
-            let mut v = value.clone();
-            if widgets::text_input(ui, &mut v, placeholder, 210.0, false).changed() {
-                s.changes.push(Change::Set(key, Value::Str(v)));
+        let custom = *self.font_custom || (!value.is_empty() && !font_presets::is_preset(&value));
+        self.row(label, Some("Installed monospace fonts."), |s, ui| {
+            let mut options: Vec<(String, String)> = font_presets::choices().to_vec();
+            options.push((CUSTOM_FONT.into(), "Custom…".into()));
+            let mut choice = if custom { CUSTOM_FONT.to_string() } else { value.clone() };
+            let select_w = if custom { 100.0 } else { 210.0 };
+            if form::select(ui, Id::unique(("settings", key)), &mut choice, &options, Some(select_w)) {
+                tracing::debug!(key, font = %choice, "settings: font family picked");
+                if choice == CUSTOM_FONT {
+                    *s.font_custom = true;
+                } else {
+                    *s.font_custom = false;
+                    if choice != value {
+                        s.changes.push(Change::Set(key, Value::Str(choice.clone())));
+                    }
+                }
+            }
+            if choice == CUSTOM_FONT {
+                let mut v = value.clone();
+                let resp = widgets::text_input(ui, &mut v, "e.g. Iosevka", 140.0, false);
+                form::labelled(ui, &resp, "Custom font family");
+                if resp.on_hover_text("Custom font family").changed() {
+                    s.changes.push(Change::Set(key, Value::Str(v)));
+                }
             }
         });
     }

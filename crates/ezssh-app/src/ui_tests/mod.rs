@@ -353,6 +353,34 @@ fn settings_write_through_and_theme() {
             .as_deref()
             == Some("true")
     });
+
+    // Font family: the installed-font list, then Custom… with a text box.
+    let family = crate::font_presets::choices().iter().map(|(v, _)| v.clone()).find(|v| !v.is_empty());
+    if let Some(family) = family {
+        font_combo(h, "(default)").click();
+        h.run_steps(3);
+        shot(h, "settings-font-list");
+        h.get_by_role_and_label(Role::Button, &family).click();
+        h.run_steps(3);
+        assert_eq!(h.state().settings.str("terminal.fontFamily"), family);
+        font_combo(h, &family).click();
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Custom…").scroll_to_me();
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Custom…").click();
+        h.run_steps(3);
+        assert_eq!(h.state().settings.str("terminal.fontFamily"), family, "Custom… keeps the value until typed");
+        let field = h.get_by_role_and_label(Role::TextInput, "Custom font family");
+        field.click();
+        h.run_steps(1);
+        h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+        h.get_by_role_and_label(Role::TextInput, "Custom font family").type_text("Iosevka Term");
+        h.run_steps(3);
+        assert_eq!(h.state().settings.str("terminal.fontFamily"), "Iosevka Term");
+        shot(h, "settings-font-custom");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+    }
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(h.state().dialogs.settings.is_none(), "Escape closes");
@@ -365,6 +393,13 @@ fn settings_write_through_and_theme() {
         a.core.block_on(|st| async move { ezssh_core::api::settings::settings_get(&st, "theme".into()).await }).ok().flatten().as_deref()
             == Some("light")
     });
+}
+
+/// The combo box showing `value` (the family select has no label of its own).
+fn font_combo<'h>(h: &'h Harness<'static, App>, value: &str) -> egui_kittest::Node<'h> {
+    h.query_all_by_role(Role::ComboBox)
+        .find(|n| n.accesskit_node().value().as_deref() == Some(value))
+        .unwrap_or_else(|| panic!("combo box showing {value}"))
 }
 
 #[test]
