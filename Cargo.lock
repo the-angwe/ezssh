@@ -2348,6 +2348,7 @@ name = "ezssh-app"
 version = "1.14.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "eframe",
  "egui",
  "egui_extras",
@@ -2425,6 +2426,7 @@ dependencies = [
  "egui",
  "egui_kittest",
  "fontique",
+ "read-fonts",
  "tracing",
 ]
 

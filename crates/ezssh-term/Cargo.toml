@@ -10,6 +10,8 @@ repository.workspace = true
 alacritty_terminal = "0.26"
 egui = "0.37"
 fontique = { version = "0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
+# Glyph advances for the monospace scan; the version fontique already uses.
+read-fonts = { version = "0.41", default-features = false }
 arboard = "3.7"
 # Type in vte's `Handler::set_mouse_cursor_icon` (forwarded in hook.rs).
 cursor-icon = { version = "1", default-features = false }

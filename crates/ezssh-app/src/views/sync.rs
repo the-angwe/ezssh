@@ -12,14 +12,14 @@ use ezssh_core::api::sync::S3ConfigInput;
 use ezssh_core::sync::SyncStatus;
 use zeroize::Zeroizing;
 
-use super::backup::{self as shared, FooterKind, Head, Part};
+use super::backup as shared;
 use super::restore::RestoreDialog;
 use crate::app::App;
 use crate::files::Pick;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::style::{alpha, size, tokens};
-use crate::widgets::{self, Tone};
+use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
 
 /// The webview's `setInterval(refresh, 3000)`.
 const POLL: Duration = Duration::from_secs(3);
@@ -152,18 +152,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
     let t = tokens(ctx);
     let enabled = dlg.enabled();
-    let head = if enabled {
-        Head { icon: Icon::Cloud, icon_color: t.accent, title: "Cloud sync", subtitle: None }
-    } else {
-        Head { icon: Icon::CloudOff, icon_color: t.muted, title: "Cloud sync", subtitle: None }
-    };
+    let (icon, icon_color) = if enabled { (Icon::Cloud, t.accent) } else { (Icon::CloudOff, t.muted) };
     let busy = dlg.busy;
     let mut act = None;
-    let closed = shared::shell(ctx, Id::unique("sync-dialog"), 620.0, &head, FooterKind::Strip, busy, |ui, part| match part {
-        Part::Body => body(ui, &mut dlg, &mut act),
-        Part::Footer => footer(ui, &dlg, &mut act),
-    });
-    if closed {
+    let out = Dialog::data(Id::unique("sync-dialog"), 620.0)
+        .header(icon, icon_color, "Cloud sync", None)
+        .footer(DialogFooter::Strip)
+        .busy(busy)
+        .show(ctx, |ui, part| match part {
+            DialogPart::Body => body(ui, &mut dlg, &mut act),
+            DialogPart::Footer => footer(ui, &dlg, &mut act),
+        });
+    if out.dismissed() && !busy {
         act = Some(Act::Close);
     }
     match act {
@@ -195,20 +195,16 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         form::caption(ui, "Target");
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let w = (ui.available_width() - 8.0) / 2.0;
-            let cards = [
-                (Kind::Local, Icon::FolderOpen, "Local folder", "Dropbox / OneDrive / iCloud / Google Drive sync folder"),
-                (Kind::S3, Icon::Server, "S3-compatible", "AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO, …"),
-            ];
-            for (kind, icon, title, hint) in cards {
-                if form::option_card(ui, dlg.kind == kind, icon, title, hint, w).clicked() && dlg.kind != kind {
-                    tracing::debug!(kind = kind.id(), "sync: target picked");
-                    dlg.kind = kind;
-                }
-            }
-        });
+        let cards = [
+            (Kind::Local, Icon::FolderOpen, "Local folder", "Dropbox / OneDrive / iCloud / Google Drive sync folder"),
+            (Kind::S3, Icon::Server, "S3-compatible", "AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO, …"),
+        ];
+        if let Some(kind) = form::option_cards(ui, &dlg.kind, &cards)
+            && dlg.kind != kind
+        {
+            tracing::debug!(kind = kind.id(), "sync: target picked");
+            dlg.kind = kind;
+        }
     });
 
     if let Some(s) = &dlg.status {
@@ -223,7 +219,7 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
                     let browse_w = 86.0;
                     let w = ui.available_width() - browse_w - 8.0;
                     let r = form::input(ui, &mut dlg.path, InputOpts::new(r"C:\Users\you\Dropbox\ezterm").mono().width(w));
-                    if shared::outline(ui, Some(Icon::FolderOpen), "Browse", None, true).clicked() {
+                    if Ghost::new("Browse").icon(Icon::FolderOpen).show(ui).clicked() {
                         *act = Some(Act::Browse);
                     }
                     r
@@ -342,20 +338,23 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
         });
 }
 
-/// An RFC 3339 timestamp as `YYYY-MM-DD HH:MM:SS UTC` (the core stores
-/// UTC; the app has no time zone database, so no local time as in the
-/// webview's `toLocaleString`).
+/// The core's RFC 3339 timestamp in local time, `YYYY-MM-DD HH:MM:SS`
+/// (the webview's `toLocaleString`). Anything else is shown as stored.
 fn display_time(s: &str) -> String {
-    let b = s.as_bytes();
-    if s.len() < 19 || b[10] != b'T' {
-        return s.to_string();
+    display_time_in(s, &chrono::Local)
+}
+
+fn display_time_in<Tz: chrono::TimeZone>(s: &str, tz: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    match chrono::DateTime::parse_from_rfc3339(s) {
+        Ok(t) => t.with_timezone(tz).format("%Y-%m-%d %H:%M:%S").to_string(),
+        Err(e) => {
+            tracing::debug!(value = s, error = %e, "sync: last-sync time not RFC 3339, shown as stored");
+            s.to_string()
+        }
     }
-    let rest = s[19..].trim_start_matches(|c: char| c == '.' || c.is_ascii_digit());
-    let zone = match rest {
-        "" | "Z" | "+00:00" => "UTC".to_string(),
-        other => format!("UTC{other}"),
-    };
-    format!("{} {} {zone}", &s[..10], &s[11..19])
 }
 
 fn footer(ui: &mut Ui, dlg: &SyncDialog, act: &mut Option<Act>) {
@@ -371,18 +370,18 @@ fn footer(ui: &mut Ui, dlg: &SyncDialog, act: &mut Option<Act>) {
         form::spinner(ui, 12.0);
     }
     if enabled {
-        if shared::outline(ui, Some(Icon::RefreshCw), "Push now", None, !busy).clicked() {
+        if Ghost::new("Push now").icon(Icon::RefreshCw).enabled(!busy).show(ui).clicked() {
             *act = Some(Act::Push);
         }
         if dlg.status.as_ref().is_some_and(|s| s.kind == "s3")
-            && shared::outline(ui, Some(Icon::Download), "Pull from cloud", None, !busy)
+            && Ghost::new("Pull from cloud").icon(Icon::Download).enabled(!busy).show(ui)
                 .on_hover_text("Download the remote bundle and open the Restore dialog")
                 .clicked()
         {
             *act = Some(Act::Pull);
         }
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            if shared::outline(ui, None, "Disable", Some(t.danger), !busy).clicked() {
+            if Ghost::new("Disable").color(t.danger).enabled(!busy).show(ui).clicked() {
                 *act = Some(Act::Disable);
             }
         });
@@ -585,9 +584,10 @@ mod tests {
 
     #[test]
     fn times_and_passphrase_wording() {
-        assert_eq!(display_time("2026-11-01T12:34:56.123456+00:00"), "2026-11-01 12:34:56 UTC");
-        assert_eq!(display_time("2026-11-01T12:34:56Z"), "2026-11-01 12:34:56 UTC");
-        assert_eq!(display_time("2026-11-01T12:34:56+02:00"), "2026-11-01 12:34:56 UTC+02:00");
+        let cet = chrono::FixedOffset::east_opt(3600).expect("offset");
+        assert_eq!(display_time_in("2026-11-01T12:34:56.123456+00:00", &cet), "2026-11-01 13:34:56");
+        assert_eq!(display_time_in("2026-11-01T23:34:56Z", &cet), "2026-11-02 00:34:56");
+        assert_eq!(display_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc), "2026-11-01 10:34:56");
         assert_eq!(display_time("soon"), "soon");
         assert_eq!(check("short", "short"), Err("Passphrase must be ≥ 8 characters"));
         assert_eq!(check("long enough", "nope nope"), Err("Passphrases do not match"));

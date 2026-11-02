@@ -48,7 +48,7 @@ pub fn confirm(ctx: &egui::Context, id: Id, c: Confirm<'_>) -> Option<bool> {
             }
         }),
     );
-    if out.dismissed && answer.is_none() {
+    if out.dismissed() && answer.is_none() {
         answer = Some(false);
     }
     if answer.is_some() {
@@ -143,7 +143,7 @@ impl PromptState {
                 }
             }),
         );
-        if cancel || out.dismissed {
+        if cancel || out.dismissed() {
             return Some(PromptAnswer::Cancel);
         }
         if submit.get() {
@@ -246,7 +246,7 @@ impl MoveState {
                 }
             }),
         );
-        if out.dismissed && done.is_none() {
+        if out.dismissed() && done.is_none() {
             done = Some(None);
         }
         done
@@ -361,7 +361,7 @@ impl TileGridDraft {
         );
         if apply.get() {
             Some(Some(TileGrid::clamped(self.rows, self.cols)))
-        } else if cancel || out.dismissed {
+        } else if cancel || out.dismissed() {
             Some(None)
         } else {
             None

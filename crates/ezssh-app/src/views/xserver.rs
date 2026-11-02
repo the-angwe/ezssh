@@ -11,7 +11,7 @@ use crate::form;
 use crate::icons::Icon;
 use crate::style::{font, font_semibold, size, tokens};
 use crate::tabs::TabId;
-use crate::views::vault_dialogs::{ghost_button, para, primary_button};
+use crate::views::vault_dialogs::para;
 use crate::widgets::{self, Tone};
 
 /// The core can download and install VcXsrv only on Windows
@@ -115,19 +115,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if CAN_INSTALL {
                 let icon = if installing { Icon::Loader2 } else { Icon::Download };
                 let label = if failed { "Retry install" } else { "Install VcXsrv" };
-                if primary_button(ui, Some(icon), label, Tone::Accent, !installing).clicked() {
+                if widgets::primary_with_icon(ui, Some(icon), label, Tone::Accent, !installing, size::SM).clicked() {
                     action = Some(Action::Install);
                 }
             }
-            if ghost_button(ui, Some(Icon::MonitorOff), "Continue without X11", !installing, false).clicked() {
+            if widgets::Ghost::new("Continue without X11").icon(Icon::MonitorOff).enabled(!installing).show(ui).clicked() {
                 action = Some(Action::WithoutX11);
             }
-            if ghost_button(ui, None, "Cancel", !installing, false).clicked() {
+            if widgets::Ghost::new("Cancel").enabled(!installing).show(ui).clicked() {
                 action = Some(Action::Cancel);
             }
         }),
     );
-    if out.dismissed && !installing && action.is_none() {
+    if out.dismissed() && !installing && action.is_none() {
         action = Some(Action::Cancel);
     }
     match action {

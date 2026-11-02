@@ -10,13 +10,13 @@ use ezssh_core::api;
 use ezssh_core::api::import::{MobaImportPreview, MobaImportResult};
 use ezssh_core::import::mobaxterm::ParsedMobaSession;
 
-use super::backup::{self as shared, FooterKind, Head, Part, count, join_or};
+use super::backup::{count, join_or};
 use crate::app::App;
 use crate::files::{Filter, Pick};
 use crate::form;
 use crate::icons::Icon;
 use crate::style::{alpha, font, font_semibold, size, tokens};
-use crate::widgets::{self, Tone};
+use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
 
 /// Rows listed before "… and N more".
 const LIST_MAX: usize = 200;
@@ -95,23 +95,26 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
     let t = tokens(ctx);
     let path_text = path.display().to_string();
-    let head = Head { icon: Icon::Upload, icon_color: t.accent, title: "Import from MobaXterm", subtitle: Some(&path_text) };
     let busy = dlg.busy;
     let mut act = None;
-    let closed = shared::shell(ctx, Id::unique("import-dialog"), 620.0, &head, FooterKind::Strip, busy, |ui, part| match part {
-        Part::Body => body(ui, &mut dlg),
-        Part::Footer => {
+    let out = Dialog::data(Id::unique("import-dialog"), 620.0)
+        .header(Icon::Upload, t.accent, "Import from MobaXterm", Some(&path_text))
+        .footer(DialogFooter::Strip)
+        .busy(busy)
+        .show(ctx, |ui, part| match part {
+        DialogPart::Body => body(ui, &mut dlg),
+        DialogPart::Footer => {
             let can = dlg.preview.as_ref().is_some_and(|p| !p.sessions.is_empty()) && !busy;
             let icon = if busy { Icon::Loader2 } else { Icon::Upload };
             if widgets::primary_with_icon(ui, Some(icon), "Import", Tone::Accent, can, size::SM).clicked() {
                 act = Some(Act::Import);
             }
-            if shared::cancel_button(ui, !busy).clicked() {
+            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
         }
     });
-    if closed {
+    if out.dismissed() && !busy {
         act = Some(Act::Close);
     }
     match act {

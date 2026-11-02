@@ -20,7 +20,7 @@ use ezssh_core::local::shells::DetectedShell;
 use ezssh_core::Secret;
 use zeroize::Zeroizing;
 
-use super::cred_picker::{CredPicker, ghost_button};
+use super::cred_picker::CredPicker;
 use crate::form::labelled;
 use crate::app::App;
 use crate::font_presets;
@@ -623,21 +623,19 @@ pub(crate) fn agent_hint(ui: &mut Ui) {
 fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
     let windows = api::local::platform() == "windows";
     form::section(ui, "Type", |ui| {
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let w = (ui.available_width() - 16.0) / 3.0;
-            for (kind, icon, title) in KINDS {
-                let hint = match kind {
-                    "ssh" => "Remote Linux / Unix server",
-                    "wsl" => "Local Linux subsystem distro",
-                    _ if windows => "cmd / PowerShell / pwsh",
-                    _ => "bash / zsh / fish / …",
-                };
-                if form::option_card(ui, dlg.draft.session_kind == kind, icon, title, hint, w).clicked() {
-                    dlg.switch_kind(kind);
-                }
-            }
+        let cards = KINDS.map(|(kind, icon, title)| {
+            let hint = match kind {
+                "ssh" => "Remote Linux / Unix server",
+                "wsl" => "Local Linux subsystem distro",
+                _ if windows => "cmd / PowerShell / pwsh",
+                _ => "bash / zsh / fish / …",
+            };
+            (kind, icon, title, hint)
         });
+        let current = dlg.draft.session_kind.clone();
+        if let Some(kind) = form::option_cards(ui, &current.as_str(), &cards) {
+            dlg.switch_kind(kind);
+        }
     });
 
     let kind = dlg.draft.session_kind.clone();
@@ -698,15 +696,10 @@ fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
     if dlg.draft.is_ssh() {
         form::section(ui, "Authentication", |ui| {
             form::field(ui, "Method", None, |ui| {
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    let w = (ui.available_width() - 16.0) / 3.0;
-                    for (auth, icon, title, hint) in AUTHS {
-                        if form::option_card(ui, dlg.draft.auth_type == auth, icon, title, hint, w).clicked() {
-                            dlg.switch_auth(auth);
-                        }
-                    }
-                });
+                let current = dlg.draft.auth_type.clone();
+                if let Some(auth) = form::option_cards(ui, &current.as_str(), &AUTHS) {
+                    dlg.switch_auth(auth);
+                }
             });
             match dlg.draft.auth_type.as_str() {
                 "password" => {
@@ -961,11 +954,11 @@ fn swatches(ui: &mut Ui, color: &mut Option<String>) {
     });
 }
 
-/// `FontFamilyPicker`: OS presets plus "Custom…", which shows a free-text
+/// `FontFamilyPicker`: installed monospace fonts plus "Custom…", which shows a free-text
 /// field. A value that is not a preset shows as Custom.
 fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut bool) {
     const CUSTOM_FONT: &str = "__custom__";
-    let mut options: Vec<(String, String)> = font_presets::choices().iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+    let mut options: Vec<(String, String)> = font_presets::choices().to_vec();
     options.push((CUSTOM_FONT.into(), "Custom…".into()));
     let mut choice = if *custom { CUSTOM_FONT.to_string() } else { value.clone() };
     if form::select(ui, Id::unique(("session-dialog", "font-family")), &mut choice, &options, None) {
@@ -1039,7 +1032,7 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
                 let r = form::input(ui, &mut p.value, InputOpts::new("value").mono().width(value_w));
                 labelled(ui, &r, &format!("env value {}", i + 1));
                 let what = if p.key.is_empty() { (i + 1).to_string() } else { p.key.clone() };
-                if ghost_button(ui, Some(Icon::Trash), None, &format!("remove env {what}")).clicked() {
+                if widgets::Ghost::icon_only(Icon::Trash, &format!("remove env {what}")).quiet().show(ui).clicked() {
                     remove = Some(i);
                 }
             });

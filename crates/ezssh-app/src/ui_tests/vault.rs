@@ -237,7 +237,7 @@ fn font_picker_applies_live_and_persists() {
     // Pick another family from the list.
     h.get_by_role(Role::ComboBox).click();
     h.run_steps(3);
-    let other = crate::font_presets::choices()[1].1;
+    let other = crate::font_presets::choices()[1].1.as_str();
     h.get_by_label(other).click();
     h.run_steps(3);
     assert_eq!(h.state().dialogs.font_picker.as_ref().map(|p| p.tab), Some(tab), "picking a family keeps the picker open");

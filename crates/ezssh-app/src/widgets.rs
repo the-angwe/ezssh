@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use egui::{
-    Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Key, Layout, Margin, Order, Pos2, Rect, Response, RichText,
+    Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Key, Layout, Margin, Modifiers, Order, Pos2, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, Ui, Vec2, vec2,
 };
 
@@ -94,20 +94,157 @@ fn primary_sized(ui: &mut Ui, icon: Option<Icon>, text: &str, tone: Tone, enable
 
 /// The bordered secondary button of dialog footers ("Cancel").
 pub fn ghost(ui: &mut Ui, text: &str, text_size: f32) -> Response {
-    let t = tokens(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font(text_size), t.fg);
-    let size = vec2(galley.size().x + 24.0, (galley.size().y + 12.0).max(26.0));
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    if ui.is_rect_visible(rect) {
-        if resp.hovered() {
-            ui.painter().rect_filled(rect, 2.0, t.surface2);
+    Ghost::new(text).size(text_size).show(ui)
+}
+
+/// `.btn-ghost`: a bordered, transparent button with a hover fill, an
+/// optional leading icon and a disabled state. Every bordered secondary
+/// button of the app is one of these.
+pub struct Ghost<'a> {
+    text: Option<&'a str>,
+    icon: Option<Icon>,
+    text_size: f32,
+    pad: Vec2,
+    min_h: f32,
+    icon_gap: f32,
+    enabled: bool,
+    /// Text, icon and border colour (the danger-outlined "Disable").
+    color: Option<Color32>,
+    quiet: bool,
+    label: Option<&'a str>,
+    tooltip: Option<&'a str>,
+}
+
+impl<'a> Ghost<'a> {
+    /// Footer size (`text-sm`, `px-3 py-1.5`).
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text: Some(text),
+            icon: None,
+            text_size: size::SM,
+            pad: vec2(12.0, 6.0),
+            min_h: 26.0,
+            icon_gap: 6.0,
+            enabled: true,
+            color: None,
+            quiet: false,
+            label: None,
+            tooltip: None,
         }
-        ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.border), StrokeKind::Inside);
-        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, t.fg);
-        focus_ring(ui, &resp, rect);
     }
-    a11y(&resp, egui::Role::Button, text);
-    resp.on_hover_cursor(CursorIcon::PointingHand)
+
+    /// A square-ish button with only an icon; `label` names it.
+    pub fn icon_only(icon: Icon, label: &'a str) -> Self {
+        Self { text: None, icon: Some(icon), label: Some(label), ..Self::new("") }
+    }
+
+    pub fn icon(mut self, icon: impl Into<Option<Icon>>) -> Self {
+        self.icon = icon.into();
+        self
+    }
+
+    pub fn size(mut self, text_size: f32) -> Self {
+        self.text_size = text_size;
+        self
+    }
+
+    /// In-card size (`px-2 py-1 text-xs`).
+    pub fn compact(mut self) -> Self {
+        self.text_size = size::XS;
+        self.pad = vec2(8.0, 4.0);
+        self.min_h = 22.0;
+        self.icon_gap = 4.0;
+        self
+    }
+
+    /// Toolbar style of the credential picker: 28 px tall, the icon muted
+    /// until hovered, a stronger border on hover.
+    pub fn quiet(mut self) -> Self {
+        self.text_size = size::XS;
+        self.pad = vec2(10.0, 6.0);
+        self.min_h = 28.0;
+        self.quiet = true;
+        self
+    }
+
+    pub fn enabled(mut self, on: bool) -> Self {
+        self.enabled = on;
+        self
+    }
+
+    pub fn color(mut self, c: impl Into<Option<Color32>>) -> Self {
+        self.color = c.into();
+        self
+    }
+
+    /// Screen-reader name when the visible text is ambiguous ("Add").
+    pub fn label(mut self, label: &'a str) -> Self {
+        self.label = Some(label);
+        self
+    }
+
+    pub fn tooltip(mut self, tip: impl Into<Option<&'a str>>) -> Self {
+        self.tooltip = tip.into();
+        self
+    }
+
+    pub fn show(self, ui: &mut Ui) -> Response {
+        let t = tokens(ui.ctx());
+        let fg = self.color.unwrap_or(t.fg);
+        let galley = self.text.map(|s| ui.painter().layout_no_wrap(s.to_string(), font(self.text_size), fg));
+        let text_w = galley.as_ref().map_or(0.0, |g| g.size().x);
+        let text_h = galley.as_ref().map_or(0.0, |g| g.size().y);
+        let icon_w = if self.icon.is_some() { 12.0 } else { 0.0 };
+        let gap = if self.icon.is_some() && galley.is_some() { self.icon_gap } else { 0.0 };
+        let content_w = icon_w + gap + text_w;
+        // An icon-only button is 30 px wide (`w-[30px]`) whatever the padding.
+        let pad_x = if galley.is_some() { self.pad.x } else { 9.0 };
+        let size = vec2(content_w + 2.0 * pad_x, (text_h + 2.0 * self.pad.y).max(self.min_h));
+        let enabled = self.enabled;
+        let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
+        if ui.is_rect_visible(rect) {
+            let fade = |c: Color32| if enabled { c } else { alpha(c, 0.5) };
+            let hovered = enabled && resp.hovered();
+            if hovered {
+                ui.painter().rect_filled(rect, 2.0, if self.color.is_some() { alpha(fg, 0.1) } else { t.surface2 });
+            }
+            let border = match self.color {
+                Some(_) => alpha(fg, 0.4),
+                None if self.quiet && hovered => t.border_strong,
+                None => t.border,
+            };
+            ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, fade(border)), StrokeKind::Inside);
+            let mut x = rect.center().x - content_w / 2.0;
+            if let Some(icon) = self.icon {
+                let c = if self.quiet && !hovered { t.muted } else { fg };
+                icon.paint(ui, Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), Vec2::splat(12.0)), 12.0, fade(c));
+                x += icon_w + gap;
+            }
+            if let Some(g) = galley {
+                ui.painter().galley_with_override_text_color(Pos2::new(x, rect.center().y - text_h / 2.0), g, fade(fg));
+            }
+            focus_ring(ui, &resp, rect);
+        }
+        // Outside the visibility check (a modal's sizing pass paints
+        // nothing), with the real enabled state.
+        let label = self.label.or(self.text).unwrap_or_default();
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+        let resp = resp.on_hover_cursor(if enabled { CursorIcon::PointingHand } else { CursorIcon::NotAllowed });
+        match self.tooltip {
+            Some(tip) => resp.on_hover_text(tip),
+            None => resp,
+        }
+    }
+}
+
+/// A right-aligned row of buttons, one button tall (add the rightmost
+/// first). Fixed height: a centred right-to-left layout would otherwise
+/// claim every pixel below.
+pub fn button_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), 26.0), Layout::right_to_left(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        add(ui);
+    });
 }
 
 /// `.icon-btn`: a square ghost button with one icon. `pressed` paints the
@@ -156,6 +293,71 @@ pub fn paint_icon_button(ui: &Ui, resp: &Response, rect: Rect, icon: Icon, icon_
     }
     icon.paint(ui, rect, icon_size, color);
     focus_ring(ui, resp, rect);
+}
+
+/// An icon button (the webview's `.icon-btn` / `IconBtn`) painted at a
+/// given rect, with a screen-reader `label` apart from its `tooltip`.
+pub struct IconBtn<'a> {
+    icon: Icon,
+    icon_size: f32,
+    label: String,
+    tooltip: &'a str,
+    /// Icon colour at rest (muted when `None`).
+    tone: Option<Color32>,
+    hover_tone: Option<Color32>,
+    hover_bg: Option<Color32>,
+    enabled: bool,
+    /// When false it is painted only while hovered or focused (the
+    /// webview's `opacity-0 group-hover:opacity-100 focus:opacity-100`).
+    visible: bool,
+}
+
+impl<'a> IconBtn<'a> {
+    pub fn new(icon: Icon, label: String, tooltip: &'a str) -> Self {
+        Self { icon, icon_size: 12.0, label, tooltip, tone: None, hover_tone: None, hover_bg: None, enabled: true, visible: true }
+    }
+
+    pub fn tone(mut self, c: Color32) -> Self {
+        self.tone = Some(c);
+        self
+    }
+
+    pub fn hover(mut self, tone: Color32, bg: Color32) -> Self {
+        self.hover_tone = Some(tone);
+        self.hover_bg = Some(bg);
+        self
+    }
+
+    pub fn enabled(mut self, on: bool) -> Self {
+        self.enabled = on;
+        self
+    }
+
+    pub fn visible(mut self, on: bool) -> Self {
+        self.visible = on;
+        self
+    }
+
+    pub fn show(&self, ui: &mut Ui, rect: Rect, id: Id) -> Response {
+        let tk = tokens(ui.ctx());
+        let enabled = self.enabled;
+        let resp = ui.interact(rect, id, if enabled { Sense::click() } else { Sense::hover() });
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &self.label));
+        let hovered = enabled && resp.hovered();
+        if (self.visible || resp.has_focus() || hovered) && ui.is_rect_visible(rect) {
+            if hovered {
+                ui.painter().rect_filled(rect, 2.0, self.hover_bg.unwrap_or(tk.surface2));
+            }
+            let mut color = if hovered { self.hover_tone.or(self.tone).unwrap_or(tk.fg) } else { self.tone.unwrap_or(tk.muted) };
+            if !enabled {
+                color = alpha(color, 0.4);
+            }
+            self.icon.paint(ui, rect, self.icon_size, color);
+            focus_ring(ui, &resp, rect);
+        }
+        let resp = resp.on_hover_cursor(if enabled { CursorIcon::PointingHand } else { CursorIcon::NotAllowed });
+        resp.on_hover_text(self.tooltip)
+    }
 }
 
 /// The 2 px accent outline of `.focus-ring:focus-visible`. egui buttons
@@ -224,45 +426,269 @@ pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str, action: Opt
 
 // ---------------------------------------------------------------- dialogs
 
-/// Outcome of one frame of a dialog.
-pub struct DialogFrame {
-    /// Backdrop click or Escape.
-    pub dismissed: bool,
+/// The dialog's header.
+pub enum DialogHead<'a> {
+    None,
+    /// The vault / forward dialogs' title strip (`bg-surface2/30`, 42 px):
+    /// optional accent icon and a title.
+    Strip { icon: Option<Icon>, title: &'a str },
+    /// The data dialogs' header (56 px): icon, title, optional mono
+    /// subtitle and a ✕ button.
+    Full { icon: Icon, icon_color: Color32, title: &'a str, subtitle: Option<&'a str> },
 }
 
-/// The dialog shell of the webview: a `width` px card (surface, border,
-/// 3 px radius, dialog shadow) over a dimmed backdrop. `body` is padded
-/// 16 px; `footer` (if any) sits in a bordered strip with right-aligned
-/// buttons, laid out right to left (add the primary button first).
-pub fn dialog(ctx: &egui::Context, id: Id, width: f32, body: impl FnOnce(&mut Ui), footer: Option<&mut dyn FnMut(&mut Ui)>) -> DialogFrame {
-    let t = tokens(ctx);
-    let frame = Frame::new()
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.border))
-        .corner_radius(CornerRadius::same(3))
-        .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(115) });
-    let width = width.min(ctx.content_rect().width() - 32.0);
-    let resp = egui::Modal::new(id).backdrop_color(Color32::from_black_alpha(128)).frame(frame).show(ctx, |ui| {
-        ui.set_width(width);
-        Frame::new().inner_margin(Margin::same(16)).show(ui, |ui| {
-            ui.set_width(width - 32.0);
-            body(ui)
-        });
-        if let Some(footer) = footer {
-            let r = ui.available_rect_before_wrap();
-            let strip = Rect::from_min_size(r.min, vec2(width, 52.0));
-            ui.painter().rect_filled(strip, CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 }, style::over(t.surface, t.surface2, 0.3));
-            ui.painter().hline(strip.x_range(), strip.top(), Stroke::new(1.0, t.border));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(strip.shrink2(vec2(16.0, 12.0))), |ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    footer(ui);
-                });
-            });
-            ui.allocate_rect(strip, Sense::hover());
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DialogFooter {
+    None,
+    /// Right-aligned under the body, inside the padding.
+    Inline,
+    /// A bordered strip under the body.
+    Strip,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DialogPart {
+    Body,
+    /// Laid out right to left: add the primary button first. Leftover
+    /// space on the left can hold more (`ui.with_layout(left_to_right)`).
+    Footer,
+}
+
+/// What the user did to the dialog's surroundings this frame. Reported,
+/// never acted on, so each dialog can gate closing its own way.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DialogOut {
+    pub backdrop: bool,
+    /// Escape, consumed only when this is the top modal and no popup
+    /// (combo box list) is open.
+    pub escape: bool,
+    /// The header's ✕, or `ui.close()` from inside.
+    pub close: bool,
+}
+
+impl DialogOut {
+    pub fn dismissed(&self) -> bool {
+        self.backdrop || self.escape || self.close
+    }
+}
+
+const STRIP_HEAD_H: f32 = 42.0;
+const FULL_HEAD_H: f32 = 56.0;
+const FOOTER_H: f32 = 52.0;
+
+/// The dialog card of the webview (`w-[…px]`, `max-h-[90vh]`): surface,
+/// border, 3 px radius and dialog shadow over a dimmed backdrop, with a
+/// header, a padded body that scrolls once it no longer fits, and a
+/// footer.
+pub struct Dialog<'a> {
+    id: Id,
+    width: f32,
+    head: DialogHead<'a>,
+    footer: DialogFooter,
+    padding: i8,
+    row_gap: Option<f32>,
+    busy: bool,
+}
+
+impl<'a> Dialog<'a> {
+    pub fn new(id: Id, width: f32) -> Self {
+        Self { id, width, head: DialogHead::None, footer: DialogFooter::None, padding: 16, row_gap: None, busy: false }
+    }
+
+    /// The backup / restore / sync / import dialogs: 20 px padding, 16 px
+    /// between rows (add a [`Dialog::header`]).
+    pub fn data(id: Id, width: f32) -> Self {
+        Self::new(id, width).padding(20).row_gap(16.0)
+    }
+
+    pub fn strip(mut self, icon: Option<Icon>, title: &'a str) -> Self {
+        self.head = DialogHead::Strip { icon, title };
+        self
+    }
+
+    pub fn header(mut self, icon: Icon, icon_color: Color32, title: &'a str, subtitle: Option<&'a str>) -> Self {
+        self.head = DialogHead::Full { icon, icon_color, title, subtitle };
+        self
+    }
+
+    pub fn footer(mut self, kind: DialogFooter) -> Self {
+        self.footer = kind;
+        self
+    }
+
+    pub fn padding(mut self, px: i8) -> Self {
+        self.padding = px;
+        self
+    }
+
+    /// Vertical space between body rows (egui's default when unset).
+    pub fn row_gap(mut self, px: f32) -> Self {
+        self.row_gap = Some(px);
+        self
+    }
+
+    /// A call is running: the ✕ is inert.
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
+        self
+    }
+
+    /// Show with separate body and footer closures (a `Strip` footer when
+    /// `footer` is given).
+    pub fn show_split(mut self, ctx: &egui::Context, body: impl FnOnce(&mut Ui), mut footer: Option<&mut dyn FnMut(&mut Ui)>) -> DialogOut {
+        if footer.is_some() && self.footer == DialogFooter::None {
+            self.footer = DialogFooter::Strip;
         }
-    });
-    DialogFrame { dismissed: resp.should_close() }
+        let mut body = Some(body);
+        self.show(ctx, |ui, part| match part {
+            DialogPart::Body => {
+                if let Some(b) = body.take() {
+                    b(ui);
+                }
+            }
+            DialogPart::Footer => {
+                if let Some(f) = footer.as_mut() {
+                    f(ui);
+                }
+            }
+        })
+    }
+
+    /// Show one frame. `add` is called once for the body and once for the
+    /// footer (unless `DialogFooter::None`), so both can borrow the
+    /// dialog's state.
+    pub fn show(self, ctx: &egui::Context, mut add: impl FnMut(&mut Ui, DialogPart)) -> DialogOut {
+        let t = tokens(ctx);
+        let screen = ctx.content_rect();
+        let width = self.width.min(screen.width() - 32.0);
+        let id = self.id;
+        let frame = Frame::new()
+            .fill(t.surface)
+            .stroke(Stroke::new(1.0, t.border))
+            .corner_radius(CornerRadius::same(3))
+            .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(115) });
+        let strip_fill = style::over(t.surface, t.surface2, 0.3);
+        let mut close = false;
+        let resp = egui::Modal::new(id).backdrop_color(Color32::from_black_alpha(128)).frame(frame).show(ctx, |ui| {
+            ui.set_width(width);
+            let default_gap = ui.spacing().item_spacing.y;
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let head_h = match self.head {
+                DialogHead::None => 0.0,
+                DialogHead::Strip { icon, title } => {
+                    let (head, _) = ui.allocate_exact_size(vec2(width, STRIP_HEAD_H), Sense::hover());
+                    ui.painter().rect_filled(head, CornerRadius { nw: 3, ne: 3, sw: 0, se: 0 }, strip_fill);
+                    ui.painter().hline(head.x_range(), head.bottom() - 0.5, Stroke::new(1.0, t.border));
+                    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(head.shrink2(vec2(16.0, 0.0))).layout(Layout::left_to_right(Align::Center)));
+                    row.spacing_mut().item_spacing.x = 8.0;
+                    if let Some(icon) = icon {
+                        icon.show(&mut row, 14.0, t.accent);
+                    }
+                    row.label(RichText::new(title).font(font_semibold(size::SM)).color(t.fg));
+                    STRIP_HEAD_H
+                }
+                DialogHead::Full { icon, icon_color, title, subtitle } => {
+                    let (hrect, _) = ui.allocate_exact_size(vec2(width, FULL_HEAD_H), Sense::hover());
+                    ui.painter().hline(hrect.x_range(), hrect.bottom(), Stroke::new(1.0, t.border));
+                    let inner = hrect.shrink2(vec2(20.0, 0.0));
+                    let icon_r = Rect::from_center_size(Pos2::new(inner.left() + 8.0, inner.center().y), Vec2::splat(16.0));
+                    icon.paint(ui, icon_r, 16.0, icon_color);
+                    let text_r = Rect::from_min_max(Pos2::new(icon_r.right() + 12.0, inner.top()), Pos2::new(inner.right() - 36.0, inner.bottom()));
+                    let title_text = RichText::new(title).font(font_semibold(size::BASE)).color(t.fg);
+                    match subtitle {
+                        Some(sub) => {
+                            let top = Rect::from_min_max(text_r.min, Pos2::new(text_r.right(), text_r.center().y));
+                            let bottom = Rect::from_min_max(Pos2::new(text_r.left(), text_r.center().y), text_r.max);
+                            title_label(ui, top, title_text, Align::BOTTOM);
+                            title_label(ui, bottom, RichText::new(sub).font(egui::FontId::monospace(size::XS)).color(t.muted), Align::TOP);
+                        }
+                        None => title_label(ui, text_r, title_text, Align::Center),
+                    }
+                    let x_r = Rect::from_center_size(Pos2::new(inner.right() - 12.0, inner.center().y), Vec2::splat(24.0));
+                    let x = ui.interact(x_r, id.with("close"), if self.busy { Sense::hover() } else { Sense::click() });
+                    paint_icon_button(ui, &x, x_r, Icon::X, 14.0, false, None);
+                    a11y(&x, egui::Role::Button, "Close");
+                    if x.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                        close = true;
+                    }
+                    FULL_HEAD_H
+                }
+            };
+            // Body. A Modal lays out in last frame's size and a ScrollArea
+            // never grows past the space it is offered, so a body that fits
+            // is laid out plainly (the card follows its height); only one
+            // taller than `max_body` (judged on last frame's height)
+            // scrolls, at that height.
+            let foot_h = if self.footer == DialogFooter::Strip { FOOTER_H } else { 0.0 };
+            let max_body = (screen.height() * 0.9 - head_h - foot_h).max(120.0);
+            let content_h_id = id.with("content-h");
+            let last_h: f32 = ui.ctx().data(|d| d.get_temp(content_h_id)).unwrap_or(0.0);
+            let pad = f32::from(self.padding);
+            let mut body = |ui: &mut Ui| {
+                Frame::new()
+                    .inner_margin(Margin::same(self.padding))
+                    .show(ui, |ui| {
+                        ui.set_width(width - 2.0 * pad);
+                        ui.spacing_mut().item_spacing.y = self.row_gap.unwrap_or(default_gap);
+                        add(ui, DialogPart::Body);
+                        if self.footer == DialogFooter::Inline {
+                            ui.add_space(-4.0);
+                            ui.allocate_ui_with_layout(vec2(width - 2.0 * pad, 28.0), Layout::right_to_left(Align::Center), |ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                add(ui, DialogPart::Footer);
+                            });
+                        }
+                    })
+                    .response
+                    .rect
+                    .height()
+            };
+            let content_h = if last_h <= max_body {
+                body(ui)
+            } else {
+                egui::ScrollArea::vertical()
+                    .id_salt(id.with("body"))
+                    .max_height(max_body)
+                    .min_scrolled_height(max_body)
+                    .auto_shrink(false)
+                    .show(ui, |ui| body(ui))
+                    .inner
+            };
+            if content_h != last_h {
+                ui.ctx().data_mut(|d| d.insert_temp(content_h_id, content_h));
+                ui.ctx().request_repaint();
+            }
+            if self.footer == DialogFooter::Strip {
+                let (strip, _) = ui.allocate_exact_size(vec2(width, FOOTER_H), Sense::hover());
+                ui.painter().rect_filled(strip, CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 }, strip_fill);
+                ui.painter().hline(strip.x_range(), strip.top(), Stroke::new(1.0, t.border));
+                ui.scope_builder(egui::UiBuilder::new().max_rect(strip.shrink2(vec2(pad, 12.0))), |ui| {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        add(ui, DialogPart::Footer);
+                    });
+                });
+            }
+        });
+        let backdrop = resp.backdrop_response.clicked();
+        let close = close || resp.response.should_close();
+        let escape = resp.is_top_modal && !resp.any_popup_open && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
+        DialogOut { backdrop, escape, close }
+    }
+}
+
+/// A truncating label in `rect` (full text for AccessKit and on hover).
+/// A child Ui, so the parent's cursor stays below the header.
+fn title_label(ui: &mut Ui, rect: Rect, text: RichText, valign: Align) {
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(valign)));
+    child.add(egui::Label::new(text).truncate());
+}
+
+/// [`Dialog`] without a header: body padded 16 px, `footer` (if any) in a
+/// bordered strip with right-aligned buttons, laid out right to left (add
+/// the primary button first).
+pub fn dialog(ctx: &egui::Context, id: Id, width: f32, body: impl FnOnce(&mut Ui), footer: Option<&mut dyn FnMut(&mut Ui)>) -> DialogOut {
+    Dialog::new(id, width).show_split(ctx, body, footer)
 }
 
 /// Dialog header row: an icon (22 px, coloured) beside a title and body.

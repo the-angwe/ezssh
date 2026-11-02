@@ -246,14 +246,51 @@ pub fn checkbox(ui: &mut Ui, value: &mut bool, label: &str, hint_text: Option<&s
     resp
 }
 
-/// The radio cards of the session dialog (`AuthOption` / `KindOption`):
-/// icon, title, hint; accent border and tint when selected.
-pub fn option_card(ui: &mut Ui, selected: bool, icon: Icon, title: &str, hint_text: &str, width: f32) -> Response {
+/// One radio card: `(value, icon, title, hint)`.
+pub type OptionCard<'a, T> = (T, Icon, &'a str, &'a str);
+
+/// A row of the radio cards of the session dialog (`AuthOption` /
+/// `KindOption`): equal widths with 8 px gaps, and every card as tall as
+/// the tallest (the TSX grid stretched them), so a hint that wraps does
+/// not make one card stick out. Returns the value of the card clicked.
+pub fn option_cards<T: PartialEq + Clone>(ui: &mut Ui, selected: &T, cards: &[OptionCard<'_, T>]) -> Option<T> {
+    if cards.is_empty() {
+        return None;
+    }
+    let n = cards.len() as f32;
+    let width = (ui.available_width() - 8.0 * (n - 1.0)) / n;
+    let height = cards.iter().map(|(_, _, title, hint)| option_card_height(ui, title, hint, width)).fold(0.0, f32::max);
+    let mut clicked = None;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for (value, icon, title, hint) in cards {
+            if option_card(ui, value == selected, *icon, title, hint, width, height).clicked() {
+                clicked = Some(value.clone());
+            }
+        }
+    });
+    clicked
+}
+
+fn option_card_galleys(ui: &Ui, title: &str, hint_text: &str, width: f32) -> (std::sync::Arc<egui::Galley>, std::sync::Arc<egui::Galley>) {
     let t = tokens(ui.ctx());
     let inner_w = width - 24.0;
     let title_g = ui.painter().layout(title.to_string(), font_semibold(size::SM), t.fg, inner_w);
     let hint_g = ui.painter().layout(hint_text.to_string(), font(size::XS), t.muted, inner_w);
-    let h = 12.0 + 16.0 + 4.0 + title_g.size().y + 4.0 + hint_g.size().y + 12.0;
+    (title_g, hint_g)
+}
+
+fn option_card_height(ui: &Ui, title: &str, hint_text: &str, width: f32) -> f32 {
+    let (title_g, hint_g) = option_card_galleys(ui, title, hint_text, width);
+    12.0 + 16.0 + 4.0 + title_g.size().y + 4.0 + hint_g.size().y + 12.0
+}
+
+/// One card of [`option_cards`]: icon, title, hint; accent border and
+/// tint when selected; at least `min_h` tall.
+fn option_card(ui: &mut Ui, selected: bool, icon: Icon, title: &str, hint_text: &str, width: f32, min_h: f32) -> Response {
+    let t = tokens(ui.ctx());
+    let (title_g, hint_g) = option_card_galleys(ui, title, hint_text, width);
+    let h = (12.0 + 16.0 + 4.0 + title_g.size().y + 4.0 + hint_g.size().y + 12.0).max(min_h);
     let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
     if ui.is_rect_visible(rect) {

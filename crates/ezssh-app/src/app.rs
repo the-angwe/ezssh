@@ -118,6 +118,7 @@ impl App {
     pub fn new(ctx: &egui::Context, options: Options) -> anyhow::Result<Self> {
         egui_extras::install_image_loaders(ctx);
         crate::ui_font::install(ctx);
+        ezssh_term::fonts::prewarm_monospace_families();
         let mut fonts = FontRegistry::new();
         let mono = fonts.faces(ctx, "").regular;
         let layout_path = layout::path_for(&options.db_path);

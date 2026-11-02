@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use egui::{Align, Color32, CursorIcon, Id, Layout, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, UiBuilder, vec2};
+use egui::{Align, Color32, Id, Layout, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, UiBuilder, vec2};
 use ezssh_core::api;
 use ezssh_core::api::forwards::ForwardStartTarget;
 use ezssh_core::db::forwards::{Forward, ForwardInput};
@@ -21,7 +21,7 @@ use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::style::{alpha, font, font_semibold, size, tokens};
 use crate::tabs::TabId;
-use crate::widgets::{self, Menu, MenuEntry, MenuResult, Tone};
+use crate::widgets::{self, Ghost, IconBtn, Menu, MenuEntry, MenuResult, Tone};
 
 // ---------------------------------------------------------------- lib/forwards.ts
 
@@ -446,7 +446,7 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
         ui.label(RichText::new("Forwards").font(font_semibold(size::SM)).color(tk.fg));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let tip = if connection_id.is_some() { "Add forward to this tab" } else { "Connect first to add a forward" };
-            if ghost_icon(ui, Some(Icon::Plus), "Add", connection_id.is_some(), Some(tip), "Add forward").clicked() {
+            if Ghost::new("Add").size(size::XS).icon(Icon::Plus).enabled(connection_id.is_some()).tooltip(tip).label("Add forward").show(ui).clicked() {
                 actions.push(Action::AddTab);
             }
         });
@@ -599,102 +599,6 @@ fn pane_row(ui: &mut Ui, id: Id, kind: ForwardKind, label: &str, status: RowStat
 
 // ---------------------------------------------------------------- shared bits
 
-/// An icon button (the webview's `.icon-btn` / `IconBtn`) painted at a
-/// given rect, with a screen-reader `label` apart from its `tooltip`.
-pub(super) struct IconBtn<'a> {
-    icon: Icon,
-    icon_size: f32,
-    label: String,
-    tooltip: &'a str,
-    /// Icon colour at rest (muted when `None`).
-    tone: Option<Color32>,
-    hover_tone: Option<Color32>,
-    hover_bg: Option<Color32>,
-    enabled: bool,
-    /// When false it is painted only while hovered or focused (the
-    /// webview's `opacity-0 group-hover:opacity-100 focus:opacity-100`).
-    visible: bool,
-}
-
-impl<'a> IconBtn<'a> {
-    pub(super) fn new(icon: Icon, label: String, tooltip: &'a str) -> Self {
-        Self { icon, icon_size: 12.0, label, tooltip, tone: None, hover_tone: None, hover_bg: None, enabled: true, visible: true }
-    }
-
-    pub(super) fn tone(mut self, c: Color32) -> Self {
-        self.tone = Some(c);
-        self
-    }
-
-    pub(super) fn hover(mut self, tone: Color32, bg: Color32) -> Self {
-        self.hover_tone = Some(tone);
-        self.hover_bg = Some(bg);
-        self
-    }
-
-    pub(super) fn enabled(mut self, on: bool) -> Self {
-        self.enabled = on;
-        self
-    }
-
-    pub(super) fn visible(mut self, on: bool) -> Self {
-        self.visible = on;
-        self
-    }
-
-    pub(super) fn show(&self, ui: &mut Ui, rect: Rect, id: Id) -> Response {
-        let tk = tokens(ui.ctx());
-        let enabled = self.enabled;
-        let resp = ui.interact(rect, id, if enabled { Sense::click() } else { Sense::hover() });
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &self.label));
-        let hovered = enabled && resp.hovered();
-        if (self.visible || resp.has_focus() || hovered) && ui.is_rect_visible(rect) {
-            if hovered {
-                ui.painter().rect_filled(rect, 2.0, self.hover_bg.unwrap_or(tk.surface2));
-            }
-            let mut color = if hovered { self.hover_tone.or(self.tone).unwrap_or(tk.fg) } else { self.tone.unwrap_or(tk.muted) };
-            if !enabled {
-                color = alpha(color, 0.4);
-            }
-            self.icon.paint(ui, rect, self.icon_size, color);
-            widgets::focus_ring(ui, &resp, rect);
-        }
-        let resp = resp.on_hover_cursor(if enabled { CursorIcon::PointingHand } else { CursorIcon::NotAllowed });
-        resp.on_hover_text(self.tooltip)
-    }
-}
-
-/// `.btn-ghost` with an optional leading icon: bordered, `text-xs`.
-/// `a11y_label` names it to screen readers when the visible text is
-/// ambiguous ("Add" in several groups).
-pub(super) fn ghost_icon(ui: &mut Ui, icon: Option<Icon>, text: &str, enabled: bool, tooltip: Option<&str>, a11y_label: &str) -> Response {
-    let tk = tokens(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font(size::XS), tk.fg);
-    let icon_w = if icon.is_some() { 12.0 + 6.0 } else { 0.0 };
-    let size = vec2(galley.size().x + icon_w + 24.0, 26.0);
-    let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, a11y_label));
-    if ui.is_rect_visible(rect) {
-        if enabled && resp.hovered() {
-            ui.painter().rect_filled(rect, 2.0, tk.surface2);
-        }
-        ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, tk.border), StrokeKind::Inside);
-        let color = if enabled { tk.fg } else { alpha(tk.fg, 0.5) };
-        let mut x = rect.left() + 12.0;
-        if let Some(icon) = icon {
-            icon.paint(ui, Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), vec2(12.0, 12.0)), 12.0, color);
-            x += icon_w;
-        }
-        ui.painter().galley_with_override_text_color(Pos2::new(x, rect.center().y - galley.size().y / 2.0), galley, color);
-        widgets::focus_ring(ui, &resp, rect);
-    }
-    let resp = resp.on_hover_cursor(if enabled { CursorIcon::PointingHand } else { CursorIcon::NotAllowed });
-    match tooltip {
-        Some(t) => resp.on_hover_text(t),
-        None => resp,
-    }
-}
-
 // ---------------------------------------------------------------- session tab
 
 /// The session dialog's Forwards tab (`ForwardsConfigPane`): the saved
@@ -725,7 +629,7 @@ pub fn session_tab(app: &mut App, ui: &mut Ui, session_id: Option<i64>) {
                 _ => {}
             }
         }
-        if ghost_icon(ui, Some(Icon::Plus), "Add forward", true, None, "Add forward").clicked() {
+        if Ghost::new("Add forward").size(size::XS).icon(Icon::Plus).label("Add forward").show(ui).clicked() {
             actions.push(Action::AddSaved(sid));
         }
     });
@@ -1114,15 +1018,10 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
             ui.painter().hline((r.left() - 16.0)..=(r.right() + 16.0), r.top() - 3.0, Stroke::new(1.0, tk.border));
             ui.add_space(8.0);
             let w = ui.available_width();
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                let tile_w = (w - 16.0) / 3.0;
-                for (kind, label, hint) in KIND_TILES {
-                    if form::option_card(ui, d.kind == kind, kind_icon(kind), label, hint, tile_w).clicked() {
-                        d.kind = kind;
-                    }
-                }
-            });
+            let tiles = KIND_TILES.map(|(kind, label, hint)| (kind, kind_icon(kind), label, hint));
+            if let Some(kind) = form::option_cards(ui, &d.kind, &tiles) {
+                d.kind = kind;
+            }
             form::field(ui, "Name (optional)", None, |ui| {
                 form::input(ui, &mut d.name, InputOpts::new("e.g. Postgres dev")).accessible_name("Name (optional)");
             });
@@ -1173,7 +1072,7 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
             }
         }),
     );
-    if cancel || out.dismissed {
+    if cancel || out.dismissed() {
         tracing::debug!("forwards: dialog closed");
         app.forwards.dialog = None;
     } else if save {

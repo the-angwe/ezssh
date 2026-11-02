@@ -15,14 +15,14 @@ use ezssh_core::{AppError, api};
 use ezssh_core::api::backup::{BackupPreview, RestoreSummary, SelectionSpec};
 use zeroize::Zeroizing;
 
-use super::backup::{self as shared, FooterKind, Head, Part, Span, count, join_or};
+use super::backup::{self as shared, Span, count, join_or};
 use crate::app::App;
 use crate::files::{Filter, Pick};
 use crate::form;
 use crate::icons::Icon;
 use crate::settings::Settings;
 use crate::style::{Theme, alpha, font, font_semibold, size, tokens};
-use crate::widgets::{self, Tone};
+use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -128,12 +128,15 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     };
     let t = tokens(ctx);
     let path_text = path.display().to_string();
-    let head = Head { icon: Icon::PackageCheck, icon_color: t.accent, title: "Restore from backup", subtitle: Some(&path_text) };
-    let footer = if dlg.step == Step::Passphrase { FooterKind::Inline } else { FooterKind::Strip };
+    let footer = if dlg.step == Step::Passphrase { DialogFooter::Inline } else { DialogFooter::Strip };
     let busy = dlg.busy;
     let mut act = None;
-    let closed = shared::shell(ctx, Id::unique("restore-dialog"), 620.0, &head, footer, busy, |ui, part| match (part, dlg.step) {
-        (Part::Body, Step::Passphrase) => {
+    let out = Dialog::data(Id::unique("restore-dialog"), 620.0)
+        .header(Icon::PackageCheck, t.accent, "Restore from backup", Some(&path_text))
+        .footer(footer)
+        .busy(busy)
+        .show(ctx, |ui, part| match (part, dlg.step) {
+        (DialogPart::Body, Step::Passphrase) => {
             let r = shared::labeled(ui, "Backup passphrase", |ui| form::secret(ui, &mut dlg.passphrase, "", &mut dlg.show, None));
             shared::autofocus(&r, &mut dlg.focused, Step::Passphrase);
             if crate::form::entered(ui, &r) {
@@ -141,24 +144,24 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             shared::error_line(ui, dlg.err.as_deref());
         }
-        (Part::Footer, Step::Passphrase) => {
+        (DialogPart::Footer, Step::Passphrase) => {
             if widgets::primary(ui, "Unlock backup", Tone::Accent, !busy && !dlg.passphrase.is_empty(), size::SM).clicked() {
                 act = Some(Act::Unlock);
             }
             if busy {
                 form::spinner(ui, 12.0);
             }
-            if shared::cancel_button(ui, !busy).clicked() {
+            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
         }
-        (Part::Body, Step::Select) => {
+        (DialogPart::Body, Step::Select) => {
             if let Some(p) = dlg.preview.as_ref() {
                 select_body(ui, p, &mut dlg.sel);
             }
             shared::error_line(ui, dlg.err.as_deref());
         }
-        (Part::Footer, Step::Select) => {
+        (DialogPart::Footer, Step::Select) => {
             let total = dlg.preview.as_ref().map_or(0, |p| dlg.sel.total(p));
             if widgets::primary(ui, "Import selected", Tone::Accent, !busy && total > 0, size::SM).clicked() {
                 act = Some(Act::Restore);
@@ -166,7 +169,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if busy {
                 form::spinner(ui, 12.0);
             }
-            if shared::cancel_button(ui, !busy).clicked() {
+            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -174,7 +177,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             });
         }
     });
-    if closed {
+    if out.dismissed() && !busy {
         act = Some(Act::Close);
     }
     match act {

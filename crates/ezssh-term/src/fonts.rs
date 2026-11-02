@@ -8,6 +8,7 @@
 //! icons, Powerline) and then to eframe's system fallback (CJK, emoji).
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use egui::FontFamily;
 use egui::epaint::text::{FontData, FontInsert, FontPriority, InsertFontFamily};
@@ -239,9 +240,133 @@ impl FontRegistry {
     }
 }
 
+/// Installed families whose regular face is monospaced, sorted without
+/// regard to case. The system is scanned once per process (fontconfig on
+/// Linux, DirectWrite on Windows, CoreText on macOS); the first call blocks
+/// for the scan, so call [`prewarm_monospace_families`] at start-up.
+pub fn monospace_families() -> &'static [String] {
+    static LIST: OnceLock<Vec<String>> = OnceLock::new();
+    LIST.get_or_init(scan_monospace)
+}
+
+/// Run the [`monospace_families`] scan on a background thread so the first
+/// font dialog does not wait for it.
+pub fn prewarm_monospace_families() {
+    let spawned = std::thread::Builder::new().name("font-scan".into()).spawn(|| {
+        monospace_families();
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "term.fonts: font scan thread not started; the first font dialog scans inline");
+    }
+}
+
+fn scan_monospace() -> Vec<String> {
+    let started = std::time::Instant::now();
+    let mut collection = Collection::new(CollectionOptions { shared: false, system_fonts: true });
+    let mut cache = SourceCache::new(SourceCacheOptions::default());
+    let names: Vec<String> = collection.family_names().map(str::to_string).collect();
+    let mut found = Vec::new();
+    for name in &names {
+        let Some(family) = collection.family_by_name(name) else {
+            tracing::debug!(font = %name, "term.fonts: scan: listed family not found by name");
+            continue;
+        };
+        let Some(info) = family.match_font(FontWidth::NORMAL, FontStyle::Normal, FontWeight::NORMAL, false) else {
+            tracing::debug!(font = %name, "term.fonts: scan: family has no fonts");
+            continue;
+        };
+        let Some(blob) = info.load(Some(&mut cache)) else {
+            tracing::debug!(font = %name, "term.fonts: scan: font file not loaded");
+            continue;
+        };
+        match is_monospace(blob.as_ref(), info.index()) {
+            Ok(true) => found.push(name.clone()),
+            Ok(false) => {}
+            Err(e) => tracing::debug!(font = %name, error = %e, "term.fonts: scan: font not readable"),
+        }
+    }
+    let mut list = drop_weight_aliases(found);
+    list.sort_by_key(|n| n.to_lowercase());
+    tracing::info!(
+        families = names.len(),
+        monospace = list.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "term.fonts: monospace scan done"
+    );
+    list
+}
+
+/// Monospace when the sampled ASCII glyphs the font has share one advance
+/// width (`post.isFixedPitch` is unreliable both ways). Fonts without
+/// both `i` and `M` (symbol and non-Latin fonts) are not terminal fonts.
+fn is_monospace(data: &[u8], index: u32) -> Result<bool, read_fonts::ReadError> {
+    use read_fonts::{FontRef, TableProvider};
+    let font = FontRef::from_index(data, index)?;
+    let cmap = font.cmap()?;
+    let hmtx = font.hmtx()?;
+    let (Some(i), Some(m)) = (cmap.map_codepoint('i'), cmap.map_codepoint('M')) else {
+        return Ok(false);
+    };
+    let Some(width) = hmtx.advance(i) else {
+        return Ok(false);
+    };
+    if width == 0 || hmtx.advance(m) != Some(width) {
+        return Ok(false);
+    }
+    Ok("lW.0m_".chars().filter_map(|c| cmap.map_codepoint(c)).all(|g| hmtx.advance(g) == Some(width)))
+}
+
+/// Fontconfig also lists a static font's legacy family name
+/// ("JetBrains Mono ExtraBold" next to "JetBrains Mono"). Those name one
+/// weight of a family that is already listed, so they are left out.
+fn drop_weight_aliases(names: Vec<String>) -> Vec<String> {
+    const WEIGHTS: &[&str] = &[
+        "Thin", "Hairline", "ExtraLight", "Extra Light", "UltraLight", "Ultra Light", "Light", "SemiLight", "Semi Light",
+        "Book", "Regular", "Medium", "SemiBold", "Semi Bold", "DemiBold", "Demi Bold", "Bold", "ExtraBold", "Extra Bold",
+        "UltraBold", "Ultra Bold", "Black", "Heavy", "ExtraBlack", "Extra Black",
+    ];
+    let all: std::collections::HashSet<String> = names.iter().cloned().collect();
+    names
+        .into_iter()
+        .filter(|name| {
+            let alias = WEIGHTS.iter().any(|w| name.strip_suffix(w).and_then(|base| base.strip_suffix(' ')).is_some_and(|base| all.contains(base)));
+            if alias {
+                tracing::trace!(font = %name, "term.fonts: scan: weight alias left out");
+            }
+            !alias
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn weight_aliases_dropped_only_next_to_their_family() {
+        let names = ["JetBrains Mono", "JetBrains Mono ExtraBold", "JetBrains Mono NL", "JetBrains Mono NL Light", "Iosevka Heavy"];
+        assert_eq!(
+            drop_weight_aliases(names.iter().map(|s| s.to_string()).collect()),
+            vec!["JetBrains Mono", "JetBrains Mono NL", "Iosevka Heavy"]
+        );
+    }
+
+    /// Prints the scan; on a machine with JetBrains Mono NL it must be there.
+    #[test]
+    fn monospace_scan_lists_installed_families() {
+        let list = monospace_families();
+        eprintln!("{} monospace families: {list:?}", list.len());
+        assert!(list.windows(2).all(|w| w[0].to_lowercase() <= w[1].to_lowercase()), "sorted");
+        let mut probe = Collection::new(CollectionOptions { shared: false, system_fonts: true });
+        for name in ["JetBrains Mono", "JetBrains Mono NL", "DejaVu Sans Mono"] {
+            if probe.family_by_name(name).is_some() {
+                assert!(list.iter().any(|n| n == name), "{name} is installed but not listed");
+            }
+        }
+        for name in ["DejaVu Sans", "Noto Sans"] {
+            assert!(!list.iter().any(|n| n == name), "{name} is proportional");
+        }
+    }
 
     #[test]
     fn stacks_split_and_unquote() {

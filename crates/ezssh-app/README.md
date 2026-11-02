@@ -30,7 +30,7 @@ pane width and columns) is kept in `layout.json` next to the database.
 | `style.rs`, `icons.rs`, `ui_font.rs` | `globals.css` tokens, Lucide icons (`tools/gen_icons.mjs`), system UI font |
 | `widgets.rs` | `.btn-*`, `.icon-btn`, dialog shell, `context-menu.tsx`, `resize-handle.tsx`, `status-dot.tsx`, `empty-state.tsx` |
 | `toasts.rs`, `bell.rs` | `lib/toast.ts` + `toast-region.tsx`; the 880 Hz bell |
-| `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); `lib/fonts.ts` |
+| `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); the font list (installed monospace families, `lib/fonts.ts` as fallback) |
 | `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
 | `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `font_picker`, `xserver`, `backup`, `restore`, `sync`, `import` |
 

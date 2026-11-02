@@ -13,7 +13,6 @@ use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::style::{alpha, font, font_semibold, size, tokens};
 use crate::tabs::TabId;
-use crate::views::vault_dialogs::{button_row, ghost_button};
 use crate::widgets::{self, Tone};
 
 const WIDTH: f32 = 260.0;
@@ -101,7 +100,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 caption(ui, "Family");
                 // Non-presets show as "(custom)" and stay untouched; they
                 // come from the session dialog.
-                let mut options: Vec<(String, String)> = font_presets::choices().iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+                let mut options: Vec<(String, String)> = font_presets::choices().to_vec();
                 let mut choice = family.clone();
                 if !font_presets::is_preset(&family) {
                     options.push((CUSTOM.to_string(), format!("{family} (custom)")));
@@ -135,12 +134,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 let r = ui.available_rect_before_wrap();
                 ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, alpha(t.border, 0.7)));
                 ui.add_space(4.0);
-                button_row(ui, |ui| {
+                widgets::button_row(ui, |ui| {
                     if widgets::primary(ui, "Done", Tone::Accent, true, size::XS).clicked() {
                         action = Some(Action::Done);
                     }
                     // The TSX closes after saving too, despite its title.
-                    if ghost_button(ui, Some(Icon::Save), "Save", true, true).on_hover_text("Save now without closing").clicked() {
+                    if widgets::Ghost::new("Save").icon(Icon::Save).compact().show(ui).on_hover_text("Save now without closing").clicked() {
                         action = Some(Action::Save);
                     }
                 });

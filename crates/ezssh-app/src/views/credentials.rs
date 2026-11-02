@@ -13,12 +13,11 @@ use ezssh_core::db::credentials::CredentialDetail;
 use zeroize::Zeroizing;
 
 use super::dialogs::{self, Confirm};
-use super::forwards::{IconBtn, ghost_icon};
 use crate::app::App;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::style::{alpha, font, font_semibold, over, size, tokens};
-use crate::widgets::{self, Tone};
+use crate::widgets::{self, Ghost, IconBtn, Tone};
 
 struct Group {
     kind: &'static str,
@@ -313,7 +312,7 @@ fn group(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
             form::caption(ui, g.title);
             if g.editable {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ghost_icon(ui, Some(Icon::Plus), "Add", true, None, &format!("Add {}", g.title)).clicked() {
+                    if Ghost::new("Add").size(size::XS).icon(Icon::Plus).label(&format!("Add {}", g.title)).show(ui).clicked() {
                         d.edit = None;
                         d.add_kind = Some(g.kind);
                         d.add_label.clear();
@@ -348,15 +347,6 @@ fn group(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
                 add_form(ui, d, g, ops);
             }
         });
-    });
-}
-
-/// A row of buttons aligned right, one button tall (add the primary
-/// button first).
-fn right_buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.allocate_ui_with_layout(vec2(ui.available_width(), 26.0), Layout::right_to_left(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        add(ui);
     });
 }
 
@@ -457,7 +447,7 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                     field.request_focus();
                 }
                 save |= enter;
-                right_buttons(ui, |ui| {
+                widgets::button_row(ui, |ui| {
                     save |= widgets::primary(ui, "Replace secret", Tone::Accent, !busy && !secret.is_empty(), size::XS).clicked();
                     cancel = widgets::ghost(ui, "Cancel", size::XS).clicked();
                 });
@@ -503,7 +493,7 @@ fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>
         let ready = !d.add_label.trim().is_empty() && !d.add_secret.is_empty();
         let mut save = crate::form::entered(ui, &label_resp) || secret_enter;
         let mut cancel = false;
-        right_buttons(ui, |ui| {
+        widgets::button_row(ui, |ui| {
             save |= widgets::primary(ui, "Save credential", Tone::Accent, !busy && ready, size::XS).clicked();
             cancel = widgets::ghost(ui, "Cancel", size::XS).clicked();
         });

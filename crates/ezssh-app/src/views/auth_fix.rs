@@ -296,15 +296,10 @@ fn body_fields(app: &mut App, ui: &mut Ui, fix: &mut AuthFix) {
         }
     });
     form::field(ui, "Auth method", None, |ui| {
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let w = (ui.available_width() - 16.0) / 3.0;
-            for (method, icon, title, hint) in METHODS {
-                if form::option_card(ui, fix.auth_type == method, icon, title, hint, w).clicked() {
-                    fix.switch_method(method);
-                }
-            }
-        });
+        let current = fix.auth_type.clone();
+        if let Some(method) = form::option_cards(ui, &current.as_str(), &METHODS) {
+            fix.switch_method(method);
+        }
     });
     match fix.auth_type.as_str() {
         "password" => {

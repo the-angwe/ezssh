@@ -751,13 +751,13 @@ shared credentials list onto their sessions (§13.2), as the user asked.
 
 | §4.4 row | As built |
 |---|---|
-| `session-dialog.tsx` | `session_dialog.rs`: 760 px modal, side tabs General / Terminal / Advanced / Forwards (SSH), kind and auth radio cards, local-shell dropdown from `list_local_shells` + custom path, font preset dropdown + custom family (`font_presets.rs` = `lib/fonts.ts`), colour swatches, env editor, the TSX validation order and copy; Esc closes, Ctrl+Enter saves unless a dialog is stacked on top. Opened from the toolbar, the empty state, folder menus (New Session) and session menus (Edit). |
+| `session-dialog.tsx` | `session_dialog.rs`: 760 px modal, side tabs General / Terminal / Advanced / Forwards (SSH), kind and auth radio cards, local-shell dropdown from `list_local_shells` + custom path, font dropdown of the installed monospace families + custom family (`font_presets.rs`; `lib/fonts.ts` fixed list only as fallback), colour swatches, env editor, the TSX validation order and copy; Esc closes, Ctrl+Enter saves unless a dialog is stacked on top. Opened from the toolbar, the empty state, folder menus (New Session) and session menus (Edit). |
 | `credential-picker.tsx` | `cred_picker.rs`: private keys and key passphrases only (no password picker any more), inline "Add new", "Manage credentials" stacks the manager; reads the shared `app.creds` cache (`creds.rs`), which replaces `credential-events.ts`: whoever changes a credential reloads it, every picker sees the new list next frame and clamps a vanished selection. |
 | `credentials-dialog.tsx` | `credentials.rs`: groups SSH keys / Key passphrases with add, rename, rotate, delete with the list of sessions using it; a note that session passwords live on their session; leftover unowned password rows (only the Tauri picker makes them) show delete-only. |
 | `auth-fix-overlay.tsx` | `auth_fix.rs`: painted over the failed tab's terminal (`TermSlot::auth_fix`, set by `conn.rs` on an SSH auth failure); username, method, password or key; saves (env kept), updates the tab's session copy, reconnects. "Close tab" closes the tab, as in the TSX. |
 | `forwards-pane.tsx`, `forward-dialog.tsx` | `forwards.rs`: the 280 px pane with saved and tab-only forwards, live status from `Event::ForwardStatus` (routed by `conn.rs`), start / stop / edit / delete, context menu, the four dialog modes, validation and warnings; also the session dialog's Forwards tab (`forwards::session_tab`). |
 | `change-password`, `recovery-*`, `reset-vault` | `vault_dialogs.rs` + `unlock.rs`: change password (strength meter, snapshot path on success; the webview's page reload becomes "close all tabs and lock", since the core already locked the vault and closed every connection, and unlocking again reloads everything), recovery code generate / replace / copy, recovery unlock and reset-vault (type `DELETE`) on the unlock screen. |
-| `font-picker-popover.tsx` | `font_picker.rs`: popover at the pointer from the terminal menu's Font…; presets + "(custom)", size 8–48, applies live, "Save as session default" writes the session. |
+| `font-picker-popover.tsx` | `font_picker.rs`: popover at the pointer from the terminal menu's Font…; installed monospace families (`ezssh_term::fonts::monospace_families`, scanned once at start-up off the UI thread) + "(custom)", size 8–48, applies live, "Save as session default" writes the session. |
 | `xserver-missing-dialog.tsx` | `xserver.rs`: opened by `conn.rs` on `XServerMissing`; install bundled VcXsrv (Windows) then retry, or continue without X11; no install button off Windows. |
 | `backup-dialog.tsx`, `restore-dialog.tsx` | `backup.rs`, `restore.rs`: reauth → passphrase → native save dialog; restore picks a file (or starts from a sync pull), passphrase, checkbox tree with All / None, "password included" badge on password sessions, key-not-selected warning for key sessions, settings toggle, renamed list. |
 | `sync-dialog.tsx` | `sync.rs`: local / S3 cards, status polled every 3 s while open (`request_repaint_after`), enable / update & push, push now, disable, pull → temp file → restore dialog. |
@@ -862,9 +862,24 @@ sessions. Now:
 
 ### 13.5 Left for later
 
-- Two dialog shells (`vault_dialogs::shell`, `backup::shell`) and a few
-  button variants were written in parallel; fold them into `widgets.rs`.
-- `form::option_card` has no minimum height, so cards whose hint wraps
-  are taller than their neighbours (the TSX grid stretched them).
-- "Last sync" shows UTC (no time-zone crate in the app).
 - Update dialog: phase 7.
+
+Fixed after the phase (2026-11-01):
+
+- One dialog card, `widgets::Dialog` (header none / title strip / full
+  header with ✕, inline or strip footer, a body that scrolls once it no
+  longer fits; `Dialog::data` for backup / restore / sync / import),
+  replaces `widgets::dialog`'s body, `vault_dialogs::shell` and
+  `backup::shell`. The generic card lost egui's default gap above its
+  footer strip (the TSX has none).
+- One bordered button, `widgets::Ghost` (icon, `compact`, `quiet`,
+  colour, disabled, AccessKit label, tooltip), replaces
+  `vault_dialogs::ghost_button`, `backup::outline` / `cancel_button`,
+  `forwards::ghost_icon` and `cred_picker::ghost_button`;
+  `vault_dialogs::primary_button` was `widgets::primary_with_icon`;
+  `widgets::button_row` and `widgets::IconBtn` moved in too.
+- `form::option_cards` lays out a row of radio cards at the height of
+  the tallest.
+- "Last sync" shows local time (chrono, already in the workspace).
+- The font lists show the installed monospace families
+  (`ezssh_term::fonts::monospace_families`) instead of a fixed list.

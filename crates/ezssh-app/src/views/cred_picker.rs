@@ -9,7 +9,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use egui::{Align, Color32, CornerRadius, CursorIcon, Frame, Id, Layout, Margin, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, vec2};
+use egui::{Align, Color32, CornerRadius, Frame, Id, Layout, Margin, Stroke, Ui};
 use ezssh_core::api;
 use ezssh_core::db::credentials::CredentialMeta;
 use zeroize::Zeroizing;
@@ -18,7 +18,7 @@ use crate::app::App;
 use crate::form;
 use crate::icons::Icon;
 use crate::style::{font, size, tokens};
-use crate::widgets::{self, Tone};
+use crate::widgets::{self, Ghost, Tone};
 
 /// Result slot of an in-flight `credential_create`, filled by the core
 /// continuation and taken by the picker on its next frame.
@@ -179,11 +179,11 @@ impl CredPicker {
                 if form::select(ui, self.salt.with("select"), value, &options, Some(select_w)) {
                     tracing::debug!(kind = self.kind, credential = ?value, "cred_picker: picked");
                 }
-                if !self.adding && ghost_button(ui, Some(Icon::Plus), Some("Add new"), "Add new").clicked() {
+                if !self.adding && Ghost::new("Add new").icon(Icon::Plus).quiet().show(ui).clicked() {
                     self.adding = true;
                     self.focus_label = true;
                 }
-                if ghost_button(ui, Some(Icon::Settings2), None, "Manage credentials").on_hover_text("Manage credentials").clicked() {
+                if Ghost::icon_only(Icon::Settings2, "Manage credentials").quiet().show(ui).on_hover_text("Manage credentials").clicked() {
                     tracing::debug!("cred_picker: open the manager");
                     app.dialogs.credentials = Some(Default::default());
                 }
@@ -232,37 +232,6 @@ impl CredPicker {
 fn add_button_width(ui: &Ui) -> f32 {
     let g = ui.painter().layout_no_wrap("Add new".into(), font(size::XS), Color32::WHITE);
     g.size().x + 12.0 + 6.0 + 20.0
-}
-
-/// `.btn-ghost`: bordered, transparent, hover fill; icon and / or text.
-pub(crate) fn ghost_button(ui: &mut Ui, icon: Option<Icon>, text: Option<&str>, label: &str) -> Response {
-    let t = tokens(ui.ctx());
-    let galley = text.map(|s| ui.painter().layout_no_wrap(s.to_string(), font(size::XS), t.fg));
-    let text_w = galley.as_ref().map_or(0.0, |g| g.size().x);
-    let icon_w = if icon.is_some() { 12.0 } else { 0.0 };
-    let gap = if icon.is_some() && galley.is_some() { 6.0 } else { 0.0 };
-    let w = if galley.is_none() { 30.0 } else { icon_w + gap + text_w + 20.0 };
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 28.0), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let hovered = resp.hovered();
-        if hovered {
-            ui.painter().rect_filled(rect, 2.0, t.surface2);
-        }
-        ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, if hovered { t.border_strong } else { t.border }), StrokeKind::Inside);
-        let color = if hovered { t.fg } else { t.muted };
-        let mut x = rect.center().x - (icon_w + gap + text_w) / 2.0;
-        if let Some(icon) = icon {
-            icon.paint(ui, Rect::from_center_size(Pos2::new(x + 6.0, rect.center().y), Vec2::splat(12.0)), 12.0, color);
-            x += icon_w + gap;
-        }
-        if let Some(g) = galley {
-            let h = g.size().y;
-            ui.painter().galley(Pos2::new(x, rect.center().y - h / 2.0), g, t.fg);
-        }
-        widgets::focus_ring(ui, &resp, rect);
-    }
-    widgets::a11y(&resp, egui::Role::Button, label);
-    resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 #[cfg(test)]
