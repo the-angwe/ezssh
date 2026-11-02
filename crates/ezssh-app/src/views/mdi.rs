@@ -7,7 +7,7 @@ use ezssh_term::{Overlay, TermAction, TerminalView};
 
 use crate::app::App;
 use crate::icons::Icon;
-use crate::layout::FORWARDS_PANE_W;
+use crate::layout::{FORWARDS_PANE_W, SFTP_PANE_MAX, TERMINAL_MIN_W};
 use crate::style::{alpha, font, size, tokens};
 use crate::tabs::{CascadeGeom, Edge, TabId, TabStatus, ViewMode};
 use crate::widgets;
@@ -175,12 +175,14 @@ fn slot(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect, kind: Slot) {
     }
 
     // Docked panes (tabs mode only): file pane, then forwards, then the
-    // terminal. Their contents arrive in phases 5 and 6.
+    // terminal.
     if matches!(kind, Slot::Full) {
         if tab.sftp_open && tab.has_file_pane() {
+            let forwards = if tab.forwards_open && tab.is_ssh() { FORWARDS_PANE_W } else { 0.0 };
+            let max = (body.width() - TERMINAL_MIN_W - forwards).min(SFTP_PANE_MAX);
             let w = app.layout.sftp_pane_width.min(body.width() - 120.0).max(0.0);
             let pane = Rect::from_min_size(body.min, vec2(w, body.height()));
-            pane_placeholder(ui, pane, Icon::FolderTree, "File browser", "The SFTP pane arrives in rework phase 6.");
+            crate::views::sftp::pane(app, ui, id, pane, max);
             body.min.x += w;
         }
         if tab.forwards_open && tab.is_ssh() {
@@ -206,14 +208,6 @@ fn slot(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect, kind: Slot) {
         }
         _ => {}
     }
-}
-
-fn pane_placeholder(ui: &mut Ui, rect: Rect, icon: Icon, title: &str, body: &str) {
-    let t = tokens(ui.ctx());
-    ui.painter().rect_filled(rect, 0.0, t.surface);
-    ui.painter().vline(rect.right() - 0.5, rect.y_range(), Stroke::new(1.0, t.border));
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(8.0)).id_salt(("pane", title)));
-    widgets::empty_state(&mut child, icon, title, body, None, true);
 }
 
 fn overlay_for(tab: &crate::tabs::Tab) -> Option<Overlay> {

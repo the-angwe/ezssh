@@ -48,6 +48,23 @@ impl App {
     }
 }
 
+impl App {
+    /// Native multi-file open dialog; `then(app, paths)` gets an empty list
+    /// when the user cancelled.
+    pub(crate) fn pick_files(&self, title: &'static str, then: impl FnOnce(&mut App, Vec<PathBuf>) + Send + 'static) {
+        self.core.call(
+            "file dialog (many)",
+            move |_st| async move {
+                let picked = rfd::AsyncFileDialog::new().set_title(title).pick_files().await.unwrap_or_default();
+                let paths: Vec<PathBuf> = picked.iter().map(|h| h.path().to_path_buf()).collect();
+                tracing::debug!(n = paths.len(), "files: dialog closed");
+                paths
+            },
+            then,
+        );
+    }
+}
+
 /// A fresh instance number for a dialog, so a late result (a file dialog
 /// closed, a core call finished) only lands in the dialog that started it.
 pub fn next_serial() -> u64 {

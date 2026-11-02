@@ -418,7 +418,7 @@ impl App {
                 }
             }
             ev @ Event::ForwardStatus { .. } => crate::views::forwards::on_event(self, ev),
-            other => tracing::debug!(event = ?other, "conn: event not handled in this build (transfers: phase 6)"),
+            Event::Transfer(p) => crate::views::sftp::on_event(self, p),
         }
     }
 }

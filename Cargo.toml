@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/ezssh-core", "crates/ezssh-term", "crates/ezssh-spike", "crates/ezssh-app"]
+members = ["src-tauri", "crates/ezssh-core", "crates/ezssh-term", "crates/ezssh-spike", "crates/ezssh-app", "crates/ezssh-testsrv"]
 resolver = "3"
 
 [workspace.package]

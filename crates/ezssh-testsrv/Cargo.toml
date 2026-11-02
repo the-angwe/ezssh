@@ -1,0 +1,25 @@
+[package]
+name = "ezssh-testsrv"
+description = "ezSsh test SSH server: password auth, an echo shell and SFTP over a local folder. For tests and manual checks only."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "ezssh-testsrv"
+path = "src/main.rs"
+
+[dependencies]
+# Same versions as ezssh-core.
+russh = "0.64"
+russh-sftp = "3.0"
+rand = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "io-util", "sync", "macros", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[dev-dependencies]
+tempfile = "3"

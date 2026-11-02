@@ -41,3 +41,5 @@ egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }
 tempfile = "3"
 # The system font fallback eframe installs in the real window.
 egui_system_font_provider = "0.37"
+# In-process SSH / SFTP server for the file pane tests.
+ezssh-testsrv = { path = "../ezssh-testsrv" }

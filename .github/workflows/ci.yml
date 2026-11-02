@@ -75,7 +75,7 @@ jobs:
       # Warnings are errors here, matching the repo rule that cargo check
       # must be clean before every commit.
       - name: cargo check
-        run: cargo check -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --locked --all-targets
+        run: cargo check -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv --locked --all-targets
         env:
           RUSTFLAGS: -D warnings
 
@@ -83,10 +83,10 @@ jobs:
       # adapter; ezssh-term and ezssh-app are the native rework. All are
       # clippy-clean, so lints are blocking.
       - name: cargo clippy
-        run: cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --locked --all-targets -- -D warnings
+        run: cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv --locked --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --locked
+        run: cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv --locked
 
   audit:
     name: cargo audit

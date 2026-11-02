@@ -12,6 +12,7 @@ pub mod mdi;
 pub mod restore;
 pub mod session_dialog;
 pub mod settings;
+pub mod sftp;
 pub mod shell;
 pub mod sidebar;
 pub mod statusbar;

@@ -101,6 +101,12 @@ impl PromptState {
         }
     }
 
+    /// Show `e` under the input and focus it again (a submit failed).
+    pub fn set_error(&mut self, e: impl Into<String>) {
+        self.error = Some(e.into());
+        self.focused = false;
+    }
+
     /// `prompt-dialog.tsx`: input focused with its text selected, Enter
     /// submits, an empty value is refused in place.
     pub fn show(&mut self, ctx: &egui::Context, id: Id) -> Option<PromptAnswer> {

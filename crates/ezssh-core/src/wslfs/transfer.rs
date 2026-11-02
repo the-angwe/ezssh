@@ -10,18 +10,16 @@
 //! the SSH path's read-loop + emit pattern.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::{AppError, Result};
-use crate::events::{Event, Events};
-use crate::sftp::transfer::TransferProgress;
+use crate::events::Events;
+use crate::sftp::transfer::{CHUNK, Ticker, check, emit_done, emit_end, open_local, remove_partial_local};
 
 use super::handle::WslFsHandle;
 
-const CHUNK: usize = 32 * 1024;
-const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 
 pub async fn upload(
     events: &Events,
@@ -29,61 +27,48 @@ pub async fn upload(
     transfer_id: u64,
     local_path: &Path,
     remote_path: &str,
+    cancel: &AtomicBool,
 ) -> Result<()> {
-    let mut local = tokio::fs::File::open(local_path).await?;
-    let total = local.metadata().await?.len();
+    let opened = match check(cancel) {
+        Ok(()) => open_local(local_path).await,
+        Err(e) => Err(e),
+    };
+    let (mut local, total) = match opened {
+        Ok(x) => x,
+        Err(e) => {
+            emit_end(events, transfer_id, 0, &e);
+            return Err(e);
+        }
+    };
     let unc = handle.linux_to_unc(remote_path);
 
     let result: Result<()> = async {
-        let mut remote = tokio::fs::File::create(&unc)
-            .await
-            .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+        let mut remote = tokio::fs::File::create(&unc).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
         let mut sent: u64 = 0;
         let mut buf = vec![0u8; CHUNK];
-        let mut last_emit = Instant::now();
+        let mut ticker = Ticker::new(events, transfer_id);
         loop {
+            check(cancel)?;
             let n = local.read(&mut buf).await?;
             if n == 0 {
                 break;
             }
-            remote
-                .write_all(&buf[..n])
-                .await
-                .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+            remote.write_all(&buf[..n]).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
             sent += n as u64;
-            if last_emit.elapsed() >= PROGRESS_THROTTLE {
-                events.emit(Event::Transfer(TransferProgress {
-                    transfer_id,
-                    bytes_sent: sent,
-                    total_bytes: total,
-                    done: false,
-                    error: None,
-                }));
-                last_emit = Instant::now();
-            }
+            ticker.tick(sent, total);
         }
         remote.flush().await?;
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: sent,
-            total_bytes: total,
-            done: true,
-            error: None,
-        }));
+        emit_done(events, transfer_id, sent, total);
         Ok(())
     }
     .await;
 
     if let Err(e) = &result {
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: 0,
-            total_bytes: total,
-            done: true,
-            error: Some(e.to_string()),
-        }));
+        if matches!(e, AppError::TransferCancelled) {
+            remove_partial_local(transfer_id, &unc).await;
+        }
+        emit_end(events, transfer_id, total, e);
     }
-
     result
 }
 
@@ -98,50 +83,23 @@ pub async fn upload_bytes(
     let unc = handle.linux_to_unc(remote_path);
 
     let result: Result<()> = async {
-        let mut remote = tokio::fs::File::create(&unc)
-            .await
-            .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+        let mut remote = tokio::fs::File::create(&unc).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
         let mut sent: u64 = 0;
-        let mut last_emit = Instant::now();
+        let mut ticker = Ticker::new(events, transfer_id);
         for chunk in bytes.chunks(CHUNK) {
-            remote
-                .write_all(chunk)
-                .await
-                .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+            remote.write_all(chunk).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
             sent += chunk.len() as u64;
-            if last_emit.elapsed() >= PROGRESS_THROTTLE {
-                events.emit(Event::Transfer(TransferProgress {
-                    transfer_id,
-                    bytes_sent: sent,
-                    total_bytes: total,
-                    done: false,
-                    error: None,
-                }));
-                last_emit = Instant::now();
-            }
+            ticker.tick(sent, total);
         }
         remote.flush().await?;
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: sent,
-            total_bytes: total,
-            done: true,
-            error: None,
-        }));
+        emit_done(events, transfer_id, sent, total);
         Ok(())
     }
     .await;
 
     if let Err(e) = &result {
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: 0,
-            total_bytes: total,
-            done: true,
-            error: Some(e.to_string()),
-        }));
+        emit_end(events, transfer_id, total, e);
     }
-
     result
 }
 
@@ -151,64 +109,50 @@ pub async fn download(
     transfer_id: u64,
     remote_path: &str,
     local_path: &Path,
+    cancel: &AtomicBool,
 ) -> Result<()> {
     let unc = handle.linux_to_unc(remote_path);
-
-    let mut local = tokio::fs::File::create(local_path).await?;
+    let created = match check(cancel) {
+        Ok(()) => tokio::fs::File::create(local_path).await.map_err(AppError::from),
+        Err(e) => Err(e),
+    };
+    let mut local = match created {
+        Ok(f) => f,
+        Err(e) => {
+            emit_end(events, transfer_id, 0, &e);
+            return Err(e);
+        }
+    };
 
     let result: Result<()> = async {
-        let meta = tokio::fs::metadata(&unc)
-            .await
-            .map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
+        let meta = tokio::fs::metadata(&unc).await.map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
         let total = meta.len();
-        let mut remote = tokio::fs::File::open(&unc)
-            .await
-            .map_err(|e| AppError::Sftp(format!("open: {e}")))?;
+        let mut remote = tokio::fs::File::open(&unc).await.map_err(|e| AppError::Sftp(format!("open: {e}")))?;
         let mut received: u64 = 0;
         let mut buf = vec![0u8; CHUNK];
-        let mut last_emit = Instant::now();
+        let mut ticker = Ticker::new(events, transfer_id);
         loop {
-            let n = remote
-                .read(&mut buf)
-                .await
-                .map_err(|e| AppError::Sftp(format!("read: {e}")))?;
+            check(cancel)?;
+            let n = remote.read(&mut buf).await.map_err(|e| AppError::Sftp(format!("read: {e}")))?;
             if n == 0 {
                 break;
             }
             local.write_all(&buf[..n]).await?;
             received += n as u64;
-            if last_emit.elapsed() >= PROGRESS_THROTTLE {
-                events.emit(Event::Transfer(TransferProgress {
-                    transfer_id,
-                    bytes_sent: received,
-                    total_bytes: total,
-                    done: false,
-                    error: None,
-                }));
-                last_emit = Instant::now();
-            }
+            ticker.tick(received, total);
         }
         local.flush().await?;
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: received,
-            total_bytes: total,
-            done: true,
-            error: None,
-        }));
+        emit_done(events, transfer_id, received, total);
         Ok(())
     }
     .await;
 
     if let Err(e) = &result {
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: 0,
-            total_bytes: 0,
-            done: true,
-            error: Some(e.to_string()),
-        }));
+        if matches!(e, AppError::TransferCancelled) {
+            drop(local);
+            remove_partial_local(transfer_id, local_path).await;
+        }
+        emit_end(events, transfer_id, 0, e);
     }
-
     result
 }

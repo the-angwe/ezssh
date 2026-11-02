@@ -37,6 +37,9 @@ pub struct AppState {
     /// `sftp_upload_chunk` until `sftp_upload_finish` or
     /// `sftp_upload_abort`. See `sftp::upload_stream`.
     pub upload_streams: Arc<UploadStreamRegistry>,
+    /// Cancel flags of path-based transfers (`sftp_upload*`, `sftp_download*`)
+    /// from ticket to end. See `api::sftp::sftp_transfer_cancel`.
+    pub transfers: Arc<crate::sftp::transfer::TransferRegistry>,
     /// Local PTY connection registry — WSL distros and local shells. Uses
     /// its own id space (offset ≥ 2⁴⁸) so ids never collide with SSH.
     pub local: Arc<LocalRegistry>,
@@ -80,6 +83,7 @@ impl AppState {
             ssh: Arc::new(ConnectionRegistry::new()),
             sftp: Arc::new(SftpRegistry::new()),
             upload_streams: Arc::new(UploadStreamRegistry::new()),
+            transfers: Arc::new(crate::sftp::transfer::TransferRegistry::new()),
             local: Arc::new(LocalRegistry::new()),
             xserver: Arc::new(XServerManager::new()),
             sync,

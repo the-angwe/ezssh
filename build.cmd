@@ -78,9 +78,9 @@ exit /b %errorlevel%
 :test
 call :ensure_ui_deps || exit /b 1
 echo [^>^>^>] cargo test
-cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app || exit /b 1
+cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv || exit /b 1
 echo [^>^>^>] cargo clippy
-cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --all-targets -- -D warnings || exit /b 1
+cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv --all-targets -- -D warnings || exit /b 1
 echo [^>^>^>] npm typecheck
 call npm --prefix ui run typecheck || exit /b 1
 echo [^>^>^>] npm lint

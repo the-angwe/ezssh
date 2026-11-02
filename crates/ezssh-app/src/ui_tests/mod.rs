@@ -13,6 +13,7 @@
 mod credentials;
 mod data;
 mod sessions;
+mod sftp;
 mod vault;
 
 use std::time::{Duration, Instant};

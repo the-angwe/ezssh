@@ -71,9 +71,9 @@ case "$cmd" in
     require cargo; require npm
     ensure_ui_deps
     color "cargo test"
-    cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app
+    cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv
     color "cargo clippy"
-    cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app --all-targets -- -D warnings
+    cargo clippy -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv --all-targets -- -D warnings
     color "npm typecheck"
     npm --prefix ui run typecheck
     color "npm lint"

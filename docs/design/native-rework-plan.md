@@ -4,7 +4,8 @@ Status: phase 1 (spike) built 2026-10-30, results in §9; go decision
 confirmed by hand (tmux, Claude Code). Phase 2 (core extraction) built
 2026-10-30, §10. Phase 3 (terminal widget parity) built 2026-10-30, §11.
 Phase 4 (app shell, `crates/ezssh-app`) built 2026-11-01, §12. Phase 5
-(dialogs; passwords moved onto sessions) built 2026-11-01, §13. Proposal written
+(dialogs; passwords moved onto sessions) built 2026-11-01, §13. Phase 6
+(file pane) built 2026-11-02, §14. Proposal written
 2026-10-29 against ezTerm v1.14.0 (`feat/176-terminal-palettes` on top of
 v1.13.1).
 
@@ -251,7 +252,7 @@ until phase 7 because phase 1 makes the core a library both shells use.
 | 3 | Terminal widget | full 4.1 parity, Rust tests for osc52 policy, palettes, paste normalisation, key encoding table. **Built 2026-10-30, §11** | 1–2 weeks |
 | 4 | Shell | unlock, main shell, sidebar + DnD + menus, tab strip, six view modes incl. cascade, status bar, toasts, settings, theme, layout persistence. **Built 2026-11-01, §12** | 2–3 weeks |
 | 5 | Dialogs | session, credentials, forwards, host key, auth fix, xserver, import, backup, restore, sync, recovery, change password, reset, find, font picker; passwords bound to sessions. **Built 2026-11-01, §13** (update dialog moved to phase 7) | 2 weeks |
-| 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress | 1 week |
+| 6 | SFTP pane | table, multi-select, drops, streaming uploads, downloads, progress. **Built 2026-11-02, §14** | 1 week |
 | 7 | Packaging and updater | update dialog (from phase 5), cargo-packager configs (NSIS + MSI with VcXsrv resources and the uninstall hook, AppImage, deb, .app), portable tar.xz, `latest.json` publish job rewritten, minisign signing kept, CI matrix, Linux runtime deps drop from webkit2gtk to libxkbcommon / wayland / X11 libs | 1 week |
 | 8 | Cut-over | delete `ui/`, `src-tauri/`, Tauri deps; README, CLAUDE.md, CONTRIBUTING, site docs; release v2.0.0 through the v1 update channel | days |
 
@@ -883,3 +884,152 @@ Fixed after the phase (2026-11-01):
 - "Last sync" shows local time (chrono, already in the workspace).
 - The font lists show the installed monospace families
   (`ezssh_term::fonts::monospace_families`) instead of a fixed list.
+
+## 14. Phase 6 results (2026-11-02)
+
+Branch `native/phase-6-sftp` (from `native/phase-4-shell` after the
+user's commit 9c72495). The file pane of SSH and WSL tabs is ported into
+`crates/ezssh-app/src/views/sftp.rs`; the placeholder in `mdi.rs` is gone.
+
+### 14.1 What was built (§4.4 `sftp-pane.tsx` row)
+
+| Piece | As built |
+|---|---|
+| Opening | First draw on a connected tab: `sftp_open`, `realpath(".")`, list home in one core call. A reconnect (new connection id) reopens on the new connection in the folder it showed, home if that is gone (the webview kept its `opened` flag and listed on the dead connection). Not connected / connecting / failed (with Retry) states. |
+| Breadcrumb | Root button + one link per segment, mono 11 px, last highlighted, horizontal scroll kept at its end. |
+| Table | Sticky NAME / SIZE / MODE header; Name grows to fill, Size and Name resizable (drag, double-click resets, keyboard steps, `layout.json`), Mode fixed 72 px; sideways scroll when the columns need more than the pane; only visible rows are laid out (large folders). Icons Folder / FileSymlink / File, `formatSize` and `rwxrwxrwx` as in the TSX. |
+| Selection | Click replaces (inside a selection it keeps it), Ctrl toggles, Shift extends from the anchor; cleared when another folder is listed; right-click on an unselected row selects it first (the webview did not, so its menu could act on a row that looked unselected). |
+| Menus | Row: Download… / Download N files… (selected files only), Rename…, Delete. New: right-click on the list background → Upload files…, Upload folder…, New directory…, Refresh (Upload folder replaces drops where the desktop has none, see 14.2). |
+| Uploads | Header button (native multi-file dialog), drops, menu. All go through the path-based core transfers; there is no 16 GB guardrail and no 1 MB chunk pipeline (`sftp_upload_begin/chunk/finish` stay for the Tauri build). A dropped folder is walked off the UI thread (sorted, parents first, folder symlinks skipped, unreadable entries counted as failed), its folders are created (an existing one is fine, re-uploading a tree over itself works) and its files queued in one batch. |
+| Downloads | One file: native save dialog. Several: folder dialog; each remote name is turned into one safe local path component (`local_name`: a remote `..\..\x` cannot leave the folder on Windows, reserved names and characters are replaced). |
+| Progress | One strip for uploads and downloads (`Event::Transfer`, now routed in `conn.rs`): `…` until the first event, percent + bar, `✓ done` 1.5 s, `✗ failed` 4 s with a toast (the webview's `TransferStatus` hid failed transfers silently). Folder jobs: `upload tree/ 3/12`, then `done (12 files)` / `done (2 failed)` with ×; their files show only while they send. At most six transfer rows, then "N more waiting". Progress that arrives before its ticket is registered is kept and applied. |
+| Refresh | After mkdir / rename / delete, after uploads into the shown folder settle (once, not per file), when the pane is shown again, on the button. A failed listing keeps the folder it had and shows the error strip (×), instead of the old entries under the new breadcrumb. |
+| Prompts | `PromptState` gained `set_error`: mkdir / rename stay open with the server's error; names with `/`, `.` or `..` are refused in place (the webview joined `a/b` into a nested path). |
+| Pane width | 4 px handle on the right edge, bounds `SFTP_PANE_MIN..min(SFTP_PANE_MAX, room left for a 320 px terminal and the forwards pane)`. |
+
+Core changes (`ezssh-core`):
+
+- `api::sftp::sftp_upload_many` / `sftp_download_many(items)`: one ticket
+  per file, run one after another in one task. One task per file would
+  open every local file at once while they queue for the session lock (a
+  dropped tree of thousands of files would hit the descriptor limit).
+- `sftp::transfer::{upload, download}` and the WSL versions sent no final
+  event when the local file could not be opened / created, so a UI waited
+  forever; `emit_failed` now ends every transfer. Detached transfer
+  failures are logged (`let _ =` before).
+- `SftpEntry: Clone`.
+
+### 14.2 Findings
+
+1. winit 0.30.13 has no file drag and drop on Wayland at all (only
+   Windows, macOS, X11), and on every platform reports no pointer
+   position during an OS drag (`HoveredFile` / `DroppedFile` only). So a
+   drop goes to the visible pane's folder (panes are docked in tabs mode
+   only, so there is at most one), per-folder drop targets of the webview
+   are not possible, and a drop with no visible pane toasts where to drop.
+   On GNOME Wayland, `WAYLAND_DISPLAY=` runs the app under XWayland with
+   drops working; the list menu covers uploads either way.
+2. Drag-out to the OS file manager stays unsupported (no winit drag
+   source), as §7 expected; Download… is the path.
+3. Transfers of one connection serialise on the SFTP session lock, and a
+   listing waits behind a running transfer. That is the core's existing
+   behaviour; the pane shows its spinner meanwhile. A second SFTP channel
+   for listings would lift it.
+4. egui 0.37 takes held modifiers only from `Event::ModifiersChanged`;
+   tests that Ctrl / Shift-click must send it (the modifiers on
+   `PointerButton` are not used for `InputState::modifiers`).
+5. egui's multi-pass frames hand `dropped_files` to the first pass only,
+   so a drop cannot upload twice.
+6. russh calls `server::Handler::data` for subsystem channels too, so the
+   test server's echo shell answers only its shell channels (the SFTP
+   client got its own INIT back otherwise).
+
+### 14.3 Test server
+
+`crates/ezssh-testsrv`: russh 0.64 server with password auth for one
+user, an echo shell and the `sftp` subsystem over a local folder
+(`LocalFs`: open / read / write / stat / lstat / fstat / setstat /
+opendir / readdir / mkdir / rmdir / remove / rename / realpath; `..` stops
+at the root), optional per-op delay. In process for tests, or
+`cargo run -p ezssh-testsrv -- --root DIR` by hand. It is the first SSH
+server the tests have (the workstation has no sshd), so SSH connect,
+password auth and host-key TOFU are now exercised end to end too.
+
+### 14.4 Verification
+
+- `ezssh-core/tests/sftp_api.rs`: connect with a password, open, realpath,
+  list order, mkdir, upload / download of 300 kB with progress, batches,
+  transfers that cannot start or fail on the server end with an error
+  event, rename, rmdir refused on a non-empty folder, remove, the browser
+  goes with the connection.
+- `ezssh-app/src/views/sftp.rs` unit tests: sizes, modes, remote paths,
+  name validation, `local_name` stays one path component, selection rules,
+  the folder walk (order, folder symlink skipped).
+- `ezssh-app/src/ui_tests/sftp.rs`: the real app against the test server:
+  host-key prompt, pane from the tab strip, click / Ctrl / Shift
+  selection, the multi-download menu entry, downloads, double-click and
+  breadcrumb navigation, drop overlay, drops of a file and a folder tree
+  (remote contents checked), a 40-file folder (rows collapse into the
+  job), 12 plain files ("more waiting"), a 3 MB upload with its bar,
+  mkdir with an invalid then a valid name, rename and delete from the row
+  menu, delete of a non-empty folder fails with a toast, an unreadable
+  folder keeps the listing and shows the error, reconnect reopens in the
+  same folder, hide / show lists again. 14 screens with
+  `EZSSH_UI_SHOTS`.
+- `cargo test -p ezterm -p ezssh-core -p ezssh-term -p ezssh-app -p ezssh-testsrv`
+  green, `cargo clippy --workspace --all-targets` clean. CI and the build
+  scripts include `ezssh-testsrv`.
+- Not verified here: OS drops from a real file manager (Wayland here), the
+  native save / folder / multi-file dialogs (portal), WSL browsing
+  (Windows), a real OpenSSH server. README checklist item 16.
+
+### 14.5 Left for later
+
+- Per-folder drop targets and drag-out, both blocked on winit (14.2).
+- chmod (the core has `sftp_chmod`; the webview had no dialog either);
+  recursive folder delete.
+- A second SFTP channel so listings do not wait behind transfers.
+
+### 14.6 Added after the phase (2026-11-02)
+
+The user asked for three of the 14.5 items.
+
+- **Folder download.** Folders get Download… (folder dialog; the folder
+  is recreated inside the chosen one), and a multi-selection with folders
+  offers "Download N items…". Core `api::sftp::sftp_walk(root)` flattens
+  a remote folder depth first (folders parents first, files with relative
+  paths, empty folders kept, symlinked folders not followed but listed as
+  files, unlistable sub-folders reported and skipped, an unlistable root
+  is an error, at most 200 000 entries). Every path component goes
+  through `local_name`; local folders are created first, and files whose
+  folder could not be created count as failed. A folder is a job in the
+  strip (`download proj/ 2/3`), like a dropped folder.
+- **Multi-selection delete.** With more than one row selected the row
+  menu offers "Delete N files" / "Delete N items", one confirmation
+  ("Folders must be empty on the remote server."), then each entry is
+  removed in turn; failures do not stop the rest and end in one toast
+  ("Deleted 1 of 2", first error). A single folder still needs to be
+  empty, as in the webview.
+- **Cancel.** Core: `TransferRegistry` (`state.transfers`) holds a cancel
+  flag per path-based transfer from ticket to end, so a queued file can
+  be cancelled before its turn; the transfer loops (SFTP and WSL) check
+  it before every 32 KiB chunk and after waiting for the session lock.
+  `api::sftp::sftp_transfer_cancel(id)` sets it (false once ended). A
+  cancelled upload removes its partial remote file, a cancelled download
+  its partial local file. `TransferProgress.cancelled` marks the final
+  event (no error, no failure toast); it is left out of the JSON when
+  false, so the webview's payload is unchanged. `sftp_upload` /
+  `sftp_download` now run through the batch path. App: a × on every
+  running or queued transfer row ("cancelling…" until the final event),
+  on a running folder job (cancels what is left of it: sent files stay),
+  and on the "N more waiting" line (cancels those). A cancelled job ends
+  as `cancelled (2/5)`.
+
+Tests: `ezssh-core/tests/sftp_api.rs::cancel_and_walk` (walk order and
+errors, cancel of a running upload and download with partial files gone,
+cancel of a queued batch member while the next one still runs);
+`ezssh-app/src/ui_tests/sftp.rs::folder_download_multi_delete_and_cancel`
+(folder download with nested and empty folders, delete of 3 selected
+items, a partial failure, cancel of a download, an upload, a folder job
+and the waiting queue; run four times for timing). 4 more screens.
+

@@ -2,8 +2,8 @@
 
 The native ezSsh window: an eframe (egui 0.37) shell around
 `ezssh-core` (backend) and `ezssh-term` (terminal widget). Rework phases 4
-(shell) and 5 (dialogs) of `docs/design/native-rework-plan.md` (results in
-§12 and §13).
+(shell), 5 (dialogs) and 6 (file pane) of `docs/design/native-rework-plan.md`
+(results in §12, §13 and §14).
 
 ```sh
 cargo run -p ezssh-app --release                 # the real database (shared with the Tauri build)
@@ -32,12 +32,12 @@ pane width and columns) is kept in `layout.json` next to the database.
 | `toasts.rs`, `bell.rs` | `lib/toast.ts` + `toast-region.tsx`; the 880 Hz bell |
 | `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); the font list (installed monospace families, `lib/fonts.ts` as fallback) |
 | `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
+| `views/sftp.rs` (phase 6) | `sftp-pane.tsx`, `sftp-breadcrumb.tsx`, `sftp-file-row.tsx`, `transfer-status.tsx`: the file pane (SFTP or the WSL share), OS drops of files and folders, progress strips, row and list menus |
 | `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `font_picker`, `xserver`, `backup`, `restore`, `sync`, `import` |
 
 ## Not in this build yet
 
-Phase 6: the SFTP pane (the toggle opens a placeholder of the right
-width). Phase 7: the updater and its dialog (the status-bar button is
+Phase 7: the updater and its dialog (the status-bar button is
 disabled).
 
 ## Tests
@@ -49,7 +49,8 @@ open a real local shell, lock / unlock with the tab kept, view modes,
 cascade drag / minimise, folder create + drag and drop, settings
 write-through, theme, sidebar resize persistence, host-key dialog,
 multi-line paste, idle lock; every phase 5 dialog, checking the database
-after saves). Unix only (local PTYs). Native file dialogs cannot run
+after saves; the file pane against the in-process SSH / SFTP server of
+`crates/ezssh-testsrv`). Unix only (local PTYs). Native file dialogs cannot run
 headless; the tests hand the dialogs a path directly.
 `EZSSH_UI_SHOTS=<dir> cargo test -p ezssh-app ui_tests` renders each state
 to PNG.
@@ -86,3 +87,12 @@ to PNG.
 14. Forwards pane on a connected SSH tab: add a local forward, it shows
     running; stop; edit restarts it.
 15. Windows: X11 session without VcXsrv → install from the dialog.
+16. File pane against a real server (and WSL on Windows): browse, drag
+    files and a folder from Explorer / the file manager onto the pane,
+    download one file (save dialog), several and a folder (folder dialog),
+    rename, delete several at once, cancel a running transfer. On Linux, drops need X11 or XWayland
+    (`WAYLAND_DISPLAY= cargo run -p ezssh-app`): winit 0.30 has no
+    Wayland drag and drop; the list's right-click menu has Upload files /
+    Upload folder instead. Without a server at hand:
+    `cargo run -p ezssh-testsrv -- --root /some/dir --home / --delay-ms 2`
+    serves a folder on 127.0.0.1:2222 as `ezssh` / `ezssh`.

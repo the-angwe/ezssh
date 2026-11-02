@@ -91,6 +91,8 @@ pub struct App {
     pub(crate) creds: crate::creds::CredCache,
     /// The port-forward panes.
     pub(crate) forwards: views::forwards::ForwardsState,
+    /// The file panes and their transfers.
+    pub(crate) sftp: views::sftp::SftpState,
     pub(crate) toasts: Toasts,
     pub(crate) term_style: TermStyle,
     pub(crate) fonts: FontRegistry,
@@ -157,6 +159,7 @@ impl App {
             dialogs: Dialogs::default(),
             creds: crate::creds::CredCache::default(),
             forwards: views::forwards::ForwardsState::default(),
+            sftp: views::sftp::SftpState::default(),
             toasts: Toasts::default(),
             term_style: TermStyle::default(),
             fonts,
@@ -234,6 +237,7 @@ impl App {
         self.dialogs = Dialogs::default();
         self.sidebar.close_dialogs();
         self.forwards.close_dialogs();
+        self.sftp.close_dialogs();
         // Auth-fix overlays hold typed secrets; the failed tabs keep their
         // error card (Reconnect brings the overlay back).
         for slot in self.terms.values_mut() {
@@ -380,6 +384,7 @@ impl App {
             || self.sidebar.dialog_open()
             || self.terms.values().any(|s| s.host_key.is_some())
             || self.forwards.dialog_open()
+            || self.sftp.dialog_open()
     }
 
     // ------------------------------------------------------------ frame
@@ -400,6 +405,9 @@ impl App {
         }
         if !matches!(self.screen, Screen::Main) {
             return;
+        }
+        if let Some(next) = views::sftp::tick(self, now) {
+            ctx.request_repaint_after(next);
         }
         // Connect tabs whose terminal has been laid out.
         let due: Vec<TabId> = self.terms.iter().filter(|(_, s)| s.connect_due(now)).map(|(id, _)| *id).collect();

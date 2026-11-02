@@ -178,9 +178,11 @@ mod tests {
             total_bytes: 4096,
             done: false,
             error: None,
+            cancelled: false,
         }))
         .unwrap();
         assert_eq!(w.0, "sftp:transfer:17");
+        // `cancelled` is left out when false: the webview's payload is unchanged.
         assert_eq!(
             w.1,
             json!({"transfer_id": 17, "bytes_sent": 1024, "total_bytes": 4096, "done": false, "error": null})

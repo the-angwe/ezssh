@@ -18,14 +18,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ICONS = [
   'arrow-left-right', 'check', 'chevron-down', 'chevron-left', 'chevron-right', 'circle-alert',
-  'circle-check', 'cloud', 'cloud-off', 'cog', 'columns-2', 'copy', 'cpu',
-  'download', 'earth', 'eye', 'eye-off', 'file-input', 'folder',
-  'folder-open', 'folder-plus', 'folder-tree', 'grid-3x3', 'info', 'key',
+  'circle-check', 'cloud', 'cloud-off', 'cloud-upload', 'cog', 'columns-2', 'copy', 'cpu',
+  'download', 'earth', 'eye', 'eye-off', 'file', 'file-input', 'file-symlink', 'folder',
+  'folder-open', 'folder-plus', 'folder-tree', 'grid-3x3', 'inbox', 'info', 'key',
   'key-round', 'key-square', 'layers', 'layout-grid', 'loader-circle', 'lock', 'maximize-2',
   'minimize-2', 'minus', 'monitor', 'monitor-dot', 'monitor-off', 'moon', 'network',
   'package-check', 'package-open', 'palette', 'panel-left-close', 'panel-left-open', 'pencil',
   'play', 'plug-zap', 'plus', 'refresh-ccw', 'refresh-cw', 'rows-2', 'save', 'server', 'settings',
-  'settings-2', 'shield', 'shield-alert', 'shield-check', 'shield-x', 'sliders-vertical',
+  'settings-2', 'shield', 'shield-alert', 'shield-check', 'shield-x', 'slash', 'sliders-vertical',
   'sparkles', 'square', 'square-stack', 'square-terminal', 'sun', 'terminal', 'trash',
   'triangle-alert', 'type', 'upload', 'user', 'x',
 ];

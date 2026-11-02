@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -11,7 +14,7 @@ use crate::events::{Event, Events};
 /// Chunk size for streaming transfers. 32 KiB is a compromise: large enough to
 /// amortise syscall / SFTP packet overhead, small enough to let the UI see
 /// progress events at a reasonable cadence on slow links.
-const CHUNK: usize = 32 * 1024;
+pub(crate) const CHUNK: usize = 32 * 1024;
 
 /// Cap on mid-transfer `TransferProgress` emits (10/sec). At 32 KiB chunks a
 /// fast link issues >1000 events/sec without this, which floods the UI
@@ -21,18 +24,139 @@ const PROGRESS_THROTTLE: Duration = Duration::from_millis(100);
 
 /// Progress of one transfer, delivered as `Event::Transfer` (the Tauri shell
 /// re-emits it on `sftp:transfer:{id}`). A transfer emits throttled
-/// mid-transfer events plus a final event with
-/// `done = true` (or with `error = Some(..)` if the transfer failed).
-#[derive(Serialize, Clone)]
+/// mid-transfer events plus a final event with `done = true`: plain for
+/// success, with `error = Some(..)` if it failed, with `cancelled = true`
+/// (and no error) if it was cancelled.
+#[derive(Serialize, Clone, Debug, Default)]
 pub struct TransferProgress {
     pub transfer_id: u64,
     pub bytes_sent: u64,
     pub total_bytes: u64,
     pub done: bool,
     pub error: Option<String>,
+    /// Left out of the JSON when false, so the webview's payload is as
+    /// before (it never cancels).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cancelled: bool,
 }
 
+// ---------------------------------------------------------------- cancel
+
+/// Cancel flag of one transfer, checked before every chunk.
+pub type CancelFlag = Arc<AtomicBool>;
+
+/// Transfers that can still be cancelled: registered when the ticket is
+/// handed out (so a queued transfer can be cancelled before it starts),
+/// removed when it ends.
+#[derive(Default)]
+pub struct TransferRegistry {
+    inner: std::sync::Mutex<HashMap<u64, CancelFlag>>,
+}
+
+impl TransferRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&self, transfer_id: u64) -> CancelFlag {
+        let flag = CancelFlag::default();
+        self.inner.lock().expect("transfer registry poisoned").insert(transfer_id, flag.clone());
+        flag
+    }
+
+    /// Ask `transfer_id` to stop. False when it already ended (or never
+    /// existed).
+    pub fn cancel(&self, transfer_id: u64) -> bool {
+        match self.inner.lock().expect("transfer registry poisoned").get(&transfer_id) {
+            Some(f) => {
+                f.store(true, Ordering::Relaxed);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn finish(&self, transfer_id: u64) {
+        self.inner.lock().expect("transfer registry poisoned").remove(&transfer_id);
+    }
+}
+
+/// `Err(TransferCancelled)` once the flag is set.
+pub(crate) fn check(cancel: &AtomicBool) -> Result<()> {
+    if cancel.load(Ordering::Relaxed) { Err(AppError::TransferCancelled) } else { Ok(()) }
+}
+
+// ---------------------------------------------------------------- events
+
+/// A throttled mid-transfer event.
+pub(crate) struct Ticker<'a> {
+    events: &'a Events,
+    transfer_id: u64,
+    last: Instant,
+}
+
+impl<'a> Ticker<'a> {
+    pub(crate) fn new(events: &'a Events, transfer_id: u64) -> Self {
+        Self { events, transfer_id, last: Instant::now() }
+    }
+
+    pub(crate) fn tick(&mut self, sent: u64, total: u64) {
+        if self.last.elapsed() >= PROGRESS_THROTTLE {
+            self.events.emit(Event::Transfer(TransferProgress {
+                transfer_id: self.transfer_id,
+                bytes_sent: sent,
+                total_bytes: total,
+                ..Default::default()
+            }));
+            self.last = Instant::now();
+        }
+    }
+}
+
+/// The final event of a transfer that went through.
+pub(crate) fn emit_done(events: &Events, transfer_id: u64, sent: u64, total: u64) {
+    events.emit(Event::Transfer(TransferProgress { transfer_id, bytes_sent: sent, total_bytes: total, done: true, ..Default::default() }));
+}
+
+/// The final event of a transfer that failed or was cancelled, at any
+/// point, also before it started (local file missing, target not
+/// creatable). Without it a UI waiting for `done` would show the transfer
+/// forever.
+pub(crate) fn emit_end(events: &Events, transfer_id: u64, total: u64, err: &AppError) {
+    let cancelled = matches!(err, AppError::TransferCancelled);
+    if cancelled {
+        tracing::debug!(transfer_id, "transfer cancelled");
+    } else {
+        tracing::warn!(transfer_id, "transfer failed: {err}");
+    }
+    events.emit(Event::Transfer(TransferProgress {
+        transfer_id,
+        bytes_sent: 0,
+        total_bytes: total,
+        done: true,
+        error: (!cancelled).then(|| err.to_string()),
+        cancelled,
+    }));
+}
+
+/// Open a local file for upload and read its size.
+pub(crate) async fn open_local(path: &Path) -> Result<(tokio::fs::File, u64)> {
+    let f = tokio::fs::File::open(path).await?;
+    let total = f.metadata().await?.len();
+    Ok((f, total))
+}
+
+/// Remove what a cancelled download left behind.
+pub(crate) async fn remove_partial_local(transfer_id: u64, path: &Path) {
+    if let Err(e) = tokio::fs::remove_file(path).await {
+        tracing::warn!(transfer_id, path = %path.display(), "cancelled download: removing the partial file failed: {e}");
+    }
+}
+
+// ---------------------------------------------------------------- SFTP
+
 /// Stream a local file to a remote path, emitting `TransferProgress` events.
+/// A cancel removes the partial remote file.
 ///
 /// Holds the SFTP session lock for the full duration of the transfer — SFTP
 /// operations on a single session are not safely interleaved, and the common
@@ -44,70 +168,63 @@ pub async fn upload(
     transfer_id: u64,
     local_path: &Path,
     remote_path: &str,
+    cancel: &AtomicBool,
 ) -> Result<()> {
-    let mut local = tokio::fs::File::open(local_path).await?;
-    let total = local.metadata().await?.len();
-
-    let remote_path = remote_path.to_owned();
-    let events_cloned = events.clone();
+    let opened = match check(cancel) {
+        Ok(()) => open_local(local_path).await,
+        Err(e) => Err(e),
+    };
+    let (mut local, total) = match opened {
+        Ok(x) => x,
+        Err(e) => {
+            emit_end(events, transfer_id, 0, &e);
+            return Err(e);
+        }
+    };
 
     let result: Result<()> = handle
-        .with_session(
-            async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-                let mut w = s
-                    .create(&remote_path)
-                    .await
-                    .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
-                let mut sent: u64 = 0;
-                let mut buf = vec![0u8; CHUNK];
-                let mut last_emit = Instant::now();
+        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+            // It may have waited for the session lock behind other transfers.
+            check(cancel)?;
+            let mut w = s.create(remote_path).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+            let mut sent: u64 = 0;
+            let mut buf = vec![0u8; CHUNK];
+            let mut ticker = Ticker::new(events, transfer_id);
+            let copied: Result<()> = async {
                 loop {
+                    check(cancel)?;
                     let n = local.read(&mut buf).await?;
                     if n == 0 {
                         break;
                     }
-                    w.write_all(&buf[..n])
-                        .await
-                        .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+                    w.write_all(&buf[..n]).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
                     sent += n as u64;
-                    // Throttle mid-transfer emits (audit I-3). The final
-                    // `done: true` after the loop is unconditional.
-                    if last_emit.elapsed() >= PROGRESS_THROTTLE {
-                        events_cloned.emit(Event::Transfer(TransferProgress {
-                            transfer_id,
-                            bytes_sent: sent,
-                            total_bytes: total,
-                            done: false,
-                            error: None,
-                        }));
-                        last_emit = Instant::now();
-                    }
+                    ticker.tick(sent, total);
                 }
-                w.shutdown()
-                    .await
-                    .map_err(|e| AppError::Sftp(format!("close: {e}")))?;
-                events_cloned.emit(Event::Transfer(TransferProgress {
-                    transfer_id,
-                    bytes_sent: sent,
-                    total_bytes: total,
-                    done: true,
-                    error: None,
-                }));
-                Ok(())
-            },
-        )
+                w.shutdown().await.map_err(|e| AppError::Sftp(format!("close: {e}")))
+            }
+            .await;
+            match copied {
+                Ok(()) => {
+                    emit_done(events, transfer_id, sent, total);
+                    Ok(())
+                }
+                Err(e) => {
+                    if matches!(e, AppError::TransferCancelled) {
+                        drop(w);
+                        if let Err(re) = s.remove_file(remote_path).await {
+                            tracing::warn!(transfer_id, remote = remote_path, "cancelled upload: removing the partial file failed: {re}");
+                        }
+                    }
+                    Err(e)
+                }
+            }
+        })
         .await;
 
     if let Err(e) = &result {
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: 0,
-            total_bytes: total,
-            done: true,
-            error: Some(e.to_string()),
-        }));
+        emit_end(events, transfer_id, total, e);
     }
-
     result
 }
 
@@ -124,136 +241,80 @@ pub async fn upload_bytes(
     remote_path: &str,
 ) -> Result<()> {
     let total = bytes.len() as u64;
-    let remote_path = remote_path.to_owned();
-    let events_cloned = events.clone();
-    let bytes = bytes.to_vec();
-
     let result: Result<()> = handle
-        .with_session(
-            async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-                let mut w = s
-                    .create(&remote_path)
-                    .await
-                    .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
-                let mut sent: u64 = 0;
-                let mut last_emit = Instant::now();
-                for chunk in bytes.chunks(CHUNK) {
-                    w.write_all(chunk)
-                        .await
-                        .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
-                    sent += chunk.len() as u64;
-                    if last_emit.elapsed() >= PROGRESS_THROTTLE {
-                        events_cloned.emit(Event::Transfer(TransferProgress {
-                            transfer_id,
-                            bytes_sent: sent,
-                            total_bytes: total,
-                            done: false,
-                            error: None,
-                        }));
-                        last_emit = Instant::now();
-                    }
-                }
-                w.shutdown()
-                    .await
-                    .map_err(|e| AppError::Sftp(format!("close: {e}")))?;
-                events_cloned.emit(Event::Transfer(TransferProgress {
-                    transfer_id,
-                    bytes_sent: sent,
-                    total_bytes: total,
-                    done: true,
-                    error: None,
-                }));
-                Ok(())
-            },
-        )
+        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+            let mut w = s.create(remote_path).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+            let mut sent: u64 = 0;
+            let mut ticker = Ticker::new(events, transfer_id);
+            for chunk in bytes.chunks(CHUNK) {
+                w.write_all(chunk).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+                sent += chunk.len() as u64;
+                ticker.tick(sent, total);
+            }
+            w.shutdown().await.map_err(|e| AppError::Sftp(format!("close: {e}")))?;
+            emit_done(events, transfer_id, sent, total);
+            Ok(())
+        })
         .await;
 
     if let Err(e) = &result {
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: 0,
-            total_bytes: total,
-            done: true,
-            error: Some(e.to_string()),
-        }));
+        emit_end(events, transfer_id, total, e);
     }
-
     result
 }
 
 /// Stream a remote file to a local path, emitting `TransferProgress` events.
+/// A cancel removes the partial local file.
 pub async fn download(
     events: &Events,
     handle: &SftpHandle,
     transfer_id: u64,
     remote_path: &str,
     local_path: &Path,
+    cancel: &AtomicBool,
 ) -> Result<()> {
-    let remote_path = remote_path.to_owned();
-    let events_cloned = events.clone();
-
-    let mut local = tokio::fs::File::create(local_path).await?;
+    let created = match check(cancel) {
+        Ok(()) => tokio::fs::File::create(local_path).await.map_err(AppError::from),
+        Err(e) => Err(e),
+    };
+    let mut local = match created {
+        Ok(f) => f,
+        Err(e) => {
+            emit_end(events, transfer_id, 0, &e);
+            return Err(e);
+        }
+    };
 
     let result: Result<()> = handle
-        .with_session(
-            async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
-                let meta = s
-                    .metadata(&remote_path)
-                    .await
-                    .map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
-                let total = meta.size.unwrap_or(0);
-
-                let mut r = s
-                    .open(&remote_path)
-                    .await
-                    .map_err(|e| AppError::Sftp(format!("open: {e}")))?;
-                let mut received: u64 = 0;
-                let mut buf = vec![0u8; CHUNK];
-                let mut last_emit = Instant::now();
-                loop {
-                    let n = r.read(&mut buf).await.map_err(|e| {
-                        AppError::Sftp(format!("read: {e}"))
-                    })?;
-                    if n == 0 {
-                        break;
-                    }
-                    local.write_all(&buf[..n]).await?;
-                    received += n as u64;
-                    // Throttle mid-transfer emits (audit I-3). The final
-                    // `done: true` after the loop is unconditional.
-                    if last_emit.elapsed() >= PROGRESS_THROTTLE {
-                        events_cloned.emit(Event::Transfer(TransferProgress {
-                            transfer_id,
-                            bytes_sent: received,
-                            total_bytes: total,
-                            done: false,
-                            error: None,
-                        }));
-                        last_emit = Instant::now();
-                    }
+        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+            check(cancel)?;
+            let meta = s.metadata(remote_path).await.map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
+            let total = meta.size.unwrap_or(0);
+            let mut r = s.open(remote_path).await.map_err(|e| AppError::Sftp(format!("open: {e}")))?;
+            let mut received: u64 = 0;
+            let mut buf = vec![0u8; CHUNK];
+            let mut ticker = Ticker::new(events, transfer_id);
+            loop {
+                check(cancel)?;
+                let n = r.read(&mut buf).await.map_err(|e| AppError::Sftp(format!("read: {e}")))?;
+                if n == 0 {
+                    break;
                 }
-                local.flush().await?;
-                events_cloned.emit(Event::Transfer(TransferProgress {
-                    transfer_id,
-                    bytes_sent: received,
-                    total_bytes: total,
-                    done: true,
-                    error: None,
-                }));
-                Ok(())
-            },
-        )
+                local.write_all(&buf[..n]).await?;
+                received += n as u64;
+                ticker.tick(received, total);
+            }
+            local.flush().await?;
+            emit_done(events, transfer_id, received, total);
+            Ok(())
+        })
         .await;
 
     if let Err(e) = &result {
-        events.emit(Event::Transfer(TransferProgress {
-            transfer_id,
-            bytes_sent: 0,
-            total_bytes: 0,
-            done: true,
-            error: Some(e.to_string()),
-        }));
+        if matches!(e, AppError::TransferCancelled) {
+            remove_partial_local(transfer_id, local_path).await;
+        }
+        emit_end(events, transfer_id, 0, e);
     }
-
     result
 }

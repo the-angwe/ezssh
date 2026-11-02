@@ -46,6 +46,8 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3"
+ezssh-testsrv = { path = "../ezssh-testsrv" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full", "test-util"] }
 
 [features]
