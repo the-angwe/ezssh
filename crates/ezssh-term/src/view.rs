@@ -131,8 +131,8 @@ pub enum TermAction {
     OpenUrl(String),
     /// BEL with `BellMode::Sound`.
     Bell,
-    /// Context menu → Font…
-    OpenFontPicker,
+    /// Context menu → Appearance…
+    OpenAppearance,
 }
 
 pub struct TermOutput {
@@ -928,7 +928,7 @@ fn show_menu(ctx: &egui::Context, term: &mut Terminal, style: &TermStyle, id: eg
                     .or_else(|| item(ui, true, "Find…", "Ctrl+Shift+F"));
                 ui.separator();
                 chosen = chosen
-                    .or_else(|| item(ui, true, "Font…", "Ctrl+Wheel"))
+                    .or_else(|| item(ui, true, "Appearance…", ""))
                     .or_else(|| item(ui, true, "Clear scrollback", ""));
             });
         },
@@ -947,7 +947,7 @@ fn show_menu(ctx: &egui::Context, term: &mut Terminal, style: &TermStyle, id: eg
         Some("Paste") => paste_clipboard(term, style, actions),
         Some("Select All") => term.select_all(),
         Some("Find…") => term.open_find(),
-        Some("Font…") => actions.push(TermAction::OpenFontPicker),
+        Some("Appearance…") => actions.push(TermAction::OpenAppearance),
         Some("Clear scrollback") => term.clear_scrollback(),
         Some(other) => tracing::error!(item = other, "term.menu: unhandled item"),
         None => {}

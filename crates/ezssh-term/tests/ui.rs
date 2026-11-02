@@ -111,7 +111,7 @@ fn context_menu_items_and_actions() {
     let mut h = harness(State::new(SAMPLE));
     click(&mut h, pos2(300.0, 200.0), PointerButton::Secondary, Modifiers::NONE);
     // Items with a shortcut expose "label shortcut" to accessibility.
-    for label in ["Copy", "Paste", "Select All", "Find…", "Font…", "Clear scrollback"] {
+    for label in ["Copy", "Paste", "Select All", "Find…", "Appearance…", "Clear scrollback"] {
         assert!(h.query_by_label_contains(label).is_some(), "menu item {label} missing");
     }
     assert!(h.get_by_label_contains("Copy").accesskit_node().is_disabled(), "Copy needs a selection");
@@ -124,9 +124,9 @@ fn context_menu_items_and_actions() {
 
     click(&mut h, pos2(300.0, 200.0), PointerButton::Secondary, Modifiers::NONE);
     assert!(!h.get_by_label_contains("Copy").accesskit_node().is_disabled(), "Copy enabled with a selection");
-    h.get_by_label_contains("Font…").click();
+    h.get_by_label_contains("Appearance…").click();
     h.run_steps(3);
-    assert_eq!(h.state().actions, vec![TermAction::OpenFontPicker]);
+    assert_eq!(h.state().actions, vec![TermAction::OpenAppearance]);
 
     // Escape closes it.
     click(&mut h, pos2(300.0, 200.0), PointerButton::Secondary, Modifiers::NONE);

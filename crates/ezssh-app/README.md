@@ -33,7 +33,7 @@ pane width and columns) is kept in `layout.json` next to the database.
 | `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | Section / Field / `.input` controls of the dialogs; native file dialogs (rfd); the shared credentials list (`credential-events.ts`); the font list (installed monospace families, `lib/fonts.ts` as fallback) |
 | `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
 | `views/sftp.rs` (phase 6) | `sftp-pane.tsx`, `sftp-breadcrumb.tsx`, `sftp-file-row.tsx`, `transfer-status.tsx`: the file pane (SFTP or the WSL share), OS drops of files and folders, progress strips, row and list menus |
-| `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `font_picker`, `xserver`, `backup`, `restore`, `sync`, `import` |
+| `views/` (phase 5) | `session_dialog`, `cred_picker`, `auth_fix`, `credentials`, `forwards` (pane, dialog, session Forwards tab), `vault_dialogs` (change password, recovery code), `appearance` (replaced `font_picker`), `xserver`, `backup`, `restore`, `sync`, `import` |
 
 ## Not in this build yet
 

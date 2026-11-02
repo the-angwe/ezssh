@@ -187,6 +187,11 @@ pub struct Tab {
     pub sftp_open: bool,
     pub forwards_open: bool,
     pub cwd: String,
+    /// The font family and tab colour this tab shows. They start as the
+    /// session's and differ from `session` after "Apply to tab" in the
+    /// Appearance dialog (size, cursor and scrollback live in the terminal).
+    pub font_family: String,
+    pub color: Option<String>,
 }
 
 impl Tab {
@@ -279,6 +284,8 @@ impl Tabs {
         self.cascade.insert(id, CascadeGeom::staircase(self.cascade.len(), self.next_z));
         self.tabs.push(Tab {
             id,
+            font_family: session.font_family.clone(),
+            color: session.color.clone(),
             session,
             connection_id: None,
             status: TabStatus::Connecting,
@@ -592,6 +599,8 @@ mod tests {
             sftp_open: false,
             forwards_open: false,
             cwd: "/".into(),
+            font_family: String::new(),
+            color: None,
         };
         assert_eq!(tab.label(false), "web");
         assert_eq!(tab.label(true), "root@example.org");

@@ -281,10 +281,7 @@ fn terminal(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect) {
                 }
             }
             TermAction::Bell => crate::bell::ring(),
-            TermAction::OpenFontPicker => {
-                let anchor = ui.ctx().pointer_latest_pos();
-                app.dialogs.font_picker = Some(crate::views::font_picker::FontPicker::new(id, anchor));
-            }
+            TermAction::OpenAppearance => crate::views::appearance::open(app, id),
         }
     }
 }

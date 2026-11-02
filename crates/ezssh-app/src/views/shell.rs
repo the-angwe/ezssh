@@ -9,7 +9,7 @@ use crate::icons::Icon;
 use crate::layout::{FORWARDS_PANE_W, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, TERMINAL_MIN_W};
 use crate::style::{STATUS_BAR_H, tokens};
 use crate::views::{
-    backup, credentials, dialogs, font_picker, forwards, import, mdi, restore, session_dialog, settings, sftp, sidebar, statusbar, sync, tabstrip,
+    appearance, backup, credentials, dialogs, forwards, import, mdi, restore, session_dialog, settings, sftp, sidebar, statusbar, sync, tabstrip,
     vault_dialogs, xserver,
 };
 use crate::widgets;
@@ -190,7 +190,7 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
     sftp::dialogs(app, ctx);
     vault_dialogs::show(app, ctx);
     xserver::show(app, ctx);
-    font_picker::show(app, ctx);
+    appearance::show(app, ctx);
     backup::show(app, ctx);
     sync::show(app, ctx);
     restore::show(app, ctx);

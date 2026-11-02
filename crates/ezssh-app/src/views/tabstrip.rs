@@ -102,7 +102,7 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         .map(|(tab, label)| {
             let text = ui.painter().layout_no_wrap(label.clone(), font(size::BASE), t.fg).size().x;
             let mut w = 24.0 + 11.0 + 8.0 + text + 8.0 + 20.0;
-            if tab.session.color.is_some() {
+            if tab.color.is_some() {
                 w += 6.0 + 8.0;
             }
             if tab.has_file_pane() {
@@ -198,7 +198,7 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         let fade = if dragging == Some(tab.id) { 0.5 } else { 1.0 };
         let mut cx = r.left() + 12.0;
         let cy = r.center().y;
-        if let Some(c) = tab.session.color.as_deref().and_then(crate::views::sidebar::parse_color) {
+        if let Some(c) = tab.color.as_deref().and_then(crate::views::sidebar::parse_color) {
             child.painter().circle_filled(Pos2::new(cx + 3.0, cy), 3.0, alpha(c, fade));
             cx += 6.0 + 8.0;
         }

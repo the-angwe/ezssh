@@ -478,7 +478,7 @@ fn session_terminal_options_saved_apply_to_open_tab() {
         assert_eq!(h.state().terms[&tab].term.faces(), &want, "terminal took the saved family");
     }
 
-    // A save that leaves the font alone keeps a live tweak (Font… picker).
+    // A save that leaves the font alone keeps a tab-only change.
     h.state_mut().terms.get_mut(&tab).unwrap().term.set_font_size(11.0);
     let same = h.state().tabs.get(tab).unwrap().session.clone();
     h.state_mut().apply_session_terminal(&Session { name: "renamed".into(), ..same });

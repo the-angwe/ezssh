@@ -454,7 +454,7 @@ fn idle_lock_host_key_and_paste_confirm() {
 }
 
 /// Right-click at `pos` (press and release).
-fn right_click(h: &mut Harness<'static, App>, pos: Pos2) {
+pub(crate) fn right_click(h: &mut Harness<'static, App>, pos: Pos2) {
     h.event(Event::PointerMoved(pos));
     h.event(Event::PointerButton { pos, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
     h.step();

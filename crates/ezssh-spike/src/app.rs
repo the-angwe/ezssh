@@ -33,7 +33,7 @@ struct PendingPaste {
     lines: usize,
 }
 
-/// The context menu's Font… window.
+/// The context menu's Appearance… item opens this font window.
 struct FontPicker {
     tab: usize,
     family: String,
@@ -310,7 +310,7 @@ impl SpikeApp {
                     }
                 }
                 TermAction::Bell => tracing::info!(tab, "spike: bell (sound mode; the app plays it)"),
-                TermAction::OpenFontPicker => {
+                TermAction::OpenAppearance => {
                     let family = self.tabs[tab].term.faces().loaded.clone().unwrap_or_default();
                     self.font_picker = Some(FontPicker { tab, family });
                 }

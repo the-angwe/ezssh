@@ -864,7 +864,7 @@ fn advanced(dlg: &mut SessionDialog, ui: &mut Ui) {
 
 /// Two equal columns 12 px apart (`grid grid-cols-2 gap-3`); each gets its
 /// width.
-fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: impl FnOnce(&mut Ui, f32)) {
+pub(crate) fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: impl FnOnce(&mut Ui, f32)) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
         let w = (ui.available_width() - 12.0) / 2.0;
@@ -882,7 +882,7 @@ fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: impl FnOnce(
 /// A labelled number `.input` committed on Enter / blur, like
 /// `form::number`, but unclamped: out-of-range values are reported by
 /// [`validate`] with the webview's messages.
-fn number_field(ui: &mut Ui, label: &str, value: &mut i64, width: f32) {
+pub(crate) fn number_field(ui: &mut Ui, label: &str, value: &mut i64, width: f32) {
     let draft_id = Id::unique(("session-dialog-number", label));
     let mut draft: String = ui.ctx().data(|d| d.get_temp(draft_id)).unwrap_or_else(|| value.to_string());
     let resp = form::input(ui, &mut draft, InputOpts::new("").width(width));
@@ -933,7 +933,7 @@ fn parse_hex(s: &str) -> Option<Color32> {
     Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }
 
-fn swatches(ui: &mut Ui, color: &mut Option<String>) {
+pub(crate) fn swatches(ui: &mut Ui, color: &mut Option<String>) {
     let t = tokens(ui.ctx());
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
@@ -959,7 +959,7 @@ fn swatches(ui: &mut Ui, color: &mut Option<String>) {
 
 /// `FontFamilyPicker`: installed monospace fonts plus "Custom…", which shows a free-text
 /// field. A value that is not a preset shows as Custom.
-fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut bool) {
+pub(crate) fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut bool) {
     const CUSTOM_FONT: &str = "__custom__";
     let mut options: Vec<(String, String)> = font_presets::choices().to_vec();
     options.push((CUSTOM_FONT.into(), "Custom…".into()));
@@ -982,7 +982,7 @@ fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut bool) {
 const CURSORS: [(&str, &str, Icon); 3] = [("block", "Block", Icon::Square), ("bar", "Bar", Icon::Type), ("underline", "Underline", Icon::Minus)];
 
 /// Segmented Block / Bar / Underline buttons.
-fn cursor_style(ui: &mut Ui, value: &mut String) {
+pub(crate) fn cursor_style(ui: &mut Ui, value: &mut String) {
     let t = tokens(ui.ctx());
     let widths: Vec<f32> = CURSORS
         .iter()

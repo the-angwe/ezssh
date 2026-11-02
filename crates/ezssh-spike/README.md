@@ -37,7 +37,7 @@ renderer.
 |---|---|
 | Ctrl+Shift+C, Ctrl+Insert | Copy selection |
 | Ctrl+Shift+V, Shift+Insert | Paste (bracketed when the app asks; multi-line pastes ask first) |
-| Right-click | Context menu: Copy, Paste, Select All, Find…, Font…, Clear scrollback (`--right-click paste` pastes instead; Ctrl+right-click still opens the menu) |
+| Right-click | Context menu: Copy, Paste, Select All, Find…, Appearance… (font window), Clear scrollback (`--right-click paste` pastes instead; Ctrl+right-click still opens the menu) |
 | Ctrl+Shift+F | Find bar: Enter / Shift+Enter next / previous, `Aa` case, `.*` regex, Esc closes |
 | Click on a link | Opens `http(s)` URLs and OSC 8 links in the browser |
 | Shift+PageUp / PageDown / Home / End | Scroll history (not in full-screen apps) |

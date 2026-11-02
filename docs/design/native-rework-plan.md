@@ -551,7 +551,7 @@ path.
 | search + find overlay | `search.rs`: plain or regex, case toggle (inline `(?i)` / `(?-i)` over alacritty's smart case), the most recent 1 000 matches counted (`n/1000+` past that), current match = selection (Ctrl+Shift+C copies it), others tinted; Enter / Shift+Enter / Esc; recounted on every query change and step |
 | web links | `links.rs`: xterm.js web-links regex (http/https only, same trailing-punctuation rule), OSC 8 hyperlinks; underline + hand cursor on hover; a click without drag returns `TermAction::OpenUrl`. Inactive while a program has mouse reporting on (Shift overrides) |
 | OSC 52 | `osc52.rs` port of `osc52.ts` with its 11 tests, through `hook.rs` (below): lenient base64 (unpadded, whitespace), 4 MiB cap checked before decoding, NUL stripped, reads refused, live on/off |
-| copy / paste / shortcuts | Ctrl+Shift+C/V/F, Shift+Insert, Ctrl+Insert; right-click menu (Copy, Paste, Select All, Find…, Font…, Clear scrollback) or paste per `terminal.rightClick`, Ctrl+right-click always the menu |
+| copy / paste / shortcuts | Ctrl+Shift+C/V/F, Shift+Insert, Ctrl+Insert; right-click menu (Copy, Paste, Select All, Find…, Appearance…, Clear scrollback) or paste per `terminal.rightClick`, Ctrl+right-click always the menu |
 | paste | `Terminal::paste` (CR normalisation, bracketed, end marker stripped); multi-line pastes return `TermAction::ConfirmPaste { text, lines }` while `warn_multiline_paste` is on (the app asks, then calls `paste`) |
 | Ctrl+wheel zoom | per tab, 40 px per step, one wheel notch = 100 px (WebView2's value, so a notch is 2–3 pt as before), 8–48 |
 | bell | `BellMode::Visual` = 120 ms inset ring in the palette's yellow; `Sound` returns `TermAction::Bell` (the app plays it; no audio dependency in the widget) |
@@ -617,7 +617,7 @@ path.
 ### 11.4 Left for later phases
 
 - Font picker contents (system font list via fontique) are phase 5; the
-  widget only returns `OpenFontPicker`. The spike has a minimal size /
+  widget only returns `OpenFontPicker` (renamed `OpenAppearance` on 2026-11-02, see §13). The spike has a minimal size /
   family window.
 - The bell sound (rodio or a platform beep) belongs to the app (phase 4).
 - AccessKit node with the visible text for screen readers (§7) is not
@@ -758,7 +758,7 @@ shared credentials list onto their sessions (§13.2), as the user asked.
 | `auth-fix-overlay.tsx` | `auth_fix.rs`: painted over the failed tab's terminal (`TermSlot::auth_fix`, set by `conn.rs` on an SSH auth failure); username, method, password or key; saves (env kept), updates the tab's session copy, reconnects. "Close tab" closes the tab, as in the TSX. |
 | `forwards-pane.tsx`, `forward-dialog.tsx` | `forwards.rs`: the 280 px pane with saved and tab-only forwards, live status from `Event::ForwardStatus` (routed by `conn.rs`), start / stop / edit / delete, context menu, the four dialog modes, validation and warnings; also the session dialog's Forwards tab (`forwards::session_tab`). |
 | `change-password`, `recovery-*`, `reset-vault` | `vault_dialogs.rs` + `unlock.rs`: change password (strength meter, snapshot path on success; the webview's page reload becomes "close all tabs and lock", since the core already locked the vault and closed every connection, and unlocking again reloads everything), recovery code generate / replace / copy, recovery unlock and reset-vault (type `DELETE`) on the unlock screen. |
-| `font-picker-popover.tsx` | `font_picker.rs`: popover at the pointer from the terminal menu's Font…; installed monospace families (`ezssh_term::fonts::monospace_families`, scanned once at start-up off the UI thread) + "(custom)", size 8–48, applies live, "Save as session default" writes the session. |
+| `font-picker-popover.tsx` | Replaced on 2026-11-02 by `appearance.rs`: the terminal / tab-header menu's Appearance… opens a dialog with the session dialog's appearance fields (tab colour, font family from `ezssh_term::fonts::monospace_families` + Custom…, size 8–48, scrollback, cursor style). Colour, font and cursor preview on the tab (scrollback waits, shrinking drops lines); Cancel / Escape restore; "Apply to tab" keeps them for this tab only (`Tab::font_family` / `Tab::color` + the terminal); "Save to session" writes the row and `App::apply_session_terminal` updates every open tab of the session, colour included. |
 | `xserver-missing-dialog.tsx` | `xserver.rs`: opened by `conn.rs` on `XServerMissing`; install bundled VcXsrv (Windows) then retry, or continue without X11; no install button off Windows. |
 | `backup-dialog.tsx`, `restore-dialog.tsx` | `backup.rs`, `restore.rs`: reauth → passphrase → native save dialog; restore picks a file (or starts from a sync pull), passphrase, checkbox tree with All / None, "password included" badge on password sessions, key-not-selected warning for key sessions, settings toggle, renamed list. |
 | `sync-dialog.tsx` | `sync.rs`: local / S3 cards, status polled every 3 s while open (`request_repaint_after`), enable / update & push, push now, disable, pull → temp file → restore dialog. |

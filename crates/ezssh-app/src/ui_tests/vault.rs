@@ -1,10 +1,10 @@
-//! Headless tests of the change password, recovery code / unlock, reset vault, font picker, X server dialog.
+//! Headless tests of the change password, recovery code / unlock, reset vault, appearance, X server dialog.
 
 use egui_kittest::kittest::{NodeT, Queryable};
 
 use super::*;
 use crate::style::Theme;
-use crate::views::{font_picker::FontPicker, xserver::XServerDialog};
+use crate::views::xserver::XServerDialog;
 
 const NEW_PASSWORD: &str = "Brand-new-secret-42";
 
@@ -217,63 +217,135 @@ fn reset_vault_from_the_unlock_screen() {
     assert_eq!(status, "uninitialized");
 }
 
+/// Replace the text of the labelled number field and commit with Enter.
+fn set_number(h: &mut Harness<'static, App>, label: &str, value: &str) {
+    // A dialog that changed height re-centres over a few frames.
+    h.run_steps(3);
+    h.get_by_role_and_label(Role::TextInput, label).click();
+    h.run_steps(1);
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(1);
+    h.get_by_role_and_label(Role::TextInput, label).type_text(value);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+}
+
+fn session_row(h: &Harness<'static, App>, id: i64) -> ezssh_core::db::sessions::Session {
+    h.state().core.block_on(|st| async move { ezssh_core::api::sessions::session_get(&st, id).await }).expect("session row")
+}
+
 #[test]
-fn font_picker_applies_live_and_persists() {
+fn appearance_dialog_previews_applies_and_saves() {
+    use ezssh_term::CursorKind;
     let mut env = start();
     unlock_fresh(&mut env);
     let h = &mut env.h;
     let tab = open_local(h);
-    let session_id = h.state().tabs.get(tab).unwrap().session.id;
+    let row = h.state().tabs.get(tab).unwrap().session.clone();
     let start_size = h.state().terms[&tab].term.font_size();
-    h.state_mut().dialogs.font_picker = Some(FontPicker::new(tab, Some(Pos2::new(600.0, 300.0))));
+    let start_cursor = h.state().terms[&tab].term.options().cursor;
+    let start_scrollback = h.state().terms[&tab].term.options().scrollback;
+    assert_ne!(start_cursor, CursorKind::Bar);
+
+    // The tab header's menu (the terminal's own) has Appearance… instead of Font….
+    let header = h.query_all_by_role(Role::Tab).map(|n| n.rect()).min_by(|a, b| a.left().total_cmp(&b.left())).expect("a tab in the strip");
+    right_click(h, header.center());
+    assert!(h.query_by_label("Font…").is_none());
+    h.get_by_label("Appearance…").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Font").is_some());
-    shot_both(h, "font-picker");
+    assert_eq!(h.state().dialogs.appearance.as_ref().map(|d| d.tab), Some(tab));
+    shot_both(h, "appearance");
 
-    press(h, "Increase font size");
-    press(h, "Increase font size");
-    assert_eq!(h.state().terms[&tab].term.font_size(), start_size + 2.0, "applied live");
+    // Colour, size and cursor preview on the tab; scrollback waits.
+    set_number(h, "Font size", "17");
+    set_number(h, "Scrollback lines", "321");
+    press(h, "Bar");
+    press(h, "Green");
+    {
+        let a = h.state();
+        assert_eq!(a.terms[&tab].term.font_size(), 17.0, "size previewed");
+        assert_eq!(a.terms[&tab].term.options().cursor, CursorKind::Bar, "cursor previewed");
+        assert_eq!(a.tabs.get(tab).unwrap().color.as_deref(), Some("#34d399"), "colour previewed");
+        assert_eq!(a.terms[&tab].term.options().scrollback, start_scrollback, "scrollback not previewed");
+    }
+    shot(h, "appearance-preview");
 
-    // Pick another family from the list.
-    h.get_by_role(Role::ComboBox).click();
+    // Cancel puts the tab back.
+    press(h, "Cancel");
+    {
+        let a = h.state();
+        assert!(a.dialogs.appearance.is_none());
+        assert_eq!(a.terms[&tab].term.font_size(), start_size);
+        assert_eq!(a.terms[&tab].term.options().cursor, start_cursor);
+        assert_eq!(a.tabs.get(tab).unwrap().color, row.color);
+    }
+
+    // Apply to tab: this tab only, the row stays.
+    crate::views::appearance::open(h.state_mut(), tab);
     h.run_steps(3);
-    let other = crate::font_presets::choices()[1].1.as_str();
-    h.get_by_label(other).click();
+    set_number(h, "Font size", "16");
+    set_number(h, "Scrollback lines", "500");
+    press(h, "Apply to tab");
+    {
+        let a = h.state();
+        assert!(a.dialogs.appearance.is_none());
+        assert_eq!(a.terms[&tab].term.font_size(), 16.0);
+        assert_eq!(a.terms[&tab].term.options().scrollback, 500);
+        assert_eq!(a.tabs.get(tab).unwrap().session.font_size, row.font_size, "the tab's copy of the row is untouched");
+    }
+    assert_eq!(session_row(h, row.id).font_size, row.font_size, "not saved");
+
+    // Out of range: an error, nothing applied.
+    crate::views::appearance::open(h.state_mut(), tab);
     h.run_steps(3);
-    assert_eq!(h.state().dialogs.font_picker.as_ref().map(|p| p.tab), Some(tab), "picking a family keeps the picker open");
-    shot(h, "font-picker-changed");
-
-    // Type a size into the box.
-    h.get_by_label("Font size (pt)").click();
-    h.run_steps(1);
-    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
-    h.get_by_label("Font size (pt)").type_text("17");
-    h.key_press(egui::Key::Enter);
-    h.run_steps(2);
-    assert_eq!(h.state().terms[&tab].term.font_size(), 17.0);
-
-    h.get_by_label("Save as session default").click();
-    h.get_by_label("Done").click();
-    h.run_steps(2);
-    assert!(h.state().dialogs.font_picker.is_none());
-    let want = other.to_string();
-    wait(h, 10, "font saved", move |a| {
-        a.core
-            .block_on(|st| async move { ezssh_core::api::sessions::session_get(&st, session_id).await })
-            .is_ok_and(|s| s.font_size == 17 && s.font_family == want)
-    });
-    wait(h, 10, "the tab's copy follows", move |a| a.tabs.get(tab).is_some_and(|t| t.session.font_size == 17));
-
-    // Reopened: shows the live values; Escape closes without saving.
-    h.state_mut().dialogs.font_picker = Some(FontPicker::new(tab, None));
-    h.run_steps(3);
-    press(h, "Decrease font size");
+    assert_eq!(h.get_by_role_and_label(Role::TextInput, "Font size").accesskit_node().value().as_deref(), Some("16"), "opens with the tab's values");
+    set_number(h, "Font size", "60");
+    press(h, "Apply to tab");
+    assert!(h.query_by_label("Font size must be between 8 and 48").is_some());
     assert_eq!(h.state().terms[&tab].term.font_size(), 16.0);
+
+    // Save to session: row, tab copy and terminal follow.
+    set_number(h, "Font size", "18");
+    let other = crate::font_presets::choices().get(1).map(|(v, l)| (v.clone(), l.clone()));
+    if let Some((_, label)) = &other {
+        h.get_by_role(Role::ComboBox).click();
+        h.run_steps(3);
+        h.get_by_label(label).click();
+        h.run_steps(3);
+    }
+    press(h, "Bar");
+    press(h, "Purple");
+    press(h, "Save to session");
+    wait(h, 10, "appearance saved", |a| a.dialogs.appearance.is_none());
+    let saved = session_row(h, row.id);
+    assert_eq!((saved.font_size, saved.cursor_style.as_str(), saved.color.as_deref(), saved.scrollback_lines), (18, "bar", Some("#a78bfa"), 500));
+    if let Some((family, _)) = &other {
+        assert_eq!(&saved.font_family, family);
+        assert_eq!(&h.state().tabs.get(tab).unwrap().font_family, family);
+    }
+    assert_eq!(saved.name, row.name, "the rest of the row is kept");
+    {
+        let a = h.state();
+        let t = a.tabs.get(tab).unwrap();
+        assert_eq!((t.session.font_size, t.color.as_deref()), (18, Some("#a78bfa")));
+        assert_eq!(a.terms[&tab].term.font_size(), 18.0);
+        assert_eq!(a.terms[&tab].term.options().cursor, CursorKind::Bar);
+    }
+
+    // Escape closes and restores.
+    crate::views::appearance::open(h.state_mut(), tab);
+    h.run_steps(3);
+    set_number(h, "Font size", "20");
+    assert_eq!(h.state().terms[&tab].term.font_size(), 20.0);
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
-    assert!(h.state().dialogs.font_picker.is_none());
-    let saved = h.state().core.block_on(|st| async move { ezssh_core::api::sessions::session_get(&st, session_id).await }).unwrap();
-    assert_eq!(saved.font_size, 17, "not saved without asking");
+    if h.state().dialogs.appearance.is_some() {
+        // The first Escape left the size box.
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+    }
+    assert!(h.state().dialogs.appearance.is_none());
+    assert_eq!(h.state().terms[&tab].term.font_size(), 18.0);
 }
 
 #[test]

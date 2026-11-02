@@ -80,7 +80,6 @@ icons! {
     RefreshCcw => "refresh-ccw",
     RefreshCw => "refresh-cw",
     Rows2 => "rows-2",
-    Save => "save",
     Server => "server",
     Settings => "settings",
     Settings2 => "settings-2",

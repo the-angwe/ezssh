@@ -1,11 +1,11 @@
 //! One module per webview component group.
 
+pub mod appearance;
 pub mod auth_fix;
 pub mod backup;
 pub mod cred_picker;
 pub mod credentials;
 pub mod dialogs;
-pub mod font_picker;
 pub mod forwards;
 pub mod import;
 pub mod mdi;

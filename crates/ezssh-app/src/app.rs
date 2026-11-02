@@ -47,7 +47,7 @@ pub struct Dialogs {
     pub change_password: Option<views::vault_dialogs::ChangePassword>,
     pub recovery_code: Option<views::vault_dialogs::RecoveryCode>,
     pub xserver: Option<views::xserver::XServerDialog>,
-    pub font_picker: Option<views::font_picker::FontPicker>,
+    pub appearance: Option<views::appearance::AppearanceDialog>,
     pub backup: Option<views::backup::BackupDialog>,
     pub restore: Option<views::restore::RestoreDialog>,
     pub sync: Option<views::sync::SyncDialog>,
@@ -65,7 +65,7 @@ impl Dialogs {
             || self.change_password.is_some()
             || self.recovery_code.is_some()
             || self.xserver.is_some()
-            || self.font_picker.is_some()
+            || self.appearance.is_some()
             || self.backup.is_some()
             || self.restore.is_some()
             || self.sync.is_some()
@@ -346,10 +346,10 @@ impl App {
     }
 
     /// A session row was saved: open tabs of that session take its font
-    /// (size, family), cursor style and scrollback length, each only when
-    /// it changed from what the tab was opened (or last saved) with. An
-    /// unchanged font keeps any live tweak made in the Font… picker; the
-    /// cursor keeps the tab's blink setting.
+    /// (size, family), cursor style, scrollback length and tab colour, each
+    /// only when it changed from what the tab was opened (or last saved)
+    /// with. An unchanged value keeps a tab-only change (Appearance dialog's
+    /// "Apply to tab", Ctrl+Wheel); the cursor keeps the tab's blink setting.
     pub(crate) fn apply_session_terminal(&mut self, saved: &ezssh_core::db::sessions::Session) {
         let ids: Vec<TabId> = self.tabs.tabs.iter().filter(|t| t.session.id == saved.id).map(|t| t.id).collect();
         if ids.is_empty() {
@@ -363,6 +363,15 @@ impl App {
             let font = t.session.font_size != saved.font_size || t.session.font_family != saved.font_family;
             let cursor = t.session.cursor_style != saved.cursor_style;
             let scrollback = t.session.scrollback_lines != saved.scrollback_lines;
+            let color = t.session.color != saved.color;
+            if color {
+                tracing::info!(tab = id, session = saved.id, color = ?saved.color, "app: session colour applied to open tab");
+                t.color = saved.color.clone();
+                t.session.color = saved.color.clone();
+            }
+            if font {
+                t.font_family = saved.font_family.clone();
+            }
             t.session.font_size = saved.font_size;
             t.session.font_family = saved.font_family.clone();
             t.session.cursor_style = saved.cursor_style.clone();
@@ -399,9 +408,6 @@ impl App {
                 scrollback_lines = saved.scrollback_lines,
                 "app: session options applied to open tab"
             );
-            if font {
-                crate::views::font_picker::session_font_changed(self, id);
-            }
         }
     }
 
