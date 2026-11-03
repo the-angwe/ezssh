@@ -65,13 +65,16 @@ pub async fn spawn(
         })
         .map_err(|e| AppError::Ssh(format!("pty open: {e}")))?;
 
-    let _child = pair
+    let child = pair
         .slave
         .spawn_command(cmd)
         .map_err(|e| AppError::Ssh(format!("spawn: {e}")))?;
-    // Releasing the slave lets ConPTY signal EOF on the reader when the
-    // child exits. We don't retain the child handle: dropping the master
-    // (via writer-thread exit) terminates the child on Windows anyway.
+    // Releasing the slave lets the PTY signal EOF on the reader when the
+    // child exits. The child handle stays with the writer thread: on
+    // close it is killed before the writer drops (on Unix portable-pty's
+    // writer sends "\n" + VEOF on drop, which would *run* a half-typed
+    // command line and leave a shell with a foreground program alive) and
+    // then waited on, so no zombie remains per closed tab.
     drop(pair.slave);
 
     let mut reader = pair
@@ -83,6 +86,10 @@ pub async fn spawn(
         .take_writer()
         .map_err(|e| AppError::Ssh(format!("writer: {e}")))?;
     let master = pair.master;
+
+    let (tx, mut rx) = mpsc::unbounded_channel::<LocalInput>();
+    // The reader thread asks the writer to reap once the child is gone.
+    let reaper_tx = tx.clone();
 
     // Reader: bytes → the UI's output sink; EOF or read error →
     // `Event::Closed` with no exit status.
@@ -107,12 +114,15 @@ pub async fn spawn(
             }
         }
         reader_events.emit(Event::Closed { connection_id: reader_id, reason: CloseReason::Ended });
+        // Let the writer thread reap the child; it is a no-op if the UI's
+        // disconnect already arrived.
+        let _ = reaper_tx.send(LocalInput::Close);
     });
 
     // Writer / resize: blocking_recv on tokio mpsc from a std thread.
-    let (tx, mut rx) = mpsc::unbounded_channel::<LocalInput>();
     thread::spawn(move || {
         let master = master;
+        let mut child = child;
         while let Some(input) = rx.blocking_recv() {
             match input {
                 LocalInput::Bytes(bytes) => {
@@ -132,7 +142,23 @@ pub async fn spawn(
                 LocalInput::Close => break,
             }
         }
-        // Drop order: writer → master → ConPTY handles → child terminates.
+        // Close (user, or the reader saw EOF), or every sender is gone.
+        // Kill first: a shell with a foreground program would otherwise
+        // survive the writer's VEOF and the reader would never see EOF.
+        match child.try_wait() {
+            Ok(Some(status)) => tracing::debug!(connection_id = id, %status, "local: child already exited"),
+            Ok(None) => {
+                if let Err(e) = child.kill() {
+                    tracing::warn!(connection_id = id, "local: kill failed: {e}");
+                }
+                match child.wait() {
+                    Ok(status) => tracing::debug!(connection_id = id, %status, "local: child reaped"),
+                    Err(e) => tracing::warn!(connection_id = id, "local: wait failed: {e}"),
+                }
+            }
+            Err(e) => tracing::warn!(connection_id = id, "local: try_wait failed: {e}"),
+        }
+        // Drop order: writer → master → PTY handles.
         drop(writer);
         drop(master);
     });

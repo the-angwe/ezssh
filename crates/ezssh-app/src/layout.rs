@@ -17,16 +17,19 @@ pub const SIDEBAR_DEFAULT: f32 = 240.0;
 
 pub const SFTP_PANE_MIN: f32 = 200.0;
 pub const SFTP_PANE_MAX: f32 = 640.0;
-pub const SFTP_PANE_DEFAULT: f32 = 288.0;
+pub const SFTP_PANE_DEFAULT: f32 = 320.0;
 
 /// Narrowest terminal column the resize handles leave free (px).
 pub const TERMINAL_MIN_W: f32 = 320.0;
 /// Fixed width of the per-tab Forwards pane (px).
 pub const FORWARDS_PANE_W: f32 = 280.0;
 
-/// SFTP file-list Name / Size column bounds (the Mode column is fixed).
-pub const SFTP_COL_NAME: (f32, f32, f32) = (80.0, 1200.0, 140.0);
-pub const SFTP_COL_SIZE: (f32, f32, f32) = (48.0, 160.0, 70.0);
+/// SFTP file-list Name / Size column bounds (min, max, default); the Mode
+/// column is fixed. The defaults plus `views::sftp::MODE_COL_W` and the row
+/// padding must fit `SFTP_PANE_DEFAULT`, or a fresh pane opens with a
+/// horizontal scroll bar and a clipped Mode column.
+pub const SFTP_COL_NAME: (f32, f32, f32) = (80.0, 1200.0, 128.0);
+pub const SFTP_COL_SIZE: (f32, f32, f32) = (48.0, 160.0, 64.0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TileGrid {
@@ -235,8 +238,8 @@ mod tests {
         assert_eq!(clamp_col(SFTP_COL_NAME, 10.0), 80.0);
         assert_eq!(clamp_col(SFTP_COL_NAME, 99_999.0), 1200.0);
         assert_eq!(clamp_col(SFTP_COL_SIZE, 100.6), 101.0);
-        assert_eq!(clamp_col(SFTP_COL_SIZE, f32::NAN), 70.0);
-        assert_eq!(clamp_col(SFTP_COL_NAME, f32::INFINITY), 140.0);
+        assert_eq!(clamp_col(SFTP_COL_SIZE, f32::NAN), SFTP_COL_SIZE.2);
+        assert_eq!(clamp_col(SFTP_COL_NAME, f32::INFINITY), SFTP_COL_NAME.2);
     }
 
     #[test]

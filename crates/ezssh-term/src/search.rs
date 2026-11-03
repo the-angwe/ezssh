@@ -39,6 +39,8 @@ pub fn pattern(query: &str, case_sensitive: bool, regex: bool) -> String {
 
 #[derive(Default)]
 pub struct Find {
+    /// Feed generation the matches were counted at.
+    counted_at: Option<u64>,
     pub query: String,
     pub case_sensitive: bool,
     pub regex: bool,
@@ -99,8 +101,9 @@ impl Find {
 
     /// Recount the matches. Returns the previous current match's start so
     /// the caller can stay near it.
-    fn recount<T>(&mut self, term: &Term<T>) -> Option<Point> {
+    fn recount<T>(&mut self, term: &Term<T>, feed_gen: u64) -> Option<Point> {
         let previous = self.current.and_then(|i| self.matches.get(i)).map(|m| *m.start());
+        self.counted_at = Some(feed_gen);
         self.matches.clear();
         self.truncated = false;
         self.current = None;
@@ -125,15 +128,23 @@ impl Find {
     }
 
     /// Query or toggles changed: recount and select the most recent match.
-    pub fn update<T: EventListener>(&mut self, term: &mut Term<T>) {
-        self.recount(term);
+    /// `feed_gen` is `Terminal::feed_generation()`.
+    pub fn update<T: EventListener>(&mut self, term: &mut Term<T>, feed_gen: u64) {
+        self.recount(term, feed_gen);
         self.current = self.matches.len().checked_sub(1);
         self.select(term);
     }
 
     /// Enter (down / forward) and Shift+Enter (up / backward), wrapping.
-    pub fn step<T: EventListener>(&mut self, term: &mut Term<T>, forward: bool) {
-        let previous = self.recount(term);
+    /// The matches are recounted only when output arrived since the last
+    /// count: a full scrollback walk under the terminal lock per Enter
+    /// would otherwise stall the reader on big buffers.
+    pub fn step<T: EventListener>(&mut self, term: &mut Term<T>, forward: bool, feed_gen: u64) {
+        let previous = if self.counted_at == Some(feed_gen) && self.compiled.is_some() {
+            self.current.and_then(|i| self.matches.get(i)).map(|m| *m.start())
+        } else {
+            self.recount(term, feed_gen)
+        };
         let n = self.matches.len();
         if n == 0 {
             term.selection = None;
@@ -198,16 +209,16 @@ mod tests {
         let mut t = term_with("err 1\nok\nError 2\nok\nERR 3\nok\nok\nerr 4");
         let mut f = Find::new();
         f.query = "err".into();
-        f.update(&mut t);
+        f.update(&mut t, 0);
         assert_eq!(texts(&f, &t), ["err", "Err", "ERR", "err"]);
         // Starts on the most recent match.
         assert_eq!(f.counter(), (4, 4));
         assert_eq!(t.selection_to_string().as_deref(), Some("err"));
-        f.step(&mut t, true);
+        f.step(&mut t, true, 0);
         assert_eq!(f.counter(), (1, 4));
-        f.step(&mut t, false);
+        f.step(&mut t, false, 0);
         assert_eq!(f.counter(), (4, 4));
-        f.step(&mut t, false);
+        f.step(&mut t, false, 0);
         assert_eq!(f.counter(), (3, 4));
     }
 
@@ -217,19 +228,19 @@ mod tests {
         let mut f = Find::new();
         f.query = "err".into();
         f.case_sensitive = true;
-        f.update(&mut t);
+        f.update(&mut t, 0);
         assert_eq!(f.counter().1, 1);
 
         f.case_sensitive = false;
         f.regex = true;
         f.query = r"err(or)? \d".into();
-        f.update(&mut t);
+        f.update(&mut t, 0);
         assert_eq!(texts(&f, &t), ["err 1", "Error 2", "ERR 3"]);
 
         // Literal mode: the dot is not a wildcard.
         f.regex = false;
         f.query = "r.".into();
-        f.update(&mut t);
+        f.update(&mut t, 0);
         assert_eq!(f.counter().1, 0);
         assert!(t.selection.is_none());
     }
@@ -240,7 +251,7 @@ mod tests {
         let mut f = Find::new();
         f.regex = true;
         f.query = "(".into();
-        f.update(&mut t);
+        f.update(&mut t, 0);
         assert!(f.error.is_some());
         assert_eq!(f.counter(), (0, 0));
     }

@@ -1,6 +1,6 @@
 
 use crate::api::require_unlocked;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::local;
 use crate::state::AppState;
 
@@ -69,9 +69,12 @@ pub async fn wsl_autodetect_seed(state: &AppState) -> Result<usize> {
     require_unlocked(state).await?;
     let _guard = AUTODETECT_LOCK.lock().await;
 
+    if !cfg!(windows) {
+        return Ok(0);
+    }
     let distros = tokio::task::spawn_blocking(detect_wsl_distros_blocking)
         .await
-        .unwrap_or_default();
+        .map_err(|e| AppError::Validation(format!("wsl detection task failed: {e}")))?;
     if distros.is_empty() {
         return Ok(0);
     }
@@ -164,7 +167,7 @@ pub async fn local_shells_autodetect_seed(state: &AppState) -> Result<usize> {
 
     let shells = tokio::task::spawn_blocking(crate::local::shells::detect_local_shells)
         .await
-        .unwrap_or_default();
+        .map_err(|e| AppError::Validation(format!("shell detection task failed: {e}")))?;
     if shells.is_empty() {
         return Ok(0);
     }
@@ -241,11 +244,9 @@ pub async fn list_local_shells(
     state: &AppState,
 ) -> Result<Vec<crate::local::shells::DetectedShell>> {
     require_unlocked(state).await?;
-    Ok(
-        tokio::task::spawn_blocking(crate::local::shells::detect_local_shells)
-            .await
-            .unwrap_or_default(),
-    )
+    tokio::task::spawn_blocking(crate::local::shells::detect_local_shells)
+        .await
+        .map_err(|e| AppError::Validation(format!("shell detection task failed: {e}")))
 }
 
 /// The current build target as a stable string the UI can switch on.
@@ -290,13 +291,13 @@ fn detect_wsl_distros_blocking() -> Vec<String> {
     {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("[wsl-autodetect] wsl.exe spawn failed: {e}");
+            tracing::info!("wsl autodetect: wsl.exe spawn failed: {e}");
             return Vec::new();
         }
     };
     if !output.status.success() {
-        eprintln!(
-            "[wsl-autodetect] wsl.exe exit {:?} stderr={}",
+        tracing::info!(
+            "wsl autodetect: wsl.exe exit {:?} stderr={}",
             output.status.code(),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -309,7 +310,7 @@ fn detect_wsl_distros_blocking() -> Vec<String> {
         .filter(|l| !l.is_empty())
         .filter(|l| !is_internal_distro(l))
         .collect();
-    eprintln!("[wsl-autodetect] detected {} distros: {:?}", distros.len(), distros);
+    tracing::debug!("wsl autodetect: detected {} distros: {:?}", distros.len(), distros);
     distros
 }
 

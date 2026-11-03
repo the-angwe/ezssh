@@ -113,26 +113,28 @@ impl client::Handler for ClientHandler {
         // AdministrativelyProhibited rejection — the right answer when
         // X11 wasn't negotiated on this connection.
         let Some(display) = self.x11_display else { return Ok(()); };
-        reply.accept().await;
         let target = format!("127.0.0.1:{}", 6000 + display as u16);
         tokio::spawn(async move {
-            let tcp = match tokio::net::TcpStream::connect(&target).await {
+            // Accept only once the X server answered, so a dead VcXsrv
+            // rejects the open instead of accept-then-drop.
+            let mut tcp = match tokio::net::TcpStream::connect(&target).await {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::warn!("x11 forward: connect {target} failed: {e}");
+                    drop(reply);
                     return;
                 }
             };
-            let (mut ch_r, mut ch_w) = {
-                let stream = channel.into_stream();
-                tokio::io::split(stream)
-            };
-            let (mut tcp_r, mut tcp_w) = tokio::io::split(tcp);
-            // Bi-directional pump. On either side closing, end both halves
-            // so the X11 channel tears down cleanly.
-            let a = tokio::io::copy(&mut ch_r, &mut tcp_w);
-            let b = tokio::io::copy(&mut tcp_r, &mut ch_w);
-            let _ = tokio::join!(a, b);
+            reply.accept().await;
+            // Bidirectional pump that shuts each side down when the other
+            // reaches EOF, so a finished X client releases its channel and
+            // socket instead of lingering until the SSH session ends.
+            let mut stream = channel.into_stream();
+            if let Err(e) = tokio::io::copy_bidirectional_with_sizes(
+                &mut stream, &mut tcp, crate::ssh::forwards::COPY_BUF, crate::ssh::forwards::COPY_BUF,
+            ).await {
+                tracing::debug!("x11 forward: pump ended: {e}");
+            }
         });
         Ok(())
     }
@@ -293,13 +295,16 @@ async fn connect_impl(
         (host_owned, session.port as u16),
         handler,
     );
-    let mut handle = tokio::time::timeout(
-        std::time::Duration::from_secs(session.connect_timeout_secs as u64),
-        connect_fut,
-    )
-    .await
-    .map_err(|_| AppError::Ssh("connect timeout".into()))?
-    .map_err(|e| AppError::Ssh(format!("connect: {e}")))?;
+    // One budget for the whole connect: TCP, key exchange, authentication
+    // and the channel setup below. A server that completes the handshake
+    // and then stalls on userauth or the PTY request must not leave the
+    // tab in "Connecting" forever (there is no cancel for a pending connect).
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_secs(session.connect_timeout_secs.max(1) as u64);
+    let mut handle = tokio::time::timeout_at(deadline, connect_fut)
+        .await
+        .map_err(|_| AppError::Ssh("connect timeout".into()))?
+        .map_err(|e| AppError::Ssh(format!("connect: {e}")))?;
 
     // 3. Host-key TOFU check.
     let (alg, fp) = server_key
@@ -353,7 +358,9 @@ async fn connect_impl(
     // inside it runs at the end of that function call — our in-process copy of
     // the secret is erased before we proceed. (See SECURITY NOTE on
     // `AuthMaterial` about the non-zeroized russh-side copy.)
-    let authed = authenticate(&mut handle, &session, auth_material).await?;
+    let authed = tokio::time::timeout_at(deadline, authenticate(&mut handle, &session, auth_material))
+        .await
+        .map_err(|_| AppError::Ssh("connect timeout during authentication".into()))??;
     if !authed {
         return Err(AppError::AuthFailed);
     }
@@ -368,9 +375,9 @@ async fn connect_impl(
     }
 
     // 5. Open shell channel with PTY.
-    let channel = handle
-        .channel_open_session()
+    let channel = tokio::time::timeout_at(deadline, handle.channel_open_session())
         .await
+        .map_err(|_| AppError::Ssh("connect timeout opening the session channel".into()))?
         .map_err(|e| AppError::Ssh(e.to_string()))?;
     // Env vars must be sent AFTER channel open and BEFORE shell/exec per
     // RFC 4254 §6.4. `want_reply: false` so we don't block on a per-var
@@ -393,18 +400,13 @@ async fn connect_impl(
                 error = %err);
         }
     }
-    channel
-        .request_pty(
-            false,
-            "xterm-256color",
-            req.cols as u32,
-            req.rows as u32,
-            0,
-            0,
-            &[],
-        )
-        .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
+    tokio::time::timeout_at(
+        deadline,
+        channel.request_pty(false, "xterm-256color", req.cols as u32, req.rows as u32, 0, 0, &[]),
+    )
+    .await
+    .map_err(|_| AppError::Ssh("connect timeout requesting a PTY".into()))?
+    .map_err(|e| AppError::Ssh(e.to_string()))?;
     // X11 forwarding negotiation happens *after* the PTY request and before
     // request_shell, per OpenSSH's behaviour. If VcXsrv isn't installed we
     // surface the install error now rather than letting the channel race
@@ -421,10 +423,18 @@ async fn connect_impl(
             return Err(AppError::Ssh(format!("request_x11: {e}")));
         }
     }
-    channel
-        .request_shell(true)
-        .await
-        .map_err(|e| AppError::Ssh(e.to_string()))?;
+    let shell = match tokio::time::timeout_at(deadline, channel.request_shell(true)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(AppError::Ssh(e.to_string())),
+        Err(_) => Err(AppError::Ssh("connect timeout requesting the shell".into())),
+    };
+    if let Err(e) = shell {
+        // The driver task, which owns the release, is not spawned yet.
+        if let Some(display) = x11_display {
+            deps.xserver.release(display).await;
+        }
+        return Err(e);
+    }
     // Optional starting directory — written before `initial_command` so the
     // command runs in the right place. Same rationale as initial_command for
     // using the shell channel rather than `channel_exec`: we need the
@@ -471,9 +481,6 @@ async fn connect_impl(
     deps.ssh
         .insert(Connection {
             id,
-            host: session.host.clone(),
-            port: session.port,
-            user: session.username.clone(),
             stdin: tx,
             ssh_handle: handle_arc.clone(),
             x11_display,
@@ -611,7 +618,7 @@ async fn load_auth_material(
             let vs = deps.vault.read().await;
             let pt = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
             Ok((
-                AuthMaterial::Password(Zeroizing::new(pt)),
+                AuthMaterial::Password(pt),
                 Some(row.kind),
             ))
         }
@@ -628,13 +635,13 @@ async fn load_auth_material(
             let passphrase = if let Some(pp_id) = session.key_passphrase_credential_id {
                 let pp_row = db::credentials::get(&deps.db, pp_id).await?;
                 let pp = vault::decrypt_with(&vs, &pp_row.nonce, &pp_row.ciphertext)?;
-                Some(Zeroizing::new(pp))
+                Some(pp)
             } else {
                 None
             };
             Ok((
                 AuthMaterial::PrivateKey {
-                    pem: Zeroizing::new(pem),
+                    pem,
                     passphrase,
                 },
                 Some(row.kind),
@@ -786,7 +793,7 @@ struct Driver {
 
 async fn drive_channel(
     driver: Driver,
-    mut channel: Channel<Msg>,
+    channel: Channel<Msg>,
     mut rx: mpsc::UnboundedReceiver<ConnectionInput>,
 ) {
     let Driver {
@@ -803,9 +810,50 @@ async fn drive_channel(
         events.emit(Event::Closed { connection_id: id, reason });
     };
     let mut consumer_gone = false;
+    // The channel is split so that a write can never starve the reader:
+    // `data()` parks until the server's window has room, and the
+    // window is refilled by russh's session loop, which in turn stalls
+    // once 100 incoming Data packets wait unread here. Awaiting a write
+    // inside the read select therefore deadlocked the whole session
+    // when a large paste met a program that was printing but not
+    // reading stdin.
+    let (mut reader, writer) = channel.split();
+    let (closed_tx, mut closed_rx) = tokio::sync::oneshot::channel::<()>();
+    let writer_events = events.clone();
+    let writer_handle = handle.clone();
+    let writer_task = tokio::spawn(async move {
+        while let Some(cmd) = rx.recv().await {
+            match cmd {
+                ConnectionInput::Bytes(bytes) => {
+                    // ChannelWriteHalf::data takes an AsyncRead; &[u8] implements it.
+                    if let Err(e) = writer.data(&bytes[..]).await {
+                        tracing::warn!(connection_id = id, "ssh write failed: {e}");
+                        writer_events.emit(Event::WriteFailed { connection_id: id, message: e.to_string() });
+                    }
+                }
+                ConnectionInput::Resize { cols, rows } => {
+                    if let Err(e) = writer.window_change(cols as u32, rows as u32, 0, 0).await {
+                        tracing::debug!(connection_id = id, "ssh window_change failed: {e}");
+                    }
+                }
+                ConnectionInput::Close => break,
+            }
+        }
+        // Close, or every sender is gone (the registry entry was removed).
+        if let Err(e) = writer.eof().await {
+            tracing::debug!(connection_id = id, "ssh eof failed: {e}");
+        }
+        if let Err(e) = writer_handle
+            .disconnect(russh::Disconnect::ByApplication, "closed by user", "en")
+            .await
+        {
+            tracing::debug!(connection_id = id, "ssh disconnect failed: {e}");
+        }
+        let _ = closed_tx.send(());
+    });
     loop {
         tokio::select! {
-            maybe_msg = channel.wait() => {
+            maybe_msg = reader.wait() => {
                 match maybe_msg {
                     // `send` only fails once the UI side is gone; a closed
                     // tab is torn down by the UI's disconnect call
@@ -845,31 +893,16 @@ async fn drive_channel(
                     _ => {}
                 }
             }
-            cmd = rx.recv() => {
-                match cmd {
-                    Some(ConnectionInput::Bytes(bytes)) => {
-                        // Channel::data takes an AsyncRead; &[u8] implements AsyncRead.
-                        if let Err(e) = channel.data(&bytes[..]).await {
-                            tracing::warn!(connection_id = id, "ssh write failed: {e}");
-                            events.emit(Event::WriteFailed { connection_id: id, message: e.to_string() });
-                        }
-                    }
-                    Some(ConnectionInput::Resize { cols, rows }) => {
-                        let _ = channel.window_change(cols as u32, rows as u32, 0, 0).await;
-                    }
-                    Some(ConnectionInput::Close) | None => {
-                        let _ = channel.eof().await;
-                        let _ = handle
-                            .disconnect(russh::Disconnect::ByApplication, "closed by user", "en")
-                            .await;
-                        closed(CloseReason::Ended);
-                        log_redacted!(info, "ssh.channel.closed", connection_id = id);
-                        break;
-                    }
-                }
+            _ = &mut closed_rx => {
+                closed(CloseReason::Ended);
+                log_redacted!(info, "ssh.channel.closed", connection_id = id);
+                break;
             }
         }
     }
+    // The remote side ended the session first: the writer is still
+    // parked on `rx`; the registry entry below drops its sender anyway.
+    writer_task.abort();
 
     // Connection teardown: drop SFTP state first (so any cached `SftpHandle`
     // is released before the underlying russh transport is gone), then the

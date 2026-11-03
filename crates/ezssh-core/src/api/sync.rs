@@ -42,10 +42,10 @@ pub async fn sync_status(state: &AppState) -> Result<SyncStatus> {
         }
     });
 
-    // Load S3 display-only fields (endpoint / bucket / region / prefix /
-    // access-key id) from settings rather than the in-memory target so the
-    // UI can still render the config even when the vault hasn't been
-    // unlocked yet on this boot and reload_from_db hasn't run.
+    // Load the S3 display-only fields (endpoint / bucket / region / prefix /
+    // access-key id) from settings rather than the in-memory target: the
+    // target is only rebuilt from the database on unlock, and a config
+    // whose blobs failed to decrypt still has these to show.
     let s3_endpoint = db::settings::get(&state.db, KEY_S3_ENDPOINT).await?.filter(|s| !s.is_empty());
     let s3_region = db::settings::get(&state.db, KEY_S3_REGION).await?.filter(|s| !s.is_empty());
     let s3_bucket = db::settings::get(&state.db, KEY_S3_BUCKET).await?.filter(|s| !s.is_empty());
@@ -127,18 +127,23 @@ async fn sync_configure_local_inner(
 pub async fn sync_disable(state: &AppState) -> Result<()> {
     require_unlocked(state).await?;
     db::settings::set(&state.db, KEY_KIND, "none").await?;
-    // Clear local-folder + S3 fields. Secrets (blobs) are zeroed in
-    // settings — the underlying vault isn't touched.
-    db::settings::set(&state.db, KEY_LOCAL_PATH, "").await?;
-    db::settings::set(&state.db, KEY_LOCAL_PASSPHRASE_BLOB, "").await?;
-    db::settings::set(&state.db, KEY_S3_ENDPOINT, "").await?;
-    db::settings::set(&state.db, KEY_S3_REGION, "").await?;
-    db::settings::set(&state.db, KEY_S3_BUCKET, "").await?;
-    db::settings::set(&state.db, KEY_S3_PREFIX, "").await?;
-    db::settings::set(&state.db, KEY_S3_ACCESS_KEY_ID, "").await?;
-    db::settings::set(&state.db, KEY_S3_SECRET_BLOB, "").await?;
-    db::settings::set(&state.db, KEY_S3_PASSPHRASE_BLOB, "").await?;
-    db::settings::set(&state.db, KEY_S3_LAST_ETAG, "").await?;
+    // Remove the local-folder + S3 rows. The blobs must go, not be set to
+    // "": `vault::change_password` re-wraps every blob row it finds and an
+    // empty one is not decryptable. The underlying vault isn't touched.
+    for key in [
+        KEY_LOCAL_PATH,
+        KEY_LOCAL_PASSPHRASE_BLOB,
+        KEY_S3_ENDPOINT,
+        KEY_S3_REGION,
+        KEY_S3_BUCKET,
+        KEY_S3_PREFIX,
+        KEY_S3_ACCESS_KEY_ID,
+        KEY_S3_SECRET_BLOB,
+        KEY_S3_PASSPHRASE_BLOB,
+        KEY_S3_LAST_ETAG,
+    ] {
+        db::settings::delete(&state.db, key).await?;
+    }
     state.sync.set_target(SyncTarget::None).await;
     Ok(())
 }

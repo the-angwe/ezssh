@@ -3,10 +3,10 @@
 
 use std::time::{Duration, Instant};
 
-use egui::{Align2, Color32, CornerRadius, Frame, Id, Margin, Order, RichText, Stroke, vec2};
+use egui::{Align2, CornerRadius, Frame, Id, Margin, Order, RichText, Stroke, Vec2, vec2};
 
 use crate::icons::Icon;
-use crate::style::{alpha, font, font_semibold, size, tokens};
+use crate::style::{self, STATUS_BAR_H, alpha, font, font_semibold, radius, size, tokens};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -85,9 +85,9 @@ impl Toasts {
         let mut dismiss = None;
         egui::Area::new(Id::unique("toasts"))
             .order(Order::Tooltip)
-            .anchor(Align2::RIGHT_BOTTOM, vec2(-12.0, -32.0))
+            .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -(STATUS_BAR_H + 12.0)))
             .show(ctx, |ui| {
-                let width = 320.0_f32.min(ctx.content_rect().width() - 24.0);
+                let width = 340.0_f32.min(ctx.content_rect().width() - 32.0);
                 ui.set_width(width);
                 ui.spacing_mut().item_spacing.y = 8.0;
                 for toast in &self.items {
@@ -97,40 +97,35 @@ impl Toasts {
                         Kind::Danger => (Icon::AlertCircle, t.danger),
                         Kind::Info => (Icon::Info, t.accent),
                     };
-                    let card = Frame::new()
+                    Frame::new()
                         .fill(t.surface)
-                        .stroke(Stroke::new(1.0, t.border))
-                        .corner_radius(CornerRadius::same(2))
-                        .inner_margin(Margin { left: 12, right: 10, top: 10, bottom: 10 })
-                        .shadow(egui::Shadow { offset: [0, 4], blur: 12, spread: 0, color: Color32::from_black_alpha(90) })
+                        .stroke(Stroke::new(1.0, t.border_strong))
+                        .corner_radius(CornerRadius::same(radius::LG as u8))
+                        .inner_margin(Margin { left: 12, right: 8, top: 10, bottom: 10 })
+                        .shadow(style::popup_shadow())
                         .show(ui, |ui| {
-                            ui.set_width(width - 22.0);
+                            ui.set_width(width - 20.0);
                             ui.horizontal_top(|ui| {
-                                ui.spacing_mut().item_spacing.x = 8.0;
-                                icon.show(ui, 14.0, color);
-                                let text_w = ui.available_width() - 28.0;
+                                ui.spacing_mut().item_spacing.x = 10.0;
+                                // Kind: a tinted 24 px circle with the glyph.
+                                let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::hover());
+                                ui.painter().circle_filled(r.center(), 12.0, alpha(color, 0.16));
+                                icon.paint(ui, r, 14.0, color);
+                                let text_w = ui.available_width() - 24.0 - 10.0;
                                 ui.vertical(|ui| {
                                     ui.set_width(text_w);
-                                    ui.add(
-                                        egui::Label::new(RichText::new(&toast.title).font(font_semibold(size::XS)).color(t.fg))
-                                            .truncate(),
-                                    );
+                                    ui.spacing_mut().item_spacing.y = 2.0;
+                                    ui.add_space(3.0);
+                                    ui.add(egui::Label::new(RichText::new(&toast.title).font(font_semibold(size::BASE)).color(t.fg)).truncate());
                                     if let Some(body) = &toast.body {
-                                        ui.add(egui::Label::new(RichText::new(body).font(font(size::XS)).color(t.muted)).wrap());
+                                        ui.add(egui::Label::new(RichText::new(body).font(font(size::SM)).color(t.muted)).wrap());
                                     }
                                 });
-                                if crate::widgets::icon_button(ui, Icon::X, 20.0, 12.0, false, "Dismiss").clicked() {
+                                if crate::widgets::icon_button(ui, Icon::X, 24.0, 14.0, false, "Dismiss").clicked() {
                                     dismiss = Some(toast.id);
                                 }
                             });
                         });
-                    // Kind bar on the left edge.
-                    let r = card.response.rect;
-                    ui.painter().rect_filled(
-                        egui::Rect::from_min_size(r.min, vec2(2.0, r.height())),
-                        CornerRadius { nw: 2, sw: 2, ne: 0, se: 0 },
-                        alpha(color, 1.0),
-                    );
                 }
             });
         if let Some(id) = dismiss {

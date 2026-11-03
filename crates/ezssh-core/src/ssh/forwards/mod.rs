@@ -192,6 +192,10 @@ pub struct Forwards {
     pub by_id:    RwLock<HashMap<u64, Arc<RuntimeForward>>>,
     pub next_id:  std::sync::atomic::AtomicU64,
     pub dispatch: TcpipDispatch,
+    /// Set by `stop_all` under the `by_id` write lock; `insert` refuses
+    /// afterwards so the detached auto-start scan cannot leak a listener
+    /// (bound port + a clone of the russh handle) into a closed connection.
+    closed: std::sync::atomic::AtomicBool,
 }
 
 impl Forwards {
@@ -204,6 +208,7 @@ impl Forwards {
             by_id: Default::default(),
             next_id: Default::default(),
             dispatch,
+            closed: Default::default(),
         }
     }
 
@@ -212,8 +217,16 @@ impl Forwards {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    pub async fn insert(&self, rf: Arc<RuntimeForward>) {
-        self.by_id.write().await.insert(rf.id, rf);
+    /// Register a live forward. Returns `false` (nothing inserted) once
+    /// `stop_all` has run; the caller must stop the forward itself.
+    pub async fn insert(&self, rf: Arc<RuntimeForward>) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut guard = self.by_id.write().await;
+        if self.closed.load(Ordering::Acquire) {
+            return false;
+        }
+        guard.insert(rf.id, rf);
+        true
     }
 
     pub async fn remove(&self, id: u64) -> Option<Arc<RuntimeForward>> {
@@ -235,6 +248,7 @@ impl Forwards {
         // we'd then never stop (its listener + bound port would leak).
         let all: Vec<Arc<RuntimeForward>> = {
             let mut guard = self.by_id.write().await;
+            self.closed.store(true, std::sync::atomic::Ordering::Release);
             guard.drain().map(|(_, rf)| rf).collect()
         };
         for rf in all {

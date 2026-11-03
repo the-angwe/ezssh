@@ -12,7 +12,7 @@ use crate::icons::Icon;
 use crate::style::{font, font_semibold, size, tokens};
 use crate::tabs::TabId;
 use crate::views::vault_dialogs::para;
-use crate::widgets::{self, Tone};
+use crate::widgets::{self};
 
 /// The core can download and install VcXsrv only on Windows
 /// (`xserver::install_vcxsrv` refuses elsewhere).
@@ -87,11 +87,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         460.0,
         |ui| {
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-                Icon::AlertTriangle.show(ui, 22.0, t.warning);
+                ui.spacing_mut().item_spacing.x = 14.0;
+                let (r, _) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::hover());
+                widgets::icon_tile(ui, r, Icon::AlertTriangle, t.warning, 18.0);
                 ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.label(RichText::new("VcXsrv is required for X11 forwarding").font(font_semibold(size::SM)).color(t.fg));
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    ui.add_space(1.0);
+                    ui.label(RichText::new("VcXsrv is required for X11 forwarding").font(font_semibold(size::MD)).color(t.fg));
                     explanation(ui);
                     match &dlg.phase {
                         Phase::Failed(msg) => {
@@ -102,8 +104,8 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 6.0;
-                                form::spinner(ui, 12.0);
-                                ui.label(RichText::new("Downloading and installing VcXsrv\u{2026}").font(font(size::XS)).color(t.muted));
+                                form::spinner(ui, 14.0);
+                                ui.label(RichText::new("Downloading and installing VcXsrv\u{2026}").font(font(size::SM)).color(t.muted));
                             });
                         }
                         Phase::Idle => {}
@@ -115,20 +117,22 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if CAN_INSTALL {
                 let icon = if installing { Icon::Loader2 } else { Icon::Download };
                 let label = if failed { "Retry install" } else { "Install VcXsrv" };
-                if widgets::primary_with_icon(ui, Some(icon), label, Tone::Accent, !installing, size::SM).clicked() {
+                if widgets::Button::primary(label).icon(icon).enabled(!installing).show(ui).clicked() {
                     action = Some(Action::Install);
                 }
             }
-            if widgets::Ghost::new("Continue without X11").icon(Icon::MonitorOff).enabled(!installing).show(ui).clicked() {
+            if widgets::Button::secondary("Continue without X11").icon(Icon::MonitorOff).enabled(!installing).show(ui).clicked() {
                 action = Some(Action::WithoutX11);
             }
-            if widgets::Ghost::new("Cancel").enabled(!installing).show(ui).clicked() {
+            if widgets::Button::secondary("Cancel").enabled(!installing).show(ui).clicked() {
                 action = Some(Action::Cancel);
             }
         }),
     );
-    if out.dismissed() && !installing && action.is_none() {
-        action = Some(Action::Cancel);
+    // Cancel closes the tab: too much for a stray click on the backdrop
+    // or a reflex Escape, so only the button does it.
+    if out.dismissed() {
+        tracing::debug!(tab, "xserver: dismissal ignored, use the buttons");
     }
     match action {
         Some(Action::Install) => install(app, tab),
@@ -158,10 +162,10 @@ fn explanation(ui: &mut Ui) {
         );
         return;
     }
-    let plain = TextFormat { font_id: font(size::XS), color: t.muted, ..TextFormat::default() };
+    let plain = TextFormat { font_id: font(size::BASE), color: t.muted, ..TextFormat::default() };
     let mut job = LayoutJob::default();
     job.append("This session has X11 forwarding enabled, but no VcXsrv install was found next to ezSsh, in your user data folder, or under ", 0.0, plain.clone());
-    job.append("C:\\Program Files\\VcXsrv\\", 0.0, TextFormat { font_id: FontId::monospace(size::XS), color: t.muted, ..TextFormat::default() });
+    job.append("C:\\Program Files\\VcXsrv\\", 0.0, TextFormat { font_id: FontId::monospace(size::SM), color: t.muted, ..TextFormat::default() });
     job.append(". You can install it now (roughly 3\u{a0}MB, no admin required) or connect without X11 for this session.", 0.0, plain);
     job.wrap.max_width = ui.available_width();
     ui.add(egui::Label::new(job).wrap());

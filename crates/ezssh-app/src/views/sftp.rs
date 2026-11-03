@@ -27,21 +27,24 @@ use crate::app::App;
 use crate::files::Pick;
 use crate::icons::Icon;
 use crate::layout::{SFTP_COL_NAME, SFTP_COL_SIZE, SFTP_PANE_DEFAULT, SFTP_PANE_MIN, clamp_col};
-use crate::style::{alpha, font, font_semibold, size, tokens};
+use crate::style::{ICON_BTN, radius, alpha, font, font_semibold, size, tokens};
 use crate::tabs::{TabId, TabStatus};
 use crate::views::dialogs::{self, Confirm, PromptAnswer, PromptState};
 use crate::widgets::{self, Bounds, Menu, MenuEntry, MenuResult};
 
 /// Mode column: nine monospace characters (`SFTP_MODE_COL_W`).
 pub const MODE_COL_W: f32 = 72.0;
-const HEADER_H: f32 = 32.0;
-const COLS_H: f32 = 22.0;
-const ROW_H: f32 = 24.0;
+const HEADER_H: f32 = crate::style::PANE_HEAD_H;
+const COLS_H: f32 = 26.0;
+const ROW_H: f32 = 26.0;
 const ROW_PAD: f32 = 8.0;
 const ROW_GAP: f32 = 8.0;
 /// How long a finished / failed transfer stays in the strip.
 const DONE_TTL: Duration = Duration::from_millis(1500);
 const FAILED_TTL: Duration = Duration::from_secs(4);
+/// How long a finished folder job row stays (longer when something failed).
+const JOB_TTL: Duration = Duration::from_secs(8);
+const JOB_FAILED_TTL: Duration = Duration::from_secs(30);
 /// Transfer rows shown at most (the rest is one "N more waiting" line).
 const MAX_STRIP_ROWS: usize = 6;
 /// Progress of transfers nobody registered (yet) is kept this long.
@@ -52,15 +55,19 @@ const EARLY_TTL: Duration = Duration::from_secs(60);
 /// A file size for the list: B, KB, MB, GB.
 pub fn format_size(bytes: u64) -> String {
     const K: f64 = 1024.0;
-    let b = bytes as f64;
-    if bytes < 1024 {
-        format!("{bytes} B")
-    } else if b < K * K {
-        format!("{:.1} KB", b / K)
-    } else if b < K * K * K {
-        format!("{:.1} MB", b / K / K)
-    } else {
-        format!("{:.2} GB", b / K / K / K)
+    // Values that would print as "1024.0 KB" move up a unit.
+    const ROLL: f64 = 1023.95;
+    let mut v = bytes as f64;
+    let mut unit = 0;
+    while v >= ROLL && unit < 3 {
+        v /= K;
+        unit += 1;
+    }
+    match unit {
+        0 => format!("{bytes} B"),
+        1 => format!("{v:.1} KB"),
+        2 => format!("{v:.1} MB"),
+        _ => format!("{v:.2} GB"),
     }
 }
 
@@ -234,6 +241,8 @@ struct DirJob {
     done: usize,
     failed: usize,
     cancelled: usize,
+    /// When the last file ended; the row expires after it.
+    finished_at: Option<Instant>,
 }
 
 impl DirJob {
@@ -257,8 +266,10 @@ enum Action {
 }
 
 enum Modal {
-    Mkdir { tab: TabId, prompt: PromptState, busy: bool },
-    Rename { tab: TabId, entry: SftpEntry, prompt: PromptState, busy: bool },
+    /// `serial` ties an in-flight mkdir / rename to this prompt: a prompt
+    /// opened after the first was cancelled must not show its answer.
+    Mkdir { tab: TabId, prompt: PromptState, busy: bool, serial: u64 },
+    Rename { tab: TabId, entry: SftpEntry, prompt: PromptState, busy: bool, serial: u64 },
     Delete { tab: TabId, entry: SftpEntry },
     DeleteMany { tab: TabId, entries: Vec<SftpEntry> },
 }
@@ -740,6 +751,7 @@ fn register_planned(app: &mut App, tab: TabId, way: Way, out: Planned) {
             done: 0,
             failed: d.failed.len(),
             cancelled: 0,
+            finished_at: None,
         });
         let (tickets, files): (Vec<_>, Vec<_>) = d.files.into_iter().unzip();
         register(app, tab, way, tickets, files, Some(id));
@@ -798,7 +810,11 @@ pub fn on_event(app: &mut App, p: TransferProgress) {
     };
     let state = t.state;
     tracing::debug!(id = p.transfer_id, tab, ?way, %name, error = ?p.error, cancelled = p.cancelled, "sftp: transfer finished");
-    if let Some(e) = p.error {
+    if let Some(e) = p.error
+        && job.is_none()
+    {
+        // Files of a folder job are counted on the job row instead: a tree
+        // dropped into a read-only folder would raise hundreds of toasts.
         let what = if way == Way::Up { "Upload failed" } else { "Download failed" };
         app.toasts.danger(format!("{what}: {name}"), e);
     }
@@ -822,9 +838,37 @@ pub fn on_event(app: &mut App, p: TransferProgress) {
 pub fn tick(app: &mut App, now: Instant) -> Option<Duration> {
     let live: HashSet<TabId> = app.tabs.tabs.iter().map(|t| t.id).collect();
     app.sftp.panes.retain(|tab, _| live.contains(tab));
-    app.sftp.jobs.retain(|j| live.contains(&j.tab));
     app.sftp.early.retain(|_, (_, at)| now.saturating_duration_since(*at) < EARLY_TTL);
     let mut next: Option<Duration> = None;
+    // A closed tab's transfers are cancelled, not just forgotten: SSH ones
+    // die with the channel, WSL copies would keep going unwatched.
+    let orphans: Vec<u64> = app
+        .sftp
+        .transfers
+        .iter()
+        .filter(|t| !live.contains(&t.tab) && t.state == TState::Running && !t.cancelling)
+        .map(|t| t.id)
+        .collect();
+    if !orphans.is_empty() {
+        tracing::debug!(n = orphans.len(), "sftp: cancelling transfers of closed tabs");
+        cancel_transfers(app, orphans);
+    }
+    app.sftp.jobs.retain_mut(|j| {
+        if !live.contains(&j.tab) {
+            return false;
+        }
+        if !j.finished() {
+            return true;
+        }
+        let at = *j.finished_at.get_or_insert(now);
+        let ttl = if j.failed > 0 || j.cancelled > 0 { JOB_FAILED_TTL } else { JOB_TTL };
+        let left = ttl.saturating_sub(now.saturating_duration_since(at));
+        if left.is_zero() {
+            return false;
+        }
+        next = Some(next.map_or(left, |n| n.min(left)));
+        true
+    });
     app.sftp.transfers.retain(|t| {
         if !live.contains(&t.tab) {
             return false;
@@ -861,11 +905,16 @@ fn apply(app: &mut App, tab: TabId, action: Action) {
     match action {
         Action::Refresh => refresh(app, tab),
         Action::Mkdir => {
-            app.sftp.modal = Some(Modal::Mkdir { tab, prompt: PromptState::new("New directory", "Directory name", "", "", "Create"), busy: false });
+            app.sftp.modal = Some(Modal::Mkdir {
+                tab,
+                prompt: PromptState::new("New directory", "Directory name", "", "", "Create"),
+                busy: false,
+                serial: crate::files::next_serial(),
+            });
         }
         Action::Rename(entry) => {
             let prompt = PromptState::new(format!("Rename \"{}\"", entry.name), "New name", &entry.name, "", "Rename");
-            app.sftp.modal = Some(Modal::Rename { tab, entry, prompt, busy: false });
+            app.sftp.modal = Some(Modal::Rename { tab, entry, prompt, busy: false, serial: crate::files::next_serial() });
         }
         Action::Delete(entry) => app.sftp.modal = Some(Modal::Delete { tab, entry }),
         Action::DeleteMany(entries) => app.sftp.modal = Some(Modal::DeleteMany { tab, entries }),
@@ -980,7 +1029,7 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, max_width: f32) 
 
     let mut actions: Vec<Action> = Vec::new();
     let mut nav: Option<String> = None;
-    let mono = FontId::new(size::XS, app.mono.clone());
+    let mono = FontId::new(size::SM, app.mono.clone());
     let cwd = app.tabs.get(tab).map(|t| t.cwd.clone()).unwrap_or_else(|| "/".into());
     let phase = connection_id.and_then(|_| app.sftp.panes.get(&tab)).map(|p| p.phase);
     let ready = phase == Some(Phase::Ready);
@@ -989,27 +1038,27 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, max_width: f32) 
     // Header: breadcrumb + New directory / Upload / Refresh.
     let header = Rect::from_min_size(inner.min, vec2(inner.width(), HEADER_H));
     ui.painter().hline(header.x_range(), header.bottom() - 0.5, Stroke::new(1.0, tk.border));
-    let btns_w = 3.0 * 24.0 + 2.0 * 2.0 + 6.0;
+    let btns_w = 3.0 * ICON_BTN + 2.0 * 2.0 + 8.0;
     let crumbs = Rect::from_min_max(header.min + vec2(6.0, 0.0), Pos2::new(header.right() - btns_w - 4.0, header.bottom() - 1.0));
     ui.scope_builder(UiBuilder::new().max_rect(crumbs).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
         if let Some(p) = breadcrumb(ui, tab, &cwd, &mono, ready) {
             nav = Some(p);
         }
     });
-    let mut x = header.right() - 6.0 - 24.0;
+    let mut x = header.right() - 8.0 - ICON_BTN;
     for (icon, tip, action, enabled) in [
         (Icon::RefreshCw, "Refresh", Action::Refresh, phase.is_some_and(|p| p != Phase::Opening)),
         (Icon::Upload, "Upload files", Action::UploadFiles, ready),
         (Icon::FolderPlus, "New directory", Action::Mkdir, ready),
     ] {
-        let r = Rect::from_min_size(Pos2::new(x, header.center().y - 12.0), vec2(24.0, 24.0));
+        let r = Rect::from_min_size(Pos2::new(x, header.center().y - ICON_BTN / 2.0), vec2(ICON_BTN, ICON_BTN));
         let resp = ui.scope_builder(UiBuilder::new().max_rect(r), |ui| {
-            ui.add_enabled_ui(enabled, |ui| widgets::icon_button(ui, icon, 24.0, 13.0, false, tip)).inner
+            ui.add_enabled_ui(enabled, |ui| widgets::icon_btn(ui, icon, false, tip)).inner
         });
         if resp.inner.clicked() {
             actions.push(action);
         }
-        x -= 26.0;
+        x -= ICON_BTN + 2.0;
     }
     if loading {
         let c = Pos2::new(crumbs.right() - 6.0, header.center().y);
@@ -1020,26 +1069,27 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, max_width: f32) 
     // Error strip.
     if let Some(err) = app.sftp.panes.get(&tab).and_then(|p| p.error.clone()).filter(|_| connection_id.is_some()) {
         let w = inner.width() - 16.0;
-        let g = ui.painter().layout(err.clone(), font(size::XS), tk.danger, w - 30.0);
-        let r = Rect::from_min_size(Pos2::new(inner.left() + 8.0, top + 4.0), vec2(w, g.size().y + 8.0));
-        ui.painter().rect_filled(r, 3.0, alpha(tk.danger, 0.1));
-        ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, alpha(tk.danger, 0.5)), StrokeKind::Inside);
-        ui.painter().galley(r.min + vec2(8.0, 4.0), g, tk.danger);
-        let x_rect = Rect::from_min_size(Pos2::new(r.right() - 20.0, r.top() + 2.0), vec2(18.0, 18.0));
+        let g = ui.painter().layout(err.clone(), font(size::SM), tk.danger, w - 40.0);
+        let r = Rect::from_min_size(Pos2::new(inner.left() + 8.0, top + 6.0), vec2(w, g.size().y + 12.0));
+        ui.painter().rect_filled(r, radius::MD, alpha(tk.danger, 0.1));
+        ui.painter().rect_stroke(r, radius::MD, Stroke::new(1.0, alpha(tk.danger, 0.4)), StrokeKind::Inside);
+        ui.painter().galley(r.min + vec2(10.0, 6.0), g, tk.danger);
+        let x_rect = Rect::from_center_size(Pos2::new(r.right() - 14.0, r.top() + 12.0), vec2(20.0, 20.0));
         let resp = ui.interact(x_rect, Id::unique(("sftp-error-x", tab)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
         widgets::a11y(&resp, egui::Role::Button, "Dismiss error");
-        ui.painter().text(x_rect.center(), Align2::CENTER_CENTER, "×", font(size::BASE), if resp.hovered() { tk.fg } else { tk.danger });
+        widgets::paint_icon_button(ui, &resp, x_rect, Icon::X, 12.0, false, Some(tk.danger));
         widgets::a11y(&ui.interact(r.shrink2(vec2(24.0, 0.0)), Id::unique(("sftp-error", tab)), Sense::hover()), egui::Role::Alert, &err);
         if resp.clicked()
             && let Some(p) = app.sftp.panes.get_mut(&tab)
         {
             p.error = None;
         }
-        top = r.bottom() + 4.0;
+        top = r.bottom() + 6.0;
     }
 
-    // Progress strips at the bottom.
-    let strips_h = strips_height(app, tab);
+    // Progress strips at the bottom, at most half the pane.
+    let strip_rows = strip_rows(app, tab);
+    let strips_h = (section_h(&strip_rows.0) + section_h(&strip_rows.1)).min(inner.height() * 0.5);
     let strips = Rect::from_min_max(Pos2::new(inner.left(), inner.bottom() - strips_h), inner.max);
     let list_rect = Rect::from_min_max(Pos2::new(inner.left(), top), Pos2::new(inner.right(), strips.top()));
 
@@ -1056,7 +1106,7 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, max_width: f32) 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     crate::form::spinner(ui, 14.0);
-                    ui.label(RichText::new("Opening SFTP…").font(font(size::XS)).color(tk.muted));
+                    ui.label(RichText::new("Opening SFTP…").font(font(size::SM)).color(tk.muted));
                 });
             });
         }
@@ -1076,12 +1126,18 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, max_width: f32) 
         }
     }
 
-    strips_ui(app, ui, tab, strips);
+    if strips_h > 0.0 {
+        ui.scope_builder(UiBuilder::new().max_rect(strips), |ui| {
+            ui.set_clip_rect(strips);
+            strips_ui(app, ui, tab, strips, strip_rows);
+        });
+    }
 
-    // OS file drag over the window: this pane takes the drop.
+    // OS file drag over the window: this pane takes the drop (a modal
+    // refuses it, so no overlay then either).
     if ready {
         app.sftp.drop_target = Some(tab);
-        if ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+        if !app.any_modal_open() && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
             drop_overlay(ui, inner, &cwd, &mono);
         }
     }
@@ -1119,20 +1175,23 @@ fn breadcrumb(ui: &mut Ui, tab: TabId, path: &str, mono: &FontId, enabled: bool)
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.add_enabled_ui(enabled, |ui| {
-                if widgets::icon_button(ui, Icon::Slash, 20.0, 12.0, false, "Root").clicked() {
+                if widgets::icon_button(ui, Icon::Slash, 24.0, 14.0, false, "Root").clicked() {
                     nav = Some("/".to_string());
                 }
                 let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
                 for (i, seg) in parts.iter().enumerate() {
                     let (r, _) = ui.allocate_exact_size(vec2(12.0, 20.0), Sense::hover());
-                    Icon::ChevronRight.paint(ui, r, 12.0, alpha(tk.muted, 0.6));
+                    Icon::ChevronRight.paint(ui, r, 12.0, alpha(tk.muted, 0.7));
                     let last = i + 1 == parts.len();
                     let g = ui.painter().layout_no_wrap(seg.to_string(), mono.clone(), tk.fg);
-                    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 8.0, 24.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 10.0, 24.0), Sense::click());
                     let full = format!("/{}", parts[..=i].join("/"));
                     widgets::a11y(&resp, egui::Role::Link, &full);
+                    if resp.hovered() {
+                        ui.painter().rect_filled(r, radius::SM, tk.surface2);
+                    }
                     let color = if last || resp.hovered() { tk.fg } else { tk.muted };
-                    ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 4.0, r.center().y - g.size().y / 2.0), g, color);
+                    ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 5.0, r.center().y - g.size().y / 2.0), g, color);
                     if resp.clicked() {
                         nav = Some(full);
                     }
@@ -1203,31 +1262,30 @@ fn file_list(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, mono: &FontId) 
                 let resp = ui.interact(r, Id::unique(("sftp-row", tab, &e.full_path)), Sense::click());
                 let selected = p.selected.contains(&e.full_path);
                 widgets::a11y_selected(&resp, egui::Role::Row, selected, &e.name);
-                if selected {
-                    ui.painter().rect_filled(r, 0.0, alpha(tk.accent, 0.15));
-                } else if resp.hovered() {
-                    ui.painter().rect_filled(r, 0.0, alpha(tk.surface2, 0.6));
-                }
+                widgets::row_fill(ui, r, resp.hovered(), selected);
                 let (icon, color) = if e.is_dir {
-                    (Icon::Folder, tk.accent)
+                    (Icon::Folder, tk.fg2)
                 } else if e.is_symlink {
                     (Icon::FileSymlink, tk.warning)
                 } else {
                     (Icon::File, tk.muted)
                 };
-                icon.paint(ui, Rect::from_center_size(Pos2::new(nx + 6.5, r.center().y), vec2(13.0, 13.0)), 13.0, color);
-                let name_r = Rect::from_min_max(Pos2::new(nx + 19.0, r.top()), Pos2::new(nx + name_w, r.bottom()));
-                widgets::paint_text(ui, name_r, &e.name, font(size::XS), tk.fg);
+                icon.paint(ui, Rect::from_center_size(Pos2::new(nx + 8.0, r.center().y), vec2(15.0, 15.0)), 15.0, color);
+                let name_r = Rect::from_min_max(Pos2::new(nx + 22.0, r.top()), Pos2::new(nx + name_w, r.bottom()));
+                widgets::paint_text(ui, name_r, &e.name, font(size::BASE), tk.fg);
                 if !e.is_dir {
                     let size_r = Rect::from_min_max(Pos2::new(sx, r.top()), Pos2::new(sx + cols.size, r.bottom()));
-                    let g = widgets::elide(ui, &format_size(e.size), font(size::XS), cols.size);
+                    let g = widgets::elide(ui, &format_size(e.size), font(size::SM), cols.size);
                     let pos = Align2::RIGHT_CENTER.align_size_within_rect(g.size(), size_r).min;
                     ui.painter().galley_with_override_text_color(pos, g, tk.muted);
                 }
                 let mode_r = Rect::from_min_max(Pos2::new(mx, r.top()), Pos2::new(mx + MODE_COL_W, r.bottom()));
                 widgets::paint_text(ui, mode_r, &format_mode(e.mode), mono.clone(), tk.muted);
                 if resp.double_clicked() {
-                    if e.is_dir {
+                    // readdir has lstat semantics: a symlink to a directory
+                    // is not `is_dir`. Entering it lists the target or
+                    // shows the server's error.
+                    if e.is_dir || e.is_symlink {
                         out.nav = Some(e.full_path.clone());
                     }
                 } else if resp.clicked() {
@@ -1245,7 +1303,7 @@ fn file_list(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, mono: &FontId) 
             ui.painter().rect_filled(h, 0.0, tk.surface);
             ui.painter().hline(h.x_range(), h.bottom() - 0.5, Stroke::new(1.0, tk.border));
             let label = |ui: &Ui, x: f32, w: f32, text: &str, right: bool| {
-                let g = ui.painter().layout_no_wrap(text.to_string(), font_semibold(10.5), tk.muted);
+                let g = ui.painter().layout_no_wrap(text.to_string(), font_semibold(size::XS), tk.muted);
                 let x = if right { x + w - 6.0 - g.size().x } else { x };
                 ui.painter().galley(Pos2::new(x, h.center().y - g.size().y / 2.0), g, tk.muted);
             };
@@ -1300,7 +1358,7 @@ fn file_list(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, mono: &FontId) 
             let noun = if picked.iter().any(|x| x.is_dir) { "items" } else { "files" };
             let n = picked.len();
             entries.push(MenuEntry::item(format!("Download {n} {noun}…"), Action::DownloadMany(picked.clone())));
-            entries.push(MenuEntry::item("Rename…", Action::Rename(e)));
+            entries.push(MenuEntry::item(format!("Rename \"{}\"…", e.name), Action::Rename(e)));
             entries.push(MenuEntry::Separator);
             entries.push(MenuEntry::danger(format!("Delete {n} {noun}"), Action::DeleteMany(picked)));
         } else {
@@ -1403,7 +1461,8 @@ fn strip_rows(app: &App, tab: TabId) -> (Vec<StripRow>, Vec<StripRow>) {
         TState::Running => 2,
     });
     let waiting: Vec<u64> = shown.iter().skip(MAX_STRIP_ROWS).filter(|t| t.state == TState::Running && !t.cancelling).map(|t| t.id).collect();
-    let hidden = shown.len().saturating_sub(MAX_STRIP_ROWS);
+    // Hidden finished rows expire on their own; only queued ones are announced.
+    let hidden = waiting.len();
     let mut transfers: Vec<StripRow> = shown
         .into_iter()
         .take(MAX_STRIP_ROWS)
@@ -1433,58 +1492,54 @@ fn strip_rows(app: &App, tab: TabId) -> (Vec<StripRow>, Vec<StripRow>) {
 }
 
 fn row_h(r: &StripRow) -> f32 {
-    16.0 + if r.bar.is_some() { 6.0 } else { 0.0 }
+    18.0 + if r.bar.is_some() { 8.0 } else { 0.0 }
 }
 
+/// Height of one transfer card (10 px margins around, 10 px padding in).
 fn section_h(rows: &[StripRow]) -> f32 {
     if rows.is_empty() {
         return 0.0;
     }
-    16.0 + rows.iter().map(row_h).sum::<f32>() + 6.0 * (rows.len() - 1) as f32
+    8.0 + 20.0 + rows.iter().map(row_h).sum::<f32>() + 6.0 * (rows.len() - 1) as f32
 }
 
-fn strips_height(app: &App, tab: TabId) -> f32 {
-    let (jobs, transfers) = strip_rows(app, tab);
-    // At most half the pane's height is not enforced: rows expire quickly.
-    section_h(&jobs) + section_h(&transfers)
-}
-
-fn strips_ui(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
+fn strips_ui(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect, rows: (Vec<StripRow>, Vec<StripRow>)) {
     let tk = tokens(ui.ctx());
-    let (jobs, transfers) = strip_rows(app, tab);
+    let (jobs, transfers) = rows;
     let mut y = rect.top();
     let mut pressed: Option<StripBtn> = None;
-    for rows in [jobs, transfers] {
+    for (section, rows) in [jobs, transfers].into_iter().enumerate() {
         if rows.is_empty() {
             continue;
         }
         let sec = Rect::from_min_size(Pos2::new(rect.left(), y), vec2(rect.width(), section_h(&rows)));
-        ui.painter().rect_filled(sec, 0.0, alpha(tk.surface2, 0.4));
-        ui.painter().hline(sec.x_range(), sec.top() + 0.5, Stroke::new(1.0, tk.border));
-        let mut ry = sec.top() + 8.0;
-        for r in &rows {
-            let line = Rect::from_min_size(Pos2::new(sec.left() + 8.0, ry), vec2(sec.width() - 16.0, 16.0));
-            let rg = ui.painter().layout_no_wrap(r.right.clone(), font(size::XS), r.right_color);
+        let card = Rect::from_min_max(Pos2::new(sec.left() + 8.0, sec.top() + 8.0), Pos2::new(sec.right() - 8.0, sec.bottom()));
+        ui.painter().rect_filled(card, radius::LG, tk.surface2);
+        let mut ry = card.top() + 10.0;
+        for (row, r) in rows.iter().enumerate() {
+            let line = Rect::from_min_size(Pos2::new(card.left() + 10.0, ry), vec2(card.width() - 20.0, 18.0));
+            let rg = ui.painter().layout_no_wrap(r.right.clone(), font(size::SM), r.right_color);
             let mut right_edge = line.right();
             if let Some((btn, label)) = &r.button {
-                let xr = Rect::from_min_size(Pos2::new(line.right() - 14.0, line.top()), vec2(14.0, 16.0));
-                let resp = ui.interact(xr, Id::unique(("sftp-strip-x", label)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+                let xr = Rect::from_center_size(Pos2::new(line.right() - 9.0, line.center().y), vec2(20.0, 20.0));
+                // Two rows can share a label (the same file dropped twice).
+                let resp = ui.interact(xr, Id::unique(("sftp-strip-x", tab, section, row)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
                 widgets::a11y(&resp, egui::Role::Button, label);
-                ui.painter().text(xr.center(), Align2::CENTER_CENTER, "×", font(size::SM), if resp.hovered() { tk.fg } else { tk.muted });
+                widgets::paint_icon_button(ui, &resp, xr, Icon::X, 12.0, false, None);
                 if resp.on_hover_text(label.as_str()).clicked() {
                     pressed = Some(btn.clone());
                 }
-                right_edge -= 18.0;
+                right_edge -= 24.0;
             }
             let rpos = Pos2::new(right_edge - rg.size().x, line.center().y - rg.size().y / 2.0);
             ui.painter().galley(rpos, rg, r.right_color);
             let lr = Rect::from_min_max(line.min, Pos2::new(rpos.x - 8.0, line.bottom()));
-            let shown = widgets::paint_text(ui, lr, &r.label, font(size::XS), alpha(tk.fg, 0.9));
+            let shown = widgets::paint_text(ui, lr, &r.label, font(size::BASE), tk.fg2);
             widgets::a11y(&ui.interact(shown, Id::unique(("sftp-strip", &r.label, ry as i32)), Sense::hover()), egui::Role::ProgressIndicator, &format!("{} {}", r.label, r.right));
             if let Some(f) = r.bar {
-                let bar = Rect::from_min_size(Pos2::new(line.left(), line.bottom() + 2.0), vec2(line.width(), 4.0));
-                ui.painter().rect_filled(bar, 1.0, tk.surface2);
-                ui.painter().rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * f.clamp(0.0, 1.0), 4.0)), 1.0, tk.accent);
+                let bar = Rect::from_min_size(Pos2::new(line.left(), line.bottom() + 3.0), vec2(line.width(), 4.0));
+                ui.painter().rect_filled(bar, radius::PILL, tk.surface3);
+                ui.painter().rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * f.clamp(0.0, 1.0), 4.0)), radius::PILL, tk.accent);
             }
             ry += row_h(r) + 6.0;
         }
@@ -1504,14 +1559,15 @@ fn strips_ui(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
 fn drop_overlay(ui: &Ui, rect: Rect, cwd: &str, mono: &FontId) {
     let tk = tokens(ui.ctx());
     let p = ui.painter();
-    p.rect_filled(rect, 0.0, alpha(tk.accent, 0.1));
-    let r = rect.shrink(1.0);
+    p.rect_filled(rect, 0.0, alpha(tk.bg, 0.6));
+    let r = rect.shrink(8.0);
+    p.rect_filled(r, radius::LG, tk.accent_soft);
     let pts = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
     p.extend(egui::Shape::dashed_line(&pts, Stroke::new(2.0, tk.accent), 6.0, 4.0));
     let c = rect.center();
-    Icon::CloudUpload.paint(ui, Rect::from_center_size(c - vec2(0.0, 24.0), vec2(32.0, 32.0)), 32.0, tk.accent);
-    p.text(c + vec2(0.0, 6.0), Align2::CENTER_CENTER, "Drop to upload", font_semibold(size::SM), tk.fg);
-    p.text(c + vec2(0.0, 24.0), Align2::CENTER_CENTER, cwd, mono.clone(), tk.muted);
+    Icon::CloudUpload.paint(ui, Rect::from_center_size(c - vec2(0.0, 26.0), vec2(32.0, 32.0)), 32.0, tk.accent);
+    p.text(c + vec2(0.0, 8.0), Align2::CENTER_CENTER, "Drop to upload", font_semibold(size::MD), tk.fg);
+    p.text(c + vec2(0.0, 28.0), Align2::CENTER_CENTER, cwd, mono.clone(), tk.muted);
 }
 
 // ---------------------------------------------------------------- dialogs
@@ -1537,8 +1593,8 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
         return;
     };
     match modal {
-        Modal::Mkdir { tab, prompt, busy } => {
-            let tab = *tab;
+        Modal::Mkdir { tab, prompt, busy, serial } => {
+            let (tab, serial) = (*tab, *serial);
             match prompt.show(ctx, Id::unique("sftp-mkdir")) {
                 Some(PromptAnswer::Cancel) => app.sftp.modal = None,
                 Some(PromptAnswer::Submit(_)) if *busy => {}
@@ -1549,7 +1605,9 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
                     }
                     *busy = true;
                     let Some((cid, dir)) = pane_conn(app, tab) else {
+                        tracing::warn!(tab, "sftp: mkdir submitted but the file browser is gone");
                         app.sftp.modal = None;
+                        app.toasts.warning("Not created", "The file browser is not open.".to_string());
                         return;
                     };
                     let path = join_remote(&dir, &name);
@@ -1557,14 +1615,14 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
                     app.core.call(
                         "sftp_mkdir",
                         move |st| async move { api::sftp::sftp_mkdir(&st, cid, path).await },
-                        move |app, r| finish_prompt(app, tab, r, "Directory created", name),
+                        move |app, r| finish_prompt(app, tab, serial, r, "Directory created", name),
                     );
                 }
                 None => {}
             }
         }
-        Modal::Rename { tab, entry, prompt, busy } => {
-            let tab = *tab;
+        Modal::Rename { tab, entry, prompt, busy, serial } => {
+            let (tab, serial) = (*tab, *serial);
             match prompt.show(ctx, Id::unique("sftp-rename")) {
                 Some(PromptAnswer::Cancel) => app.sftp.modal = None,
                 Some(PromptAnswer::Submit(_)) if *busy => {}
@@ -1579,14 +1637,16 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
                     let done = format!("{} → {name}", entry.name);
                     *busy = true;
                     let Some((cid, _)) = pane_conn(app, tab) else {
+                        tracing::warn!(tab, "sftp: rename submitted but the file browser is gone");
                         app.sftp.modal = None;
+                        app.toasts.warning("Not renamed", "The file browser is not open.".to_string());
                         return;
                     };
                     tracing::debug!(tab, %from, %to, "sftp: rename");
                     app.core.call(
                         "sftp_rename",
                         move |st| async move { api::sftp::sftp_rename(&st, cid, from, to).await },
-                        move |app, r| finish_prompt(app, tab, r, "Renamed", done),
+                        move |app, r| finish_prompt(app, tab, serial, r, "Renamed", done),
                     );
                 }
                 None => {}
@@ -1620,6 +1680,8 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
                 Some(true) => {
                     app.sftp.modal = None;
                     let Some((cid, _)) = pane_conn(app, tab) else {
+                        tracing::warn!(tab, "sftp: delete confirmed but the file browser is gone");
+                        app.toasts.warning("Not deleted", "The file browser is not open.".to_string());
                         return;
                     };
                     tracing::debug!(tab, path = %entry.full_path, dir = entry.is_dir, "sftp: delete");
@@ -1651,6 +1713,8 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
 /// not stop the rest.
 fn delete_many(app: &mut App, tab: TabId, entries: Vec<SftpEntry>) {
     let Some((cid, _)) = pane_conn(app, tab) else {
+        tracing::warn!(tab, "sftp: delete confirmed but the file browser is gone");
+        app.toasts.warning("Not deleted", "The file browser is not open.".to_string());
         return;
     };
     tracing::info!(tab, n = entries.len(), "sftp: delete many");
@@ -1688,17 +1752,23 @@ fn delete_many(app: &mut App, tab: TabId, entries: Vec<SftpEntry>) {
 
 /// A mkdir / rename finished: close and refresh, or show the error in the
 /// prompt.
-fn finish_prompt(app: &mut App, tab: TabId, r: Result<(), ezssh_core::AppError>, title: &str, body: String) {
+fn finish_prompt(app: &mut App, tab: TabId, serial: u64, r: Result<(), ezssh_core::AppError>, title: &str, body: String) {
+    let ours = matches!(
+        app.sftp.modal.as_ref(),
+        Some(Modal::Mkdir { serial: s, .. } | Modal::Rename { serial: s, .. }) if *s == serial
+    );
     match r {
         Ok(()) => {
-            app.sftp.modal = None;
+            if ours {
+                app.sftp.modal = None;
+            }
             app.toasts.success(title, body);
             refresh(app, tab);
         }
         Err(e) => {
             tracing::warn!(tab, "sftp: {title}: {e}");
             match app.sftp.modal.as_mut() {
-                Some(Modal::Mkdir { prompt, busy, .. } | Modal::Rename { prompt, busy, .. }) => {
+                Some(Modal::Mkdir { prompt, busy, .. } | Modal::Rename { prompt, busy, .. }) if ours => {
                     *busy = false;
                     prompt.set_error(e.to_string());
                 }
@@ -1735,6 +1805,8 @@ mod tests {
         assert_eq!(format_size(1536), "1.5 KB");
         assert_eq!(format_size(5 * 1024 * 1024), "5.0 MB");
         assert_eq!(format_size(3 * 1024 * 1024 * 1024 / 2), "1.50 GB");
+        assert_eq!(format_size(1024 * 1024 - 1), "1.0 MB");
+        assert_eq!(format_size(1024 * 1024 * 1024 - 1), "1.00 GB");
         assert_eq!(format_mode(0o100755), "rwxr-xr-x");
         assert_eq!(format_mode(0o640), "rw-r-----");
         assert_eq!(format_mode(0o40000), "---------");

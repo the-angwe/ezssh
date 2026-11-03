@@ -93,9 +93,12 @@ pub async fn download(
         }
     };
 
+    let mut total_seen = 0u64;
+    let total_out = &mut total_seen;
     let result: Result<()> = async {
         let meta = tokio::fs::metadata(&unc).await.map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
         let total = meta.len();
+        *total_out = total;
         let mut remote = tokio::fs::File::open(&unc).await.map_err(|e| AppError::Sftp(format!("open: {e}")))?;
         let mut received: u64 = 0;
         let mut buf = vec![0u8; CHUNK];
@@ -121,7 +124,7 @@ pub async fn download(
             drop(local);
             remove_partial_local(transfer_id, local_path).await;
         }
-        emit_end(events, transfer_id, 0, e);
+        emit_end(events, transfer_id, total_seen, e);
     }
     result
 }

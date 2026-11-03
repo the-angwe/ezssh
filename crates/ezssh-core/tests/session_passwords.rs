@@ -57,7 +57,7 @@ async fn stored_password(state: &AppState, s: &Session) -> Option<(String, Optio
             .unwrap();
     let vs = state.vault.read().await;
     let pt = vault::decrypt_with(&vs, &nonce, &ct).unwrap();
-    Some((String::from_utf8(pt).unwrap(), owner))
+    Some((String::from_utf8(pt.to_vec()).unwrap(), owner))
 }
 
 /// A session row as an older build exported it.
@@ -210,7 +210,10 @@ async fn legacy_bundle_with_a_shared_password_gives_each_session_a_copy() {
         created_at: "2026-01-01T00:00:00Z".into(),
         app_version: "1.14.0".into(),
         folders: Vec::new(),
-        sessions: vec![SessionEntry { session: one, env: Vec::new() }, SessionEntry { session: two, env: Vec::new() }],
+        sessions: vec![
+            SessionEntry { session: one, env: Vec::new(), forwards: Vec::new() },
+            SessionEntry { session: two, env: Vec::new(), forwards: Vec::new() },
+        ],
         credentials: vec![CredentialEntry {
             id: 7,
             kind: "password".into(),

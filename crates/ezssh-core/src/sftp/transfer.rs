@@ -142,10 +142,10 @@ pub(crate) async fn open_local(path: &Path) -> Result<(tokio::fs::File, u64)> {
     Ok((f, total))
 }
 
-/// Remove what a cancelled download left behind.
+/// Remove what a cancelled transfer left behind on the local side.
 pub(crate) async fn remove_partial_local(transfer_id: u64, path: &Path) {
     if let Err(e) = tokio::fs::remove_file(path).await {
-        tracing::warn!(transfer_id, path = %path.display(), "cancelled download: removing the partial file failed: {e}");
+        tracing::warn!(transfer_id, path = %path.display(), "cancelled transfer: removing the partial file failed: {e}");
     }
 }
 
@@ -179,7 +179,7 @@ pub async fn upload(
     };
 
     let result: Result<()> = handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+        .with_session(async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
             // It may have waited for the session lock behind other transfers.
             check(cancel)?;
             let mut w = s.create(remote_path).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
@@ -246,11 +246,16 @@ pub async fn download(
         }
     };
 
+    // The size is known once `stat` answered; a failure after that point
+    // should still report it (uploads do).
+    let total_seen = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let total_out = total_seen.clone();
     let result: Result<()> = handle
-        .with_session(async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+        .with_session(async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
             check(cancel)?;
             let meta = s.metadata(remote_path).await.map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
             let total = meta.size.unwrap_or(0);
+            total_out.store(total, std::sync::atomic::Ordering::Relaxed);
             let mut r = s.open(remote_path).await.map_err(|e| AppError::Sftp(format!("open: {e}")))?;
             let mut received: u64 = 0;
             let mut buf = vec![0u8; CHUNK];
@@ -275,7 +280,7 @@ pub async fn download(
         if matches!(e, AppError::TransferCancelled) {
             remove_partial_local(transfer_id, local_path).await;
         }
-        emit_end(events, transfer_id, 0, e);
+        emit_end(events, transfer_id, total_seen.load(std::sync::atomic::Ordering::Relaxed), e);
     }
     result
 }

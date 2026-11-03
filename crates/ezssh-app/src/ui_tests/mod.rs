@@ -111,6 +111,22 @@ pub(crate) fn screen_text(h: &mut Harness<'static, App>, tab: u64) -> String {
     term.selection_text().unwrap_or_default()
 }
 
+/// Pick a view mode from the strip's Layout menu.
+pub(crate) fn pick_layout(h: &mut Harness<'static, App>, label: &str) {
+    h.get_by_label("Layout").click();
+    h.run_steps(2);
+    h.get_by_label(label).click();
+    h.run_steps(3);
+}
+
+/// Pick an entry of the sidebar's ＋ menu ("New session", "New folder", …).
+pub(crate) fn sidebar_new(h: &mut Harness<'static, App>, label: &str) {
+    h.get_by_label("New").click();
+    h.run_steps(2);
+    h.get_by_label(label).click();
+    h.run_steps(3);
+}
+
 pub(crate) fn first_local(h: &Harness<'static, App>) -> String {
     h.state().sidebar.sessions.iter().find(|s| s.session_kind == "local").expect("a local shell session").name.clone()
 }
@@ -193,15 +209,13 @@ fn view_modes_cascade_and_minimize() {
     assert_eq!(h.state().tabs.active, Some(tabs[2]));
 
     for (label, mode) in [("Tile horizontal", ViewMode::TileH), ("Tile vertical", ViewMode::TileV), ("Auto-arrange", ViewMode::Auto)] {
-        h.get_by_label(label).click();
-        h.run_steps(3);
+        pick_layout(h, label);
         assert_eq!(h.state().tabs.view_mode, mode);
         shot(h, &format!("mode-{}", mode.id()));
     }
 
     // Tile grid asks for the layout first.
-    h.get_by_label("Tile grid…").click();
-    h.run_steps(3);
+    pick_layout(h, "Tile grid…");
     assert!(h.query_by_label("Tile grid").is_some(), "grid dialog open");
     shot(h, "tile-grid-dialog");
     h.get_by_label("Apply").click();
@@ -209,8 +223,7 @@ fn view_modes_cascade_and_minimize() {
     assert_eq!(h.state().tabs.view_mode, ViewMode::TileGrid);
 
     // Cascade: minimise the top frame, restore it from the strip.
-    h.get_by_label("Cascade").click();
-    h.run_steps(3);
+    pick_layout(h, "Cascade");
     shot(h, "mode-cascade");
     let minimize: Vec<_> = h.query_all_by_label("Minimize").collect();
     assert_eq!(minimize.len(), 3, "one chrome per frame");
@@ -283,9 +296,8 @@ fn folder_create_drag_drop_and_close_confirm() {
     unlock_fresh(&mut env);
     let h = &mut env.h;
 
-    h.get_by_label("New folder").click();
-    h.run_steps(3);
-    h.get_by_role(Role::TextInput).type_text("Servers");
+    sidebar_new(h, "New folder");
+    h.get_by_role_and_label(Role::TextInput, "Folder name").type_text("Servers");
     h.get_by_label("Create").click();
     wait(h, 10, "folder created", |a| a.sidebar.folders.iter().any(|f| f.name == "Servers"));
     h.run_steps(2);
@@ -312,7 +324,7 @@ fn folder_create_drag_drop_and_close_confirm() {
 
     // Root context menu: every item is live now.
     let tree = h.get_by_role_and_label(Role::TreeItem, "Servers").rect();
-    let below = Pos2::new(tree.center().x, 760.0);
+    let below = Pos2::new(tree.center().x, 600.0);
     h.event(Event::PointerMoved(below));
     h.event(Event::PointerButton { pos: below, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
     h.event(Event::PointerButton { pos: below, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
@@ -348,7 +360,7 @@ fn settings_write_through_and_theme() {
     h.get_by_label("Terminal").click();
     h.run_steps(3);
     shot(h, "settings-terminal");
-    h.get_by_role_and_label(Role::CheckBox, "Copy on select").click();
+    h.get_by_role_and_label(Role::Switch, "Copy on select").click();
     h.run_steps(2);
     assert!(h.state().settings.bool("terminal.copyOnSelect"));
     assert!(h.state().term_style.copy_on_select, "applied to the terminal style");
@@ -496,8 +508,7 @@ fn tab_header_right_click_opens_terminal_menu() {
     assert!(!h.state().terms[&tabs[1]].term.has_selection());
 
     // Cascade title bar.
-    h.get_by_label("Cascade").click();
-    h.run_steps(3);
+    pick_layout(h, "Cascade");
     let top = *h.state().tabs.z_order().last().unwrap();
     let maxes: Vec<_> = h.query_all_by_label("Maximize").map(|n| n.rect()).collect();
     let bar = maxes.iter().max_by(|a, b| a.top().total_cmp(&b.top())).unwrap();

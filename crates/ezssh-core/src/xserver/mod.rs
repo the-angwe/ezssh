@@ -147,8 +147,18 @@ impl XServerManager {
         };
         if should_stop
             && let Some(mut entry) = displays.remove(&display) {
-                let _ = entry.child.kill();
-                let _ = entry.child.wait();
+                // kill + wait block (TerminateProcess may take a moment to
+                // land); keep them off the runtime workers and off the
+                // `displays` lock.
+                let display_number = display;
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = entry.child.kill() {
+                        tracing::warn!(display_number, "vcxsrv kill failed: {e}");
+                    }
+                    if let Err(e) = entry.child.wait() {
+                        tracing::warn!(display_number, "vcxsrv wait failed: {e}");
+                    }
+                });
             }
     }
 }

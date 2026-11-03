@@ -101,7 +101,7 @@ pub async fn sftp_list(
         FileBrowser::Sftp(handle) => {
             let mut out = handle
                 .with_session(
-                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<Vec<SftpEntry>> {
+                    async move |s: &russh_sftp::client::SftpSession| -> Result<Vec<SftpEntry>> {
                         let dir = s
                             .read_dir(&path)
                             .await
@@ -148,7 +148,7 @@ pub async fn sftp_mkdir(
         FileBrowser::Sftp(handle) => {
             handle
                 .with_session(
-                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                    async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
                         s.create_dir(&path)
                             .await
                             .map_err(|e| AppError::Sftp(e.to_string()))
@@ -172,7 +172,7 @@ pub async fn sftp_rmdir(
         FileBrowser::Sftp(handle) => {
             handle
                 .with_session(
-                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                    async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
                         s.remove_dir(&path)
                             .await
                             .map_err(|e| AppError::Sftp(e.to_string()))
@@ -196,7 +196,7 @@ pub async fn sftp_remove(
         FileBrowser::Sftp(handle) => {
             handle
                 .with_session(
-                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                    async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
                         s.remove_file(&path)
                             .await
                             .map_err(|e| AppError::Sftp(e.to_string()))
@@ -222,7 +222,7 @@ pub async fn sftp_rename(
         FileBrowser::Sftp(handle) => {
             handle
                 .with_session(
-                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<()> {
+                    async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
                         s.rename(&from, &to)
                             .await
                             .map_err(|e| AppError::Sftp(e.to_string()))
@@ -246,7 +246,7 @@ pub async fn sftp_realpath(
         FileBrowser::Sftp(handle) => {
             handle
                 .with_session(
-                    async move |s: &mut russh_sftp::client::SftpSession| -> Result<String> {
+                    async move |s: &russh_sftp::client::SftpSession| -> Result<String> {
                         s.canonicalize(&path)
                             .await
                             .map_err(|e| AppError::Sftp(e.to_string()))

@@ -133,7 +133,9 @@ async fn backup_create_inner(
     // user may have walked away from a signed-in session. Re-deriving and
     // comparing against the verifier is the same work as an unlock but
     // without touching any state.
-    if !vault::verify_password(&state.db, master_password).await? {
+    // Shares the unlock lockout: without it this endpoint would be a
+    // cooldown-free oracle for the master password.
+    if !crate::api::vault::verify_password_with_cooldown(state, master_password).await? {
         return Err(AppError::BadPassword);
     }
 
@@ -141,12 +143,7 @@ async fn backup_create_inner(
     // + nonce so we can decrypt in-memory and pack plaintexts into the
     // passphrase-wrapped bundle.
     let folders = db::folders::list(&state.db).await?;
-    let sessions_raw = db::sessions::list(&state.db).await?;
-    let mut sessions: Vec<SessionEntry> = Vec::with_capacity(sessions_raw.len());
-    for s in sessions_raw {
-        let env = db::sessions::env_get(&state.db, s.id).await?;
-        sessions.push(SessionEntry { session: s, env });
-    }
+    let sessions: Vec<SessionEntry> = backup::export_sessions(&state.db).await?;
 
     let credentials: Vec<CredentialEntry> = {
         let vs = state.vault.read().await;
@@ -157,6 +154,7 @@ async fn backup_create_inner(
     let settings = db::settings::list_all(&state.db).await?;
     let settings_entries: Vec<SettingEntry> = settings
         .into_iter()
+        .filter(|(key, _)| backup::setting_is_portable(key))
         .map(|(key, value)| SettingEntry { key, value })
         .collect();
 
@@ -179,7 +177,7 @@ async fn backup_create_inner(
         settings: settings_entries,
     };
 
-    let wrapped = backup::encrypt_bundle(&bundle, passphrase)?;
+    let wrapped = backup::encrypt_bundle_blocking(bundle, passphrase).await?;
     fs::write(path, wrapped).await?;
     Ok(summary)
 }
@@ -209,7 +207,7 @@ async fn backup_preview_inner(
         return Err(AppError::Validation("backup file too large".into()));
     }
     let bytes = fs::read(path).await?;
-    let bundle = backup::decrypt_bundle(&bytes, passphrase)?;
+    let bundle = backup::decrypt_bundle_blocking(bytes, passphrase).await?;
 
     Ok(BackupPreview {
         created_at:    bundle.created_at.clone(),
@@ -284,7 +282,7 @@ async fn backup_restore_inner(
         return Err(AppError::Validation("backup file too large".into()));
     }
     let bytes = fs::read(path).await?;
-    let bundle = backup::decrypt_bundle(&bytes, passphrase)?;
+    let bundle = backup::decrypt_bundle_blocking(bytes, passphrase).await?;
 
     let mut result = RestoreSummary::default();
 
@@ -433,7 +431,10 @@ async fn backup_restore_inner(
             starting_dir: entry.session.starting_dir.clone(),
             password: None,
         };
-        db::sessions::create_with(&state.db, &input, &password).await?;
+        let created = db::sessions::create_with(&state.db, &input, &password).await?;
+        for f in &entry.forwards {
+            db::forwards::create(&state.db, created.id, f).await?;
+        }
         result.sessions_created += 1;
     }
 
@@ -457,7 +458,10 @@ async fn backup_restore_inner(
 
     // ---- 5. Settings (optional, upsert-by-key) ----------------------------
     if selection.include_settings {
-        for s in &bundle.settings {
+        // Older bundles carried the sync target and its vault-wrapped
+        // secrets; those are this device's business (see
+        // `backup::setting_is_portable`).
+        for s in bundle.settings.iter().filter(|s| backup::setting_is_portable(&s.key)) {
             db::settings::set(&state.db, &s.key, &s.value).await?;
             result.settings_applied += 1;
         }

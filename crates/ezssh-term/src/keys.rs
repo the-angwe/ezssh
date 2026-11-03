@@ -143,6 +143,24 @@ impl Key {
             E::F18 => Key::F(18),
             E::F19 => Key::F(19),
             E::F20 => Key::F(20),
+            E::F21 => Key::F(21),
+            E::F22 => Key::F(22),
+            E::F23 => Key::F(23),
+            E::F24 => Key::F(24),
+            E::F25 => Key::F(25),
+            E::F26 => Key::F(26),
+            E::F27 => Key::F(27),
+            E::F28 => Key::F(28),
+            E::F29 => Key::F(29),
+            E::F30 => Key::F(30),
+            E::F31 => Key::F(31),
+            E::F32 => Key::F(32),
+            E::F33 => Key::F(33),
+            E::F34 => Key::F(34),
+            E::F35 => Key::F(35),
+            // egui's symbol for the minus key is U+2212 MINUS SIGN; the
+            // encoder wants the ASCII character (Ctrl+- is 0x1f, kitty 45).
+            E::Minus => Key::Char('-'),
             other => {
                 // Letters, digits and punctuation: egui's symbol for the
                 // key is the unshifted character for the Latin layout.

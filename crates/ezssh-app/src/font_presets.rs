@@ -75,6 +75,20 @@ pub fn choices() -> &'static [(String, String)] {
     LIST.get_or_init(|| build(ezssh_term::fonts::monospace_families()))
 }
 
+/// Stored value of the "Custom…" entry of [`choices_with_custom`].
+pub const CUSTOM_FONT: &str = "\u{0}custom";
+
+/// [`choices`] plus a trailing "Custom…" entry, built once: the pickers
+/// are drawn every frame.
+pub fn choices_with_custom() -> &'static [(String, String)] {
+    static LIST: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    LIST.get_or_init(|| {
+        let mut v = choices().to_vec();
+        v.push((CUSTOM_FONT.to_string(), "Custom…".to_string()));
+        v
+    })
+}
+
 /// True when `value` is in [`choices`] (so the picker can show it as
 /// selected instead of "(custom)").
 pub fn is_preset(value: &str) -> bool {

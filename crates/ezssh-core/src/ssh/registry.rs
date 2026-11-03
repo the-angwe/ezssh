@@ -17,13 +17,6 @@ use crate::ssh::client::ClientHandler;
 /// would only serialize SSH channel opens behind one another.
 pub struct Connection {
     pub id: u64,
-    // host/port/user are captured for future logging and UI surfacing (Plan 3+).
-    #[allow(dead_code)]
-    pub host: String,
-    #[allow(dead_code)]
-    pub port: i64,
-    #[allow(dead_code)]
-    pub user: String,
     pub stdin: mpsc::UnboundedSender<ConnectionInput>,
     /// Shared russh client handle. The driver task holds a clone for the
     /// lifetime of the session so the Close branch can `disconnect(..)`; the

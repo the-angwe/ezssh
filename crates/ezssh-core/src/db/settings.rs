@@ -32,6 +32,14 @@ pub async fn set(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn delete(pool: &SqlitePool, key: &str) -> Result<()> {
+    sqlx::query("DELETE FROM app_settings WHERE key = ?")
+        .bind(key)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,5 +57,8 @@ mod tests {
         assert_eq!(get(&p, "theme").await.unwrap(), Some("dark".into()));
         set(&p, "theme", "light").await.unwrap();
         assert_eq!(get(&p, "theme").await.unwrap(), Some("light".into()));
+        delete(&p, "theme").await.unwrap();
+        assert_eq!(get(&p, "theme").await.unwrap(), None);
+        delete(&p, "theme").await.unwrap();
     }
 }

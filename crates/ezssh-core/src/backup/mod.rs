@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::db::folders::Folder;
+use crate::db::forwards::ForwardInput;
 use crate::db::known_hosts::KnownHost;
 use crate::db::sessions::{EnvPair, Session};
 use crate::error::{AppError, Result};
@@ -40,6 +41,15 @@ pub const BACKUP_VERSION: u16 = 1;
 /// Minimum bytes for the user's backup passphrase. Same 8-char floor
 /// the master password enforces — parity keeps one UX rule.
 pub const MIN_PASSPHRASE_LEN: usize = 8;
+
+/// Settings that belong in a bundle. The vault-wrapped sync secrets are
+/// unreadable under any other vault key, and the rest of the `sync.*`
+/// group (kind, folder, bucket, last ETag) describes *this* device's
+/// sync target: restoring it elsewhere would point that machine at the
+/// same bucket with no credentials and break its next password change.
+pub fn setting_is_portable(key: &str) -> bool {
+    !key.starts_with("sync.")
+}
 
 /// Everything worth round-tripping. Credential secrets are *decrypted*
 /// inside this structure — it only exists in memory and inside the
@@ -62,6 +72,27 @@ pub struct SessionEntry {
     pub session: Session,
     #[serde(default)]
     pub env: Vec<EnvPair>,
+    /// Saved port forwards. Absent in bundles written before the field
+    /// existed (2026-11-03; those backups lost the forwards); readers that
+    /// predate it ignore the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forwards: Vec<ForwardInput>,
+}
+
+/// The sessions table plus each row's env vars and saved forwards.
+pub async fn export_sessions(pool: &sqlx::SqlitePool) -> Result<Vec<SessionEntry>> {
+    let rows = crate::db::sessions::list(pool).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for s in rows {
+        let env = crate::db::sessions::env_get(pool, s.id).await?;
+        let forwards = crate::db::forwards::list_for_session(pool, s.id)
+            .await?
+            .into_iter()
+            .map(ForwardInput::from)
+            .collect();
+        out.push(SessionEntry { session: s, env, forwards });
+    }
+    Ok(out)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -88,15 +119,14 @@ pub async fn export_credentials(
 ) -> Result<Vec<CredentialEntry>> {
     let rows = crate::db::credentials::list_for_export(pool).await?;
     let mut out = Vec::with_capacity(rows.len());
-    for meta in rows {
-        let row = crate::db::credentials::get(pool, meta.id).await?;
+    for row in rows {
         let pt = crate::vault::decrypt_with(vault_state, &row.nonce, &row.ciphertext)?;
         out.push(CredentialEntry {
-            id: meta.id,
-            kind: meta.kind,
-            label: meta.label,
-            secret_b64: B64.encode(&pt),
-            session_id: meta.session_id,
+            id: row.id,
+            kind: row.kind,
+            label: row.label,
+            secret_b64: B64.encode(&pt[..]),
+            session_id: row.session_id,
         });
     }
     Ok(out)
@@ -137,7 +167,7 @@ pub fn encrypt_bundle(bundle: &Bundle, passphrase: &str) -> Result<Vec<u8>> {
     let key: Zeroizing<[u8; 32]> = kdf::derive_key(passphrase.as_bytes(), &salt, params)?;
     let aead = Aead256::new(&key);
 
-    let plaintext = serde_json::to_vec(bundle)?;
+    let plaintext = Zeroizing::new(serde_json::to_vec(bundle)?);
     let (nonce, ciphertext) = aead.encrypt(&plaintext)?;
 
     let env = BackupEnvelope {
@@ -177,12 +207,37 @@ pub fn decrypt_bundle(bytes: &[u8], passphrase: &str) -> Result<Bundle> {
         .decode(&env.ciphertext_b64)
         .map_err(|_| AppError::Validation("bad ciphertext encoding".into()))?;
 
+    if !kdf::params_within_limits(&env.kdf) {
+        return Err(AppError::Validation("backup KDF parameters out of range".into()));
+    }
     let key: Zeroizing<[u8; 32]> = kdf::derive_key(passphrase.as_bytes(), &salt, env.kdf)?;
     let aead = Aead256::new(&key);
     let plaintext = aead.decrypt(&nonce, &ciphertext).map_err(|_| AppError::BadPassword)?;
     let bundle: Bundle = serde_json::from_slice(&plaintext)
         .map_err(|_| AppError::Validation("backup contents are not valid JSON".into()))?;
     Ok(bundle)
+}
+
+/// `encrypt_bundle` on tokio's blocking pool (one Argon2id run).
+pub async fn encrypt_bundle_blocking(bundle: Bundle, passphrase: &str) -> Result<Vec<u8>> {
+    let passphrase = Zeroizing::new(passphrase.to_owned());
+    tokio::task::spawn_blocking(move || encrypt_bundle(&bundle, &passphrase))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "backup: blocking encrypt task failed");
+            AppError::Crypto
+        })?
+}
+
+/// `decrypt_bundle` on tokio's blocking pool (one Argon2id run).
+pub async fn decrypt_bundle_blocking(bytes: Vec<u8>, passphrase: &str) -> Result<Bundle> {
+    let passphrase = Zeroizing::new(passphrase.to_owned());
+    tokio::task::spawn_blocking(move || decrypt_bundle(&bytes, &passphrase))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "backup: blocking decrypt task failed");
+            AppError::Crypto
+        })?
 }
 
 #[cfg(test)]

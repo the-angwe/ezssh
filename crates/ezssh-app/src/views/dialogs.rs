@@ -3,14 +3,14 @@
 
 use std::collections::HashSet;
 
-use egui::{Id, Key, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use egui::{Id, Key, RichText, Sense, Ui, vec2};
 use ezssh_core::db::folders::Folder;
 
 use crate::conn::HostKeyPrompt;
 use crate::icons::Icon;
 use crate::layout::TileGrid;
-use crate::style::{alpha, font, font_semibold, size, tokens};
-use crate::widgets::{self, Tone, dialog, dialog_heading};
+use crate::style::{alpha, font, font_semibold, radius, size, tokens};
+use crate::widgets::{self, dialog, dialog_heading};
 
 /// Ask once and get Some(true / false) when answered.
 pub struct Confirm<'a> {
@@ -32,17 +32,17 @@ pub fn confirm(ctx: &egui::Context, id: Id, c: Confirm<'_>) -> Option<bool> {
         420.0,
         |ui| {
             let (icon, color) = if c.danger { (Icon::AlertTriangle, t.danger) } else { (Icon::Info, t.accent) };
-            dialog_heading(ui, icon, color, 22.0, c.title, c.body);
+            dialog_heading(ui, icon, color, c.title, c.body);
         },
         Some(&mut |ui: &mut Ui| {
-            let ok = widgets::primary(ui, c.confirm_text, if c.danger { Tone::Danger } else { Tone::Accent }, true, size::SM);
+            let ok = if c.danger { widgets::Button::danger(c.confirm_text) } else { widgets::Button::primary(c.confirm_text) }.show(ui);
             if first {
                 ok.request_focus();
             }
             if ok.clicked() {
                 answer = Some(true);
             }
-            if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+            if widgets::Button::secondary("Cancel").show(ui).clicked() {
                 answer = Some(false);
             }
         }),
@@ -50,24 +50,19 @@ pub fn confirm(ctx: &egui::Context, id: Id, c: Confirm<'_>) -> Option<bool> {
     if out.dismissed() && answer.is_none() {
         answer = Some(false);
     }
-    if answer.is_some() {
-        forget(ctx, id);
-    }
     answer
 }
 
-/// True on the first frame a dialog with `id` is shown (for initial focus).
+/// True on the first frame a dialog with `id` is shown (for initial
+/// focus). Keyed on the frame counter: a dialog abandoned without an
+/// answer (the vault locked over it) must not skip the focus next time.
 fn first_frame(ctx: &egui::Context, id: Id) -> bool {
     let key = id.with("shown");
-    let seen = ctx.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
-    if !seen {
-        ctx.data_mut(|d| d.insert_temp(key, true));
-    }
-    !seen
-}
-
-fn forget(ctx: &egui::Context, id: Id) {
-    ctx.data_mut(|d| d.remove::<bool>(id.with("shown")));
+    let now = ctx.cumulative_frame_nr();
+    let last = ctx.data(|d| d.get_temp::<u64>(key));
+    ctx.data_mut(|d| d.insert_temp(key, now));
+    // Repeat passes of one frame share its number.
+    !last.is_some_and(|l| l + 1 >= now)
 }
 
 // ---------------------------------------------------------------- prompt
@@ -118,14 +113,15 @@ impl PromptState {
             id,
             440.0,
             |ui| {
-                ui.label(RichText::new(&self.title).font(font_semibold(size::SM)).color(t.fg));
-                ui.add_space(12.0);
+                ui.label(RichText::new(&self.title).font(font_semibold(size::MD)).color(t.fg));
+                ui.add_space(14.0);
                 if !self.label.is_empty() {
-                    ui.label(RichText::new(&self.label).font(font(size::XS)).color(t.muted));
-                    ui.add_space(4.0);
+                    ui.label(RichText::new(&self.label).font(font(size::SM)).color(t.fg2));
+                    ui.add_space(6.0);
                 }
                 let w = ui.available_width();
                 let resp = widgets::text_input(ui, &mut self.value, &self.placeholder, w, false);
+                crate::form::labelled(ui, &resp, if self.label.is_empty() { "Value" } else { &self.label });
                 if !self.focused {
                     self.focused = true;
                     resp.request_focus();
@@ -136,14 +132,14 @@ impl PromptState {
                 }
                 if let Some(e) = &self.error {
                     ui.add_space(8.0);
-                    ui.label(RichText::new(e).font(font(size::XS)).color(t.danger));
+                    ui.label(RichText::new(e).font(font(size::SM)).color(t.danger));
                 }
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::primary(ui, &confirm_text, Tone::Accent, true, size::SM).clicked() {
+                if widgets::Button::primary(&confirm_text).show(ui).clicked() {
                     submit.set(true);
                 }
-                if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
                     cancel = true;
                 }
             }),
@@ -200,12 +196,11 @@ impl MoveState {
             id,
             440.0,
             |ui| {
-                ui.label(RichText::new(&self.title).font(font_semibold(size::SM)).color(t.fg));
-                ui.add_space(12.0);
+                ui.label(RichText::new(&self.title).font(font_semibold(size::MD)).color(t.fg));
+                ui.add_space(14.0);
                 let frame = egui::Frame::new()
-                    .fill(crate::style::over(t.surface, t.surface2, 0.3))
-                    .stroke(Stroke::new(1.0, t.border))
-                    .corner_radius(2)
+                    .fill(t.bg)
+                    .corner_radius(radius::LG as u8)
                     .inner_margin(egui::Margin::symmetric(0, 4));
                 frame.show(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
@@ -241,12 +236,12 @@ impl MoveState {
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::primary(ui, "Move", Tone::Accent, pick.is_some(), size::SM).clicked()
+                if widgets::Button::primary("Move").enabled(pick.is_some()).show(ui).clicked()
                     && let Some(p) = pick
                 {
                     done = Some(Some(p));
                 }
-                if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
                     done = Some(None);
                 }
             }),
@@ -263,11 +258,11 @@ fn folder_row(ui: &mut Ui, name: &str, disabled: bool, selected: bool, root: boo
     let t = tokens(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), if disabled { Sense::hover() } else { Sense::click() });
     paint_pick_row(ui, &resp, rect, selected, disabled);
-    let x = rect.left() + 6.0 + 12.0 + 6.0;
-    let icon_rect = egui::Rect::from_center_size(egui::pos2(x + 7.0, rect.center().y), vec2(14.0, 14.0));
-    Icon::Folder.paint(ui, icon_rect, 14.0, if root { t.muted } else { alpha(t.accent, 0.7) });
+    let x = rect.left() + 6.0 + 12.0 + 8.0;
+    let icon_rect = egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), vec2(16.0, 16.0));
+    Icon::Folder.paint(ui, icon_rect, 16.0, if root { alpha(t.muted, 0.7) } else { t.muted });
     let color = if disabled { alpha(t.muted, 0.6) } else { t.fg };
-    widgets::paint_text(ui, egui::Rect::from_min_max(egui::pos2(x + 20.0, rect.top()), rect.right_bottom()), name, font(size::XS), color);
+    widgets::paint_text(ui, egui::Rect::from_min_max(egui::pos2(x + 24.0, rect.top()), egui::pos2(rect.right() - 8.0, rect.bottom())), name, font(size::BASE), color);
     let resp = if disabled { resp.on_hover_text("Already here") } else { resp };
     resp.clicked()
 }
@@ -277,23 +272,23 @@ fn folder_row_tree(ui: &mut Ui, depth: usize, name: &str, has_kids: bool, open: 
     let t = tokens(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), if disabled { Sense::hover() } else { Sense::click() });
     paint_pick_row(ui, &resp, rect, selected, disabled);
-    let x0 = rect.left() + 6.0 + (depth + 1) as f32 * 12.0;
+    let x0 = rect.left() + 6.0 + (depth + 1) as f32 * 14.0;
     let chevron = egui::Rect::from_center_size(egui::pos2(x0 + 6.0, rect.center().y), vec2(14.0, 14.0));
     let mut toggled = false;
     if has_kids {
         let c = ui.interact(chevron, resp.id.with("chevron"), Sense::click());
-        (if open { Icon::ChevronDown } else { Icon::ChevronRight }).paint(ui, chevron, 11.0, alpha(t.muted, 0.8));
+        (if open { Icon::ChevronDown } else { Icon::ChevronRight }).paint(ui, chevron, 12.0, alpha(t.muted, 0.9));
         toggled = c.clicked();
     }
-    let icon_rect = egui::Rect::from_center_size(egui::pos2(x0 + 12.0 + 6.0 + 7.0, rect.center().y), vec2(14.0, 14.0));
-    let (icon, c) = if open { (Icon::FolderOpen, t.accent) } else { (Icon::Folder, alpha(t.accent, 0.7)) };
-    icon.paint(ui, icon_rect, 14.0, c);
-    let color = if disabled { alpha(t.muted, 0.6) } else { alpha(t.fg, 0.9) };
+    let icon_rect = egui::Rect::from_center_size(egui::pos2(x0 + 12.0 + 8.0 + 8.0, rect.center().y), vec2(16.0, 16.0));
+    let icon = if open { Icon::FolderOpen } else { Icon::Folder };
+    icon.paint(ui, icon_rect, 16.0, t.muted);
+    let color = if disabled { alpha(t.muted, 0.6) } else { t.fg2 };
     widgets::paint_text(
         ui,
-        egui::Rect::from_min_max(egui::pos2(icon_rect.right() + 6.0, rect.top()), rect.right_bottom()),
+        egui::Rect::from_min_max(egui::pos2(icon_rect.right() + 8.0, rect.top()), egui::pos2(rect.right() - 8.0, rect.bottom())),
         name,
-        font(size::XS),
+        font(size::BASE),
         color,
     );
     let picked = !toggled && resp.clicked();
@@ -304,13 +299,7 @@ fn folder_row_tree(ui: &mut Ui, depth: usize, name: &str, has_kids: bool, open: 
 }
 
 fn paint_pick_row(ui: &Ui, resp: &egui::Response, rect: egui::Rect, selected: bool, disabled: bool) {
-    let t = tokens(ui.ctx());
-    if selected {
-        ui.painter().rect_filled(rect, 0.0, alpha(t.accent, 0.2));
-        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, alpha(t.accent, 0.6)), StrokeKind::Inside);
-    } else if !disabled && resp.hovered() {
-        ui.painter().rect_filled(rect, 0.0, alpha(t.surface2, 0.7));
-    }
+    widgets::row_fill(ui, rect, !disabled && resp.hovered(), selected);
 }
 
 // ---------------------------------------------------------------- tile grid
@@ -338,28 +327,28 @@ impl TileGridDraft {
             id,
             360.0,
             |ui| {
-                dialog_heading(ui, Icon::Grid3x3, t.accent, 22.0, "Tile grid", "Pick the rows × columns layout.");
-                ui.add_space(12.0);
+                dialog_heading(ui, Icon::Grid3x3, t.accent, "Tile grid", "Pick the rows × columns layout (1–8 each).");
+                ui.add_space(16.0);
                 ui.horizontal(|ui| {
-                    ui.add_space(34.0);
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    ui.add_space(50.0);
                     for (label, v) in [("Rows", &mut self.rows), ("Columns", &mut self.cols)] {
                         ui.vertical(|ui| {
-                            ui.label(RichText::new(label).font(font(size::XS)).color(t.muted));
-                            ui.add(egui::DragValue::new(v).range(1..=8).speed(0.05));
+                            ui.set_width(100.0);
+                            crate::form::field(ui, label, None, |ui| super::session_dialog::number_field(ui, label, v, 100.0));
                         });
-                        ui.add_space(24.0);
                     }
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                let ok = widgets::primary(ui, "Apply", Tone::Accent, true, size::SM);
+                let ok = widgets::Button::primary("Apply").show(ui);
                 if first {
                     ok.request_focus();
                 }
                 if ok.clicked() {
                     apply.set(true);
                 }
-                if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
                     cancel = true;
                 }
             }),
@@ -393,21 +382,23 @@ pub fn host_key(ctx: &egui::Context, id: Id, host: &str, port: i64, p: &HostKeyP
     } else {
         (Icon::ShieldAlert, t.warning, "Trust this host?", format!("No previous record for {host}:{port}. Verify the fingerprint out-of-band before trusting."))
     };
-    dialog(
+    let out = dialog(
         ctx,
         id,
         520.0,
         |ui| {
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-                icon.show(ui, 28.0, icon_color);
+                ui.spacing_mut().item_spacing.x = 14.0;
+                let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+                widgets::icon_tile(ui, r, icon, icon_color, 18.0);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
+                    ui.add_space(1.0);
                     ui.label(RichText::new(title).font(font_semibold(size::MD)).color(t.fg));
-                    ui.label(RichText::new(body).font(font(size::XS)).color(t.muted));
+                    ui.add(egui::Label::new(RichText::new(body).font(font(size::BASE)).color(t.fg2)).wrap());
                     ui.add_space(6.0);
-                    let mono = |s: &str| RichText::new(s).font(egui::FontId::monospace(size::XS)).color(t.fg);
-                    let caption = |s: &str| RichText::new(s.to_uppercase()).font(font_semibold(size::XS - 1.0)).color(t.muted);
+                    let mono = |s: &str| RichText::new(s).font(egui::FontId::monospace(size::SM)).color(t.fg);
+                    let caption = |s: &str| RichText::new(s.to_uppercase()).font(font_semibold(size::XS)).color(t.muted);
                     if let Some(expected) = &p.expected {
                         ui.label(caption("Expected SHA256"));
                         ui.add(egui::Label::new(mono(expected)).wrap());
@@ -418,14 +409,17 @@ pub fn host_key(ctx: &egui::Context, id: Id, host: &str, port: i64, p: &HostKeyP
             });
         },
         Some(&mut |ui: &mut Ui| {
-            let (text, tone) = if p.mismatch { ("Replace and connect", Tone::Danger) } else { ("Trust and connect", Tone::Accent) };
-            if widgets::primary(ui, text, tone, true, size::SM).clicked() {
+            let ok = if p.mismatch { widgets::Button::danger("Replace and connect") } else { widgets::Button::primary("Trust and connect") }.show(ui);
+            if ok.clicked() {
                 answer = Some(true);
             }
-            if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+            if widgets::Button::secondary("Cancel").show(ui).clicked() {
                 answer = Some(false);
             }
         }),
     );
+    if answer.is_none() && out.dismissed() {
+        answer = Some(false);
+    }
     answer
 }

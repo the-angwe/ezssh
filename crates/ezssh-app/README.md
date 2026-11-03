@@ -23,14 +23,14 @@ sidebar width, SFTP pane width and columns, last update check) is kept in
 
 | File | Holds |
 |---|---|
-| `app.rs` | start-up, the vault gate, settings hydrate, WSL / local-shell autodetect, idle lock, quit confirm, Ctrl+B / Ctrl+Shift+W |
+| `app.rs` | start-up, the vault gate, settings hydrate, WSL / local-shell autodetect, idle lock, quit confirm, Ctrl+B / Ctrl+K / Ctrl+Shift+W |
 | `core.rs` | a tokio runtime owns the `AppState`; `Core::call(future, continuation)` runs the continuation on the UI thread |
 | `conn.rs` | the connect state machine per tab: output straight into the terminal, per-attempt generations, reconnect, error routing |
 | `settings.rs` | app preferences: spec, parse, normalise, write-through with rollback |
 | `tabs.rs` | open tabs, view mode, cascade geometry |
 | `layout.rs` | `layout.json` |
 | `style.rs`, `icons.rs`, `ui_font.rs` | colour / size / type tokens, Lucide icons (`tools/gen_icons.mjs`), system UI font |
-| `widgets.rs` | buttons, icon buttons, the dialog card, context menus, resize handles, status dots, empty states |
+| `widgets.rs` | the `Button` family, icon buttons, switches, segmented controls, chips, the nav rail, row fills, the dialog chrome, context menus, resize handles, status dots, empty states (`docs/design/ui-facelift.md`) |
 | `toasts.rs`, `bell.rs` | toasts (four kinds); the 880 Hz bell |
 | `form.rs`, `files.rs`, `creds.rs`, `font_presets.rs` | dialog form controls; native file dialogs (rfd); the shared credentials list; the font list (installed monospace families, OS presets as fallback) |
 | `views/` | unlock (+ recovery unlock, reset vault), shell, sidebar (tree, DnD, menus), tab strip, MDI (six view modes, cascade chrome, minimized strip), status bar, settings, small dialogs (confirm, prompt, move to folder, tile grid, host key) |
@@ -71,7 +71,7 @@ to PNG.
 6. Sidebar: drag sessions between folders (whole folder row = into),
    folders 25 / 50 / 25, whitespace = root; auto-scroll near the edges;
    Escape cancels.
-7. Lock (status bar), leave it for a while, unlock: tabs still connected.
+7. Lock (sidebar footer), leave it for a while, unlock: tabs still connected.
 8. Settings → Security → idle lock 1 minute, wait: the vault locks.
 9. Light theme: window decorations follow (Wayland / Windows).
 10. Bell = sound: `printf '\a'` beeps (pw-play / paplay / aplay on Linux).

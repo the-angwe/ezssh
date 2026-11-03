@@ -51,15 +51,28 @@ pub async fn start(
     // Request the forward on the server side. If the server rejects
     // (AllowTcpForwarding=no, port-in-use on remote, etc.), `guard` drops
     // on return and backs the dispatch entry out.
-    if let Err(e) = handle
+    let bound_port = match handle
         .tcpip_forward(spec.bind_addr.clone(), spec.bind_port as u32)
         .await
     {
-        return Err(AppError::Ssh(format!(
-            "tcpip_forward {}:{}: {e}",
-            spec.bind_addr, spec.bind_port,
-        )));
-    }
+        Ok(p) => p,
+        Err(e) => {
+            return Err(AppError::Ssh(format!(
+                "tcpip_forward {}:{}: {e}",
+                spec.bind_addr, spec.bind_port,
+            )));
+        }
+    };
+    // With `bind_port` 0 the server allocates one; the dispatch key and
+    // the summary must carry what it chose.
+    let spec = if spec.bind_port == 0 && bound_port != 0 {
+        let mut s = spec;
+        s.bind_port = bound_port as u16;
+        tracing::debug!(port = bound_port, "remote forward: server-allocated port");
+        s
+    } else {
+        spec
+    };
 
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
     let (done_tx, done_rx) = oneshot::channel::<()>();

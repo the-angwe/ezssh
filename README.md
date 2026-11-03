@@ -60,7 +60,7 @@ shells and the bundled X server do not apply.
 
 ### Settings
 
-- **Settings panel** (sidebar menu or the status-bar gear). Every control
+- **Settings panel** (sidebar menu or the gear in the sidebar footer). Every control
   saves on change. Terminal colour palette (ezSsh dark / light, Campbell,
   Solarized, Dracula, Gruvbox, Nord, One Dark, Monokai, Tango, and the
   GNOME / GitHub / Google light + dark pairs from Ptyxis — applied live to
@@ -94,10 +94,13 @@ shells and the bundled X server do not apply.
 - **Inline auth-fix overlay** — when a connect fails with bad auth / missing
   credential, a dedicated overlay lets the user fix username, auth method, or
   vault credential without leaving the tab. No "close tab and start over" ritual.
-- **Six view modes** (`Ctrl+Shift+W`): tabs, tile horizontally / vertically /
-  grid / auto, and cascade with minimise / maximise / restore.
-- **Status bar** — active-session `user@host`, SFTP cwd, X-server pill,
-  version, theme, settings, update check and lock buttons.
+- **Six view modes** (the Layout menu in the tab strip, `Ctrl+Shift+W`
+  cycles): tabs, tile horizontally / vertically / grid / auto, and cascade
+  with minimise / maximise / restore.
+- **Sessions sidebar footer** — update check, lock, theme and settings;
+  `Ctrl+K` focuses the session filter.
+- **Status bar** — active-session `user@host`, SFTP cwd, X-server and
+  update chips, version.
 - **Toasts** for create / rename / delete / import events.
 - Dark by default with a light theme toggle; theme persists per user.
 

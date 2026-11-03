@@ -164,6 +164,11 @@ pub struct ViewState {
     menu: Option<(Pos2, bool)>,
     links: Option<LinkFinder>,
     hover: Option<Link>,
+    /// `(col, row, display_offset, feed generation)` `hover` was computed for.
+    hover_key: Option<(usize, usize, usize, u64)>,
+    /// Per-row cell snapshots, kept between frames to avoid reallocating
+    /// rows × cols cells on every repaint.
+    paint_lines: Vec<Vec<PCell>>,
     /// Link under the primary button press; opened on release if no
     /// selection was dragged.
     press_link: Option<String>,
@@ -199,6 +204,8 @@ impl Default for ViewState {
             menu: None,
             links: None,
             hover: None,
+            hover_key: None,
+            paint_lines: Vec::new(),
             press_link: None,
             blink_epoch: now,
             last_input: now,
@@ -248,16 +255,6 @@ impl Terminal {
             Some(f) => f.focus_input = true,
             None => self.view.find = Some(Find::new()),
         }
-    }
-
-    /// Open the find bar with `query` and jump to its most recent match
-    /// (an app-level "Find…" command, and test automation).
-    pub fn find(&mut self, query: &str) {
-        self.open_find();
-        let mut find = self.view.find.take().unwrap_or_default();
-        find.query = query.to_string();
-        find.update(&mut *self.lock());
-        self.view.find = Some(find);
     }
 
     /// Open the context menu at `pos` (screen points), as a right-click
@@ -311,9 +308,11 @@ impl<'a> TerminalView<'a> {
         let ppp = ctx.pixels_per_point();
         let blocked = overlay.is_some() || !input;
 
-        let popup_open = term.view.find.is_some() || term.view.menu.is_some();
+        // A click takes focus back from the find bar (the bar stays open,
+        // as in an editor); only the context menu refuses it.
+        let menu_open = term.view.menu.is_some();
         let wants_focus = focus_on_show || std::mem::take(&mut term.view.refocus);
-        if !blocked && (wants_focus || ((response.clicked() || response.drag_started()) && !popup_open)) {
+        if !blocked && (wants_focus || ((response.clicked() || response.drag_started()) && !menu_open)) {
             response.request_focus();
         }
         let focused = response.has_focus() && !blocked;
@@ -384,7 +383,10 @@ impl<'a> TerminalView<'a> {
             let env = PointerEnv { ctx: &ctx, rect, layer, hovered, topmost: response.hovered() };
             handle_pointer(term, style, &events, &env, &mut actions);
         }
-        if focused {
+        // Keys go to the menu while it is open (Escape closes it in
+        // `show_menu`); forwarding them would type into the shell and
+        // send ESC to a program on top of closing the menu.
+        if focused && term.view.menu.is_none() {
             handle_keyboard(term, style, &events, &ctx, &mut actions);
         }
         update_hover(term, &ctx, rect, layer, hovered);
@@ -575,9 +577,16 @@ fn handle_keyboard(
         match ev {
             Event::Key { key, pressed, repeat, modifiers, .. } => {
                 let mods = Mods::from_egui(*modifiers);
+                let ctrl_shift = mods.ctrl && mods.shift && !mods.alt;
+                // A consumed shortcut's release must not reach a kitty
+                // program as an unmatched release report either.
+                let shortcut = matches!(key, egui::Key::C | egui::Key::V | egui::Key::F if ctrl_shift)
+                    || matches!(key, egui::Key::Insert if mods.shift != mods.ctrl && !mods.alt);
+                if !*pressed && shortcut {
+                    continue;
+                }
                 if *pressed {
                     // Terminal shortcuts.
-                    let ctrl_shift = mods.ctrl && mods.shift && !mods.alt;
                     match key {
                         egui::Key::C if ctrl_shift => {
                             copy_selection(term, ctx);
@@ -603,7 +612,12 @@ fn handle_keyboard(
                             if mods.shift && !mods.ctrl && !mods.alt =>
                         {
                             let mut t = term.lock();
-                            if !t.mode().contains(TermMode::ALT_SCREEN) {
+                            // Shift+Home/End are keys programs use (select to
+                            // line start/end); xterm only hijacks PageUp/Down.
+                            // They scroll only while the view is scrolled back.
+                            let paging = matches!(key, egui::Key::PageUp | egui::Key::PageDown);
+                            let scrolled = t.grid().display_offset() != 0;
+                            if !t.mode().contains(TermMode::ALT_SCREEN) && (paging || scrolled) {
                                 t.scroll_display(match key {
                                     egui::Key::PageUp => Scroll::PageUp,
                                     egui::Key::PageDown => Scroll::PageDown,
@@ -840,7 +854,9 @@ fn handle_pointer(
                     continue;
                 }
                 let lines = match unit {
-                    MouseWheelUnit::Line => delta.y,
+                    // One notch is one "line" to winit; terminals scroll
+                    // three rows per notch (alacritty, xterm.js' 100 px).
+                    MouseWheelUnit::Line => delta.y * WHEEL_ROWS_PER_NOTCH,
                     MouseWheelUnit::Point => delta.y / term.view.cell.y.max(1.0),
                     MouseWheelUnit::Page => delta.y * term.view.rows as f32,
                 };
@@ -892,16 +908,27 @@ fn update_hover(term: &mut Terminal, ctx: &egui::Context, rect: Rect, layer: Lay
     let selecting_text = term.view.selecting && term.view.press_link.is_none();
     if selecting_text || (term.lock().mode().intersects(TermMode::MOUSE_MODE) && !shift) {
         term.view.hover = None;
+        term.view.hover_key = None;
+        return;
+    }
+    // The regex walk over the wrapped line runs only when the pointer
+    // moved to another cell or the grid may have changed, not on every
+    // repaint (output, blink, bell).
+    let (col, row, _) = cell_at(&term.view, pos);
+    let feed_gen = term.feed_generation();
+    let offset = term.lock().grid().display_offset();
+    let key = (col, row, offset, feed_gen);
+    if term.view.hover_key == Some(key) {
         return;
     }
     let mut finder = term.view.links.take().or_else(LinkFinder::new);
-    let (col, row, _) = cell_at(&term.view, pos);
+    let point = grid_point(offset, col, row);
     let t = term.lock();
-    let point = grid_point(t.grid().display_offset(), col, row);
     let link = finder.as_mut().and_then(|f| f.at(&*t, point));
     drop(t);
     term.view.links = finder;
     term.view.hover = link;
+    term.view.hover_key = Some(key);
 }
 
 // ---------------------------------------------------------------- popups
@@ -1020,10 +1047,12 @@ fn show_find(ctx: &egui::Context, term: &mut Terminal, rect: Rect, id: egui::Id)
                         close = true;
                     }
                     if changed {
-                        find.update(&mut *term.lock());
+                        let feed_gen = term.feed_generation();
+                        find.update(&mut *term.lock(), feed_gen);
                     }
                     if let Some(forward) = step {
-                        find.step(&mut *term.lock(), forward);
+                        let feed_gen = term.feed_generation();
+                        find.step(&mut *term.lock(), forward, feed_gen);
                     }
                 });
             });
@@ -1141,6 +1170,9 @@ fn cursor_phase(blinking: bool, since_epoch: Duration, since_input: Duration) ->
     (visible, Some(next))
 }
 
+/// Rows scrolled per mouse-wheel notch.
+const WHEEL_ROWS_PER_NOTCH: f32 = 3.0;
+
 fn visible_matches(find: Option<&Find>, top: i32, bottom: i32) -> Vec<Match> {
     let Some(f) = find else {
         return Vec::new();
@@ -1155,13 +1187,17 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
     let default_bg = palette.background;
     painter.rect_filled(rect, 0.0, to_c32(default_bg));
 
-    let v = &term.view;
+    let v = &mut term.view;
     let (cell, origin, cols, rows) = (v.cell, v.origin, v.cols, v.rows);
     let hover = v.hover.clone();
     let match_bg = mix(default_bg, palette.ansi[3], 0.35);
 
     // Snapshot the visible cells, then release the lock before drawing.
-    let mut lines: Vec<Vec<PCell>> = (0..rows).map(|_| Vec::with_capacity(cols)).collect();
+    let mut lines = std::mem::take(&mut v.paint_lines);
+    lines.resize_with(rows, || Vec::with_capacity(cols));
+    for line in &mut lines {
+        line.clear();
+    }
     let (cursor_cell, cursor_shape, cursor_wide, cursor_blinks);
     {
         let t = term.lock();
@@ -1182,10 +1218,22 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
                 continue;
             }
             let c = indexed.cell;
-            if c.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+            if c.flags.contains(Flags::WIDE_CHAR_SPACER) {
                 // Its background is painted with the wide character.
                 continue;
             }
+            // A LEADING spacer sits in the last column with the wide
+            // character wrapped to the next line: nothing else paints its
+            // background, so it is kept as a blank cell.
+            let c = if c.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER) {
+                let mut blank = c.clone();
+                blank.c = ' ';
+                blank.flags.remove(Flags::WIDE_CHAR | Flags::LEADING_WIDE_CHAR_SPACER);
+                std::borrow::Cow::Owned(blank)
+            } else {
+                std::borrow::Cow::Borrowed(c)
+            };
+            let c = &*c;
             let mut fg = resolve(adjust_fg(c.fg, c.flags), colors, palette);
             let mut bg = resolve(c.bg, colors, palette);
             if c.flags.contains(Flags::DIM) {
@@ -1201,6 +1249,12 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
                 bg = match_bg;
             }
             if selection.is_some_and(|s| s.contains(indexed.point)) {
+                // Text in the selection colour itself (ANSI 0 in the
+                // default dark palette) would vanish: paint it in the
+                // default foreground instead.
+                if fg == palette.selection_background {
+                    fg = palette.foreground;
+                }
                 bg = palette.selection_background;
             }
             lines[row as usize].push(PCell {
@@ -1407,6 +1461,7 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
             term.view.bell_at = None;
         }
     }
+    term.view.paint_lines = lines;
 }
 
 #[cfg(test)]

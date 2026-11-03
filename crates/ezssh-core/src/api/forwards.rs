@@ -273,7 +273,14 @@ pub(crate) async fn start_inner(
             return Err(e);
         }
     };
-    forwards.insert(rf.clone()).await;
+    if !forwards.insert(rf.clone()).await {
+        // The connection was closed while this forward was binding (the
+        // auto-start scan runs detached from the connect): tear it down
+        // again instead of leaving the listener bound forever.
+        tracing::debug!(runtime_id = id, "forward started after the connection closed; stopping it");
+        rf.stop().await;
+        return Err(AppError::Ssh("connection closed".into()));
+    }
     // Emit the initial Running status once, centrally. Callers that await
     // this function (manual Start) get the summary as the return value AND
     // this event; the pane upserts by runtime_id so they coalesce into one

@@ -271,7 +271,7 @@ fn decrypt_stored_blob(blob_b64: &str, vault_state: &vault::VaultState) -> Resul
     }
     let (nonce, ct) = bytes.split_at(vault::aead::NONCE_LEN);
     let pt = vault::decrypt_with(vault_state, nonce, ct)?;
-    String::from_utf8(pt).map_err(|_| AppError::Crypto)
+    std::str::from_utf8(&pt).map(str::to_owned).map_err(|_| AppError::Crypto)
 }
 
 // ===== writer task =======================================================
@@ -338,7 +338,7 @@ impl WriterTask {
         access_key_id: &str, secret_access_key: &str, passphrase: &str,
     ) -> Result<()> {
         let bundle = self.build_bundle().await?;
-        let bytes = backup::encrypt_bundle(&bundle, passphrase)?;
+        let bytes = backup::encrypt_bundle_blocking(bundle, passphrase).await?;
 
         let driver = s3::S3Driver::new(s3::S3Config {
             endpoint, region, bucket, prefix,
@@ -351,14 +351,23 @@ impl WriterTask {
         // / sync_pull_commit) and then retrying.
         let known = db::settings::get(&self.db_pool, KEY_S3_LAST_ETAG).await?
             .filter(|s| !s.is_empty());
-        if let Some(known) = known.as_deref()
-            && let Some(remote) = driver.head().await?
-                && remote != known {
-                    return Err(AppError::Validation(format!(
-                        "remote S3 object changed since last sync (remote ETag {remote}, \
-                         last known {known}) — pull first to merge"
-                    )));
-                }
+        match (known.as_deref(), driver.head().await?) {
+            (Some(known), Some(remote)) if remote != known => {
+                return Err(AppError::Validation(format!(
+                    "remote S3 object changed since last sync (remote ETag {remote}, \
+                     last known {known}) — pull first to merge"
+                )));
+            }
+            // First push from this device (or after a reconfigure) while
+            // the bucket already holds a bundle, typically from another
+            // device: never overwrite it blind.
+            (None, Some(_)) => {
+                return Err(AppError::Validation(
+                    "the bucket already holds a sync bundle from another device — pull first to merge".into(),
+                ));
+            }
+            _ => {}
+        }
 
         let new_etag = driver.put(&bytes).await?;
         db::settings::set(&self.db_pool, KEY_S3_LAST_ETAG, &new_etag).await?;
@@ -370,12 +379,7 @@ impl WriterTask {
     /// local-folder and S3 writers.
     async fn build_bundle(&self) -> Result<backup::Bundle> {
         let folders = db::folders::list(&self.db_pool).await?;
-        let sessions_raw = db::sessions::list(&self.db_pool).await?;
-        let mut sessions = Vec::with_capacity(sessions_raw.len());
-        for s in sessions_raw {
-            let env = db::sessions::env_get(&self.db_pool, s.id).await?;
-            sessions.push(backup::SessionEntry { session: s, env });
-        }
+        let sessions = backup::export_sessions(&self.db_pool).await?;
         let credentials = {
             let vs = self.vault_state.read().await;
             if !vs.is_unlocked() {
@@ -386,6 +390,7 @@ impl WriterTask {
         let known_hosts = db::known_hosts::list(&self.db_pool).await?;
         let settings = db::settings::list_all(&self.db_pool).await?
             .into_iter()
+            .filter(|(k, _)| backup::setting_is_portable(k))
             .map(|(k, v)| backup::SettingEntry { key: k, value: v })
             .collect();
         Ok(backup::Bundle {
@@ -402,7 +407,7 @@ impl WriterTask {
 
     async fn build_and_write_local(&self, path: &std::path::Path, passphrase: &str) -> Result<()> {
         let bundle = self.build_bundle().await?;
-        let bytes = backup::encrypt_bundle(&bundle, passphrase)?;
+        let bytes = backup::encrypt_bundle_blocking(bundle, passphrase).await?;
 
         // Atomic write: tempfile in same directory then rename. Avoids
         // cloud-sync readers picking up a half-written file.
@@ -425,18 +430,19 @@ impl WriterTask {
                 let now = Utc::now();
                 self.last_success_ms
                     .store(now.timestamp_millis(), Ordering::Release);
-                let _ = db::settings::set(
-                    &self.db_pool,
-                    KEY_LAST_SUCCESS_AT,
-                    &now.to_rfc3339(),
-                )
-                .await;
-                let _ = db::settings::set(&self.db_pool, KEY_LAST_ERROR, "").await;
+                if let Err(e) = db::settings::set(&self.db_pool, KEY_LAST_SUCCESS_AT, &now.to_rfc3339()).await {
+                    tracing::warn!(error = %e, "sync: could not record last success time");
+                }
+                if let Err(e) = db::settings::set(&self.db_pool, KEY_LAST_ERROR, "").await {
+                    tracing::warn!(error = %e, "sync: could not clear last error");
+                }
             }
             Err(e) => {
                 let msg = e.to_string();
                 tracing::warn!("sync write failed: {msg}");
-                let _ = db::settings::set(&self.db_pool, KEY_LAST_ERROR, &msg).await;
+                if let Err(e) = db::settings::set(&self.db_pool, KEY_LAST_ERROR, &msg).await {
+                    tracing::warn!(error = %e, "sync: could not record last error");
+                }
             }
         }
     }

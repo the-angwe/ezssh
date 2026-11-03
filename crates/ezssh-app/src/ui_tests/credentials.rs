@@ -371,7 +371,9 @@ fn session_tab_lists_adds_edits_deletes() {
     assert!(h.query_by_role_and_label(Role::ListItem, "Postgres dev").is_some());
     host_shot(&mut h, "session-forwards-tab");
 
-    // Add.
+    // Add. The autodetect toasts would sit on the dialog's footer in this
+    // small host: let them expire first.
+    h.state_mut().app.toasts.expire(Instant::now() + Duration::from_secs(30));
     h.get_by_label("Add forward").click();
     h.run_steps(3);
     assert!(h.query_by_label("Forward (session config)").is_some());

@@ -108,7 +108,7 @@ fn clear_toasts(h: &mut H) {
 
 fn open_new(h: &mut H) {
     clear_toasts(h);
-    h.get_by_label("New session").click();
+    super::sidebar_new(h, "New session");
     wait(h, 5, "dialog open", |a| a.dialogs.session.as_ref().is_some_and(|d| d.shells_loaded()));
 }
 

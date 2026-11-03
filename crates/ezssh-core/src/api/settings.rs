@@ -26,5 +26,8 @@ pub async fn settings_list(state: &AppState) -> Result<Vec<(String, String)>> {
 
 pub async fn settings_set(state: &AppState, key: String, value: String) -> Result<()> {
     require_unlocked(state).await?;
-    settings::set(&state.db, &key, &value).await
+    settings::set(&state.db, &key, &value).await?;
+    // Settings travel in the sync bundle like every other table.
+    state.sync.trigger();
+    Ok(())
 }

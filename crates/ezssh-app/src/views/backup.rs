@@ -15,7 +15,7 @@ use crate::files::{Filter, Pick};
 use crate::form;
 use crate::icons::Icon;
 use crate::style::{font, font_semibold, size, tokens};
-use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
+use crate::widgets::{self, Button, Dialog, DialogFooter, DialogPart};
 
 /// Minimum backup / sync passphrase length (the core enforces it too).
 pub(crate) const MIN_PASSPHRASE: usize = 8;
@@ -101,13 +101,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Step::Reauth => ("Continue", !dlg.master.is_empty()),
                 Step::Passphrase => ("Save backup…", !dlg.passphrase.is_empty() && !dlg.confirm.is_empty()),
             };
-            if widgets::primary(ui, label, Tone::Accent, !busy && ready, size::SM).clicked() {
+            if widgets::Button::primary(label).enabled(!busy && ready).show(ui).clicked() {
                 act = Some(if step == Step::Reauth { Act::Reauth } else { Act::Save });
             }
             if busy {
                 form::spinner(ui, 12.0);
             }
-            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
         }
@@ -269,8 +269,8 @@ fn today_utc() -> String {
 pub(crate) fn labeled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> Response) -> Response {
     let t = tokens(ui.ctx());
     ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 4.0;
-        let l = ui.label(RichText::new(label).font(font(size::XS)).color(t.muted));
+        ui.spacing_mut().item_spacing.y = 6.0;
+        let l = ui.label(RichText::new(label).font(font(size::SM)).color(t.fg2));
         add(ui).labelled_by(l.id)
     })
     .inner
@@ -310,26 +310,40 @@ pub(crate) fn rich(ui: &mut Ui, parts: &[(Span, &str)]) -> Response {
     let mut job = egui::text::LayoutJob::default();
     for (span, text) in parts {
         let (font_id, color) = match span {
-            Span::Muted => (font(size::XS), t.muted),
-            Span::Strong => (font_semibold(size::XS), t.fg),
-            Span::Mono => (egui::FontId::monospace(size::XS), t.muted),
+            Span::Muted => (font(size::SM), t.muted),
+            Span::Strong => (font_semibold(size::SM), t.fg),
+            Span::Mono => (egui::FontId::monospace(size::SM), t.muted),
         };
         job.append(text, 0.0, egui::TextFormat { font_id, color, ..Default::default() });
     }
     ui.add(egui::Label::new(job).wrap())
 }
 
+/// A core RFC 3339 timestamp in local time, `YYYY-MM-DD HH:MM:SS` (or
+/// without seconds). Anything else is shown as stored.
+pub(crate) fn local_time(s: &str, seconds: bool) -> String {
+    local_time_in(s, &chrono::Local, seconds)
+}
+
+pub(crate) fn local_time_in<Tz: chrono::TimeZone>(s: &str, tz: &Tz, seconds: bool) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let fmt = if seconds { "%Y-%m-%d %H:%M:%S" } else { "%Y-%m-%d %H:%M" };
+    match chrono::DateTime::parse_from_rfc3339(s) {
+        Ok(t) => t.with_timezone(tz).format(fmt).to_string(),
+        Err(e) => {
+            tracing::debug!(value = s, error = %e, "time not RFC 3339, shown as stored");
+            s.to_string()
+        }
+    }
+}
+
 /// The inline `role="alert"` line (`text-danger text-xs` with an icon).
 pub(crate) fn error_line(ui: &mut Ui, err: Option<&str>) {
-    let Some(err) = err else {
-        return;
-    };
-    let t = tokens(ui.ctx());
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        Icon::AlertTriangle.show(ui, 12.0, t.danger);
-        ui.add(egui::Label::new(RichText::new(err).font(font(size::XS)).color(t.danger)).wrap());
-    });
+    if let Some(err) = err {
+        crate::widgets::error_strip(ui, err);
+    }
 }
 
 /// The green confirmation line of the sync dialog.
@@ -337,8 +351,8 @@ pub(crate) fn success_line(ui: &mut Ui, msg: &str) {
     let t = tokens(ui.ctx());
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        Icon::Check.show(ui, 12.0, t.success);
-        ui.add(egui::Label::new(RichText::new(msg).font(font(size::XS)).color(t.success)).wrap());
+        Icon::Check.show(ui, 14.0, t.success);
+        ui.add(egui::Label::new(RichText::new(msg).font(font(size::SM)).color(t.success)).wrap());
     });
 }
 
@@ -348,7 +362,7 @@ pub(crate) fn success_line(ui: &mut Ui, msg: &str) {
 /// its own AccessKit label.
 pub(crate) fn link(ui: &mut Ui, text: &str, a11y_label: &str) -> Response {
     let t = tokens(ui.ctx());
-    let g = ui.painter().layout_no_wrap(text.to_string(), font(size::XS), t.accent);
+    let g = ui.painter().layout_no_wrap(text.to_string(), font(size::SM), t.accent);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
     let hovered = resp.hovered();
     ui.painter().galley(rect.min, g, t.accent);

@@ -1,13 +1,13 @@
 //! The unlock screen: create the vault on first run, else unlock it.
 
-use egui::{Align2, Color32, CornerRadius, CursorIcon, Frame, Key, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, Ui, Vec2, vec2};
+use egui::{Align2, Color32, CursorIcon, Key, Pos2, Rect, Response, RichText, Sense, Ui, Vec2, vec2};
 use ezssh_core::api;
 use zeroize::Zeroize;
 
 use crate::app::{App, Screen};
 use crate::core::Core;
 use crate::icons::Icon;
-use crate::style::{alpha, font, font_semibold, size, tokens};
+use crate::style::{font, font_semibold, radius, size, tokens};
 use crate::views::vault_dialogs::{self, RecoveryUnlock, ResetVault};
 use crate::widgets;
 
@@ -112,26 +112,22 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     };
     let mut submit = false;
     egui::Area::new(egui::Id::unique("unlock-card")).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(ui.ctx(), |ui| {
-        Frame::new()
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0, t.border))
-            .corner_radius(CornerRadius::same(3))
-            .inner_margin(Margin::same(24))
-            .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: egui::Color32::from_black_alpha(115) })
+        widgets::dialog_frame(t)
+            .inner_margin(egui::Margin::same(28))
             .show(ui, |ui| {
-                let w = 332.0;
+                let w = 360.0 - 56.0;
                 ui.set_width(w);
-                ui.spacing_mut().item_spacing.y = 8.0;
+                ui.spacing_mut().item_spacing.y = 10.0;
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), egui::Sense::hover());
-                    ui.painter().rect_filled(r, 3.0, alpha(t.accent, 0.15));
-                    (if state.first_run { Icon::ShieldCheck } else { Icon::Lock }).paint(ui, r, 20.0, t.accent);
+                    ui.spacing_mut().item_spacing.x = 14.0;
+                    let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), egui::Sense::hover());
+                    widgets::icon_tile(ui, r, if state.first_run { Icon::ShieldCheck } else { Icon::Lock }, t.accent, 24.0);
                     ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.spacing_mut().item_spacing.y = 3.0;
+                        ui.add_space(2.0);
                         ui.label(
                             RichText::new(if state.first_run { "Set master password" } else { "Unlock ezSsh" })
-                                .font(font_semibold(size::BASE))
+                                .font(font_semibold(size::XL))
                                 .color(t.fg),
                         );
                         ui.label(
@@ -140,19 +136,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                             } else {
                                 "Enter your master password."
                             })
-                            .font(font(size::XS))
+                            .font(font(size::SM))
                             .color(t.muted),
                         );
                     });
                 });
-                ui.add_space(8.0);
+                ui.add_space(10.0);
 
                 // Password + show/hide toggle.
                 let field = ui.allocate_ui(vec2(w, 32.0), |ui| {
                     let r = widgets::text_input(ui, &mut state.pw, "Master password", w, !state.show);
-                    let eye = egui::Rect::from_center_size(egui::pos2(r.rect.right() - 16.0, r.rect.center().y), vec2(28.0, 28.0));
+                    let eye = egui::Rect::from_center_size(egui::pos2(r.rect.right() - 17.0, r.rect.center().y), vec2(26.0, 26.0));
                     let eye_resp = ui.interact(eye, ui.scope_id().with("eye"), egui::Sense::click());
-                    widgets::paint_icon_button(ui, &eye_resp, eye, if state.show { Icon::EyeOff } else { Icon::Eye }, 13.0, false, None);
+                    widgets::paint_icon_button(ui, &eye_resp, eye, if state.show { Icon::EyeOff } else { Icon::Eye }, 14.0, false, None);
                     widgets::a11y(&eye_resp, egui::Role::Button, if state.show { "Hide password" } else { "Show password" });
                     if eye_resp.on_hover_text(if state.show { "Hide" } else { "Show" }).clicked() {
                         state.show = !state.show;
@@ -178,9 +174,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     widgets::error_strip(ui, e);
                 }
 
-                ui.add_space(4.0);
+                ui.add_space(6.0);
                 let label = if state.first_run { "Create vault" } else { "Unlock" };
-                if widgets::primary_full(ui, label, !state.busy, w).clicked() || enter {
+                if widgets::Button::primary(label).size(widgets::Size::Lg).enabled(!state.busy).width(w).show(ui).clicked() || enter {
                     submit = true;
                 }
 
@@ -228,28 +224,28 @@ pub(crate) fn strength_meter(ui: &mut Ui, pw: &str, w: f32) {
         };
         for i in 0..4 {
             let r = Rect::from_min_size(Pos2::new(bar.left() + i as f32 * (seg + gap), bar.top()), vec2(seg, 4.0));
-            ui.painter().rect_filled(r, 1.0, if i < score { fill } else { t.surface2 });
+            ui.painter().rect_filled(r, radius::SM, if i < score { fill } else { t.surface3 });
         }
-        ui.label(RichText::new(STRENGTH_COPY[score]).font(font(size::XS)).color(t.muted));
+        ui.label(RichText::new(STRENGTH_COPY[score]).font(font(size::SM)).color(t.muted));
     });
 }
 
-const LINK_ICON: f32 = 11.0;
+const LINK_ICON: f32 = 13.0;
 
 fn link_width(ui: &Ui, text: &str) -> f32 {
-    let g = ui.painter().layout_no_wrap(text.into(), font(size::XS), Color32::WHITE);
-    4.0 + LINK_ICON + 4.0 + g.size().x + 4.0
+    let g = ui.painter().layout_no_wrap(text.into(), font(size::SM), Color32::WHITE);
+    4.0 + LINK_ICON + 5.0 + g.size().x + 4.0
 }
 
 /// The card's small text links (`px-1`, icon then text, `hover` colour).
 fn link(ui: &mut Ui, icon: Icon, text: &str, hover: Color32) -> Response {
     let t = tokens(ui.ctx());
-    let g = ui.painter().layout_no_wrap(text.into(), font(size::XS), t.muted);
-    let (rect, resp) = ui.allocate_exact_size(vec2(link_width(ui, text), g.size().y.max(LINK_ICON) + 4.0), Sense::click());
+    let g = ui.painter().layout_no_wrap(text.into(), font(size::SM), t.muted);
+    let (rect, resp) = ui.allocate_exact_size(vec2(link_width(ui, text), g.size().y.max(LINK_ICON) + 6.0), Sense::click());
     let color = if resp.hovered() { hover } else { t.muted };
     let icon_rect = Rect::from_center_size(Pos2::new(rect.left() + 4.0 + LINK_ICON / 2.0, rect.center().y), Vec2::splat(LINK_ICON));
     icon.paint(ui, icon_rect, LINK_ICON, color);
-    ui.painter().galley_with_override_text_color(Pos2::new(icon_rect.right() + 4.0, rect.center().y - g.size().y / 2.0), g, color);
+    ui.painter().galley_with_override_text_color(Pos2::new(icon_rect.right() + 5.0, rect.center().y - g.size().y / 2.0), g, color);
     widgets::focus_ring(ui, &resp, rect);
     widgets::a11y(&resp, egui::Role::Button, text);
     resp.on_hover_cursor(CursorIcon::PointingHand)

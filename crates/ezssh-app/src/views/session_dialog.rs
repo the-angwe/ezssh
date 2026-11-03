@@ -10,10 +10,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use egui::text::LayoutJob;
-use egui::{
-    Align, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke,
-    StrokeKind, TextFormat, Ui, UiBuilder, Vec2, pos2, vec2,
-};
+use egui::{Align, Color32, CursorIcon, FontId, Frame, Id, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind, TextFormat, Ui, UiBuilder, Vec2, pos2, vec2};
 use ezssh_core::api;
 use ezssh_core::db::sessions::{EnvPair, Session, SessionInput};
 use ezssh_core::local::shells::DetectedShell;
@@ -27,8 +24,8 @@ use crate::font_presets;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::settings::Settings;
-use crate::style::{self, alpha, font, font_semibold, size, tokens};
-use crate::widgets::{self, Tone};
+use crate::style::{alpha, font, radius, size, tokens};
+use crate::widgets::{self, Segment};
 
 pub enum Mode {
     New { folder: Option<i64> },
@@ -230,6 +227,9 @@ pub struct SessionDialog {
     serial: u64,
     /// Settings defaults, shells and env are fetched on the first frame.
     initialized: bool,
+    /// The env vars of the edited row arrived (`session_update` replaces
+    /// the whole env table; saving before that would delete them).
+    env_loaded: bool,
     draft: Draft,
     /// The typed password (password method only); wiped on drop.
     password: Zeroizing<String>,
@@ -253,10 +253,12 @@ impl SessionDialog {
             Mode::New { folder } => Draft::new_session(*folder, &Settings::default()),
             Mode::Edit(s) => Draft::from_session(s),
         };
+        let env_loaded = !matches!(mode, Mode::Edit(_));
         Self {
             mode,
             serial,
             initialized: false,
+            env_loaded,
             draft,
             password: Zeroizing::new(String::new()),
             show_password: false,
@@ -331,6 +333,7 @@ impl SessionDialog {
                         Ok(env) => {
                             tracing::debug!(session = id, n = env.len(), "session_dialog: env loaded");
                             d.draft.env = env;
+                            d.env_loaded = true;
                         }
                         Err(e) => {
                             tracing::warn!(session = id, "session_dialog: session_env_get failed: {e}");
@@ -378,6 +381,11 @@ impl SessionDialog {
         if let Some(problem) = validate(d, !self.password.is_empty(), self.password_stored()) {
             tracing::debug!(problem, "session_dialog: validation failed");
             self.err = Some(problem.into());
+            return;
+        }
+        if !self.env_loaded {
+            tracing::debug!("session_dialog: save refused, env vars not loaded");
+            self.err = Some("Environment variables are still loading; try again in a moment.".into());
             return;
         }
         self.err = None;
@@ -447,10 +455,11 @@ fn this(app: &mut App, serial: u64) -> Option<&mut SessionDialog> {
 
 const W: f32 = 760.0;
 const H: f32 = 640.0;
-const HEADER_H: f32 = 56.0;
-const FOOTER_H: f32 = 52.0;
-const ERR_H: f32 = 32.0;
-const NAV_W: f32 = 160.0;
+const HEADER_H: f32 = widgets::DIALOG_HEAD_H;
+const FOOTER_H: f32 = widgets::DIALOG_FOOTER_H;
+const ERR_H: f32 = 36.0;
+const NAV_W: f32 = 176.0;
+const PAD: f32 = 24.0;
 
 /// Show `app.dialogs.session` (if any) for one frame.
 pub fn show(app: &mut App, ctx: &egui::Context) {
@@ -468,27 +477,36 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let manager_open = app.dialogs.credentials.is_some() || app.forwards.dialog_open();
     let mut close = false;
     let mut save = false;
-    let frame = Frame::new()
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.border))
-        .corner_radius(CornerRadius::same(3))
-        .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(115) });
-    let resp = egui::Modal::new(Id::unique("session-dialog")).backdrop_color(Color32::from_black_alpha(128)).frame(frame).show(ctx, |ui| {
+    let id = Id::unique("session-dialog");
+    let resp = egui::Modal::new(id).backdrop_color(Color32::from_black_alpha(128)).frame(widgets::dialog_frame(t)).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
         let header = Rect::from_min_size(rect.min, vec2(w, HEADER_H));
         let footer = Rect::from_min_max(pos2(rect.left(), rect.bottom() - FOOTER_H), rect.max);
         let err_rect = Rect::from_min_max(pos2(rect.left(), footer.top() - if dlg.err.is_some() { ERR_H } else { 0.0 }), pos2(rect.right(), footer.top()));
         let body = Rect::from_min_max(pos2(rect.left(), header.bottom()), pos2(rect.right(), err_rect.top()));
         let nav = Rect::from_min_max(body.min, pos2(body.left() + NAV_W, body.bottom()));
-        let content = Rect::from_min_max(pos2(nav.right() + 1.0, body.top() + 1.0), body.max);
+        let content = Rect::from_min_max(pos2(nav.right(), body.top()), body.max);
 
-        if header_row(ui, &dlg, header) {
+        // Header: the kind's icon on a tile in the session colour, the
+        // name and the live summary.
+        let accent = dlg.draft.color.as_deref().and_then(parse_hex).unwrap_or(t.accent);
+        let kind_icon = match dlg.draft.session_kind.as_str() {
+            "wsl" => Icon::SquareTerminal,
+            "local" => Icon::MonitorDot,
+            _ => Icon::Server,
+        };
+        let title = if dlg.draft.name.trim().is_empty() {
+            if dlg.edit_id().is_some() { "Edit session".to_string() } else { "New session".to_string() }
+        } else {
+            dlg.draft.name.clone()
+        };
+        let summary = dlg.draft.summary();
+        if widgets::dialog_header(ui, id, header, Some(kind_icon), accent, &title, Some(&summary), true, dlg.busy) {
             close = true;
         }
         // Side rail.
-        ui.painter().vline(nav.right(), nav.y_range(), Stroke::new(1.0, t.border));
-        at(ui, nav.shrink2(vec2(0.0, 8.0)), |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
+        ui.painter().vline(nav.right() - 0.5, nav.y_range(), Stroke::new(1.0, t.border));
+        at(ui, nav.shrink2(vec2(8.0, 12.0)), |ui| {
             let mut panes = vec![
                 (Pane::General, "General", Icon::Sliders),
                 (Pane::Terminal, "Terminal", Icon::Terminal),
@@ -497,18 +515,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if dlg.draft.is_ssh() {
                 panes.push((Pane::Forwards, "Forwards", Icon::Network));
             }
-            for (pane, label, icon) in panes {
-                if form::side_tab(ui, dlg.pane == pane, icon, label, NAV_W).clicked() {
-                    dlg.pane = pane;
-                }
-            }
+            widgets::nav_rail(ui, NAV_W - 16.0, &panes, &mut dlg.pane);
         });
         // Content.
         at(ui, content, |ui| {
             egui::ScrollArea::vertical().id_salt(("session-dialog-pane", dlg.serial, dlg.pane as u8)).auto_shrink(false).show(ui, |ui| {
-                Frame::new().inner_margin(Margin::same(20)).show(ui, |ui| {
-                    ui.set_width(content.width() - 40.0);
-                    ui.spacing_mut().item_spacing.y = 16.0;
+                Frame::new().inner_margin(Margin { left: PAD as i8, right: PAD as i8, top: 20, bottom: PAD as i8 }).show(ui, |ui| {
+                    ui.set_width(content.width() - 2.0 * PAD);
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     match dlg.pane {
                         Pane::General => general(&mut dlg, app, ui),
                         Pane::Terminal => terminal(&mut dlg, ui),
@@ -520,37 +534,34 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         });
         if let Some(e) = &dlg.err {
             ui.painter().rect_filled(err_rect, 0.0, alpha(t.danger, 0.1));
-            ui.painter().hline(err_rect.x_range(), err_rect.top(), Stroke::new(1.0, alpha(t.danger, 0.4)));
-            at(ui, err_rect.shrink2(vec2(20.0, 0.0)), |ui| {
+            ui.painter().hline(err_rect.x_range(), err_rect.top() + 0.5, Stroke::new(1.0, alpha(t.danger, 0.4)));
+            at(ui, err_rect.shrink2(vec2(PAD, 0.0)), |ui| {
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    ui.label(RichText::new(e).font(font(size::XS)).color(t.danger));
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    Icon::AlertCircle.show(ui, 14.0, t.danger);
+                    ui.label(RichText::new(e).font(font(size::SM)).color(t.danger));
                 });
             });
         }
-        // Footer.
-        ui.painter().rect_filled(footer, CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 }, style::over(t.surface, t.surface2, 0.3));
-        ui.painter().hline(footer.x_range(), footer.top(), Stroke::new(1.0, t.border));
-        at(ui, footer.shrink2(vec2(20.0, 12.0)), |ui| {
+        // Footer: keyboard hints on the left, the buttons on the right.
+        widgets::dialog_footer(ui, footer, PAD, |ui| {
+            let label = if dlg.edit_id().is_some() { "Save changes" } else { "Create session" };
+            if widgets::Button::primary(label).enabled(!dlg.busy).show(ui).clicked() {
+                save = true;
+            }
+            if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                close = true;
+            }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 let muted = |ui: &mut Ui, s: &str| ui.label(RichText::new(s).font(font(size::XS)).color(t.muted));
                 form::kbd(ui, "Esc");
                 muted(ui, "close");
-                ui.add_space(4.0);
+                ui.add_space(8.0);
                 form::kbd(ui, "Ctrl");
                 muted(ui, "+");
                 form::kbd(ui, "Enter");
                 muted(ui, "save");
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    let label = if dlg.edit_id().is_some() { "Save changes" } else { "Create session" };
-                    if widgets::primary(ui, label, Tone::Accent, !dlg.busy, size::SM).clicked() {
-                        save = true;
-                    }
-                    if widgets::ghost(ui, "Cancel", size::SM).clicked() {
-                        close = true;
-                    }
-                });
             });
         });
         if !manager_open && form::ctrl_enter(ui) {
@@ -574,31 +585,6 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 /// Run `add` in a child ui confined to `rect`.
 fn at<R>(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui) -> R) -> R {
     ui.scope_builder(UiBuilder::new().max_rect(rect), add).inner
-}
-
-/// Colour dot, title, live summary and the close button. True = close.
-fn header_row(ui: &mut Ui, dlg: &SessionDialog, header: Rect) -> bool {
-    let t = tokens(ui.ctx());
-    ui.painter().hline(header.x_range(), header.bottom(), Stroke::new(1.0, t.border));
-    let accent = dlg.draft.color.as_deref().and_then(parse_hex).unwrap_or(SLATE);
-    ui.painter().circle_filled(pos2(header.left() + 26.0, header.center().y), 6.0, accent);
-    let title = if dlg.draft.name.is_empty() {
-        if dlg.edit_id().is_some() { "Edit session" } else { "New session" }
-    } else {
-        dlg.draft.name.as_str()
-    };
-    let text_l = header.left() + 44.0;
-    let text_r = header.right() - 48.0;
-    widgets::paint_text(ui, Rect::from_min_max(pos2(text_l, header.top() + 10.0), pos2(text_r, header.top() + 28.0)), title, font_semibold(size::BASE), t.fg);
-    widgets::paint_text(
-        ui,
-        Rect::from_min_max(pos2(text_l, header.top() + 29.0), pos2(text_r, header.top() + 45.0)),
-        &dlg.draft.summary(),
-        FontId::monospace(size::XS),
-        t.muted,
-    );
-    let close = Rect::from_center_size(pos2(header.right() - 30.0, header.center().y), Vec2::splat(24.0));
-    at(ui, close, |ui| widgets::icon_button(ui, Icon::X, 24.0, 14.0, false, "Close").clicked())
 }
 
 // ---------------------------------------------------------------- panes
@@ -794,7 +780,7 @@ fn terminal(dlg: &mut SessionDialog, ui: &mut Ui) {
         form::field(
             ui,
             "Font family",
-            Some("(default) uses the app's OS-aware mono stack. Presets list fonts that ship with your OS by default."),
+            Some("(default) uses the bundled monospace font. The list shows the monospace families installed on this computer."),
             |ui| font_family_picker(ui, &mut d.font_family, &mut dlg.font_custom),
         );
         form::field(ui, "Cursor style", None, |ui| cursor_style(ui, &mut d.cursor_style));
@@ -853,7 +839,7 @@ fn advanced(dlg: &mut SessionDialog, ui: &mut Ui) {
                         ],
                     );
                     let t = tokens(ui.ctx());
-                    ui.hyperlink_to(RichText::new("Get VcXsrv").font(font(size::XS)).color(t.accent), "https://sourceforge.net/projects/vcxsrv/");
+                    ui.hyperlink_to(RichText::new("Get VcXsrv").font(font(size::SM)).color(t.accent), "https://sourceforge.net/projects/vcxsrv/");
                 });
             });
         });
@@ -879,19 +865,27 @@ pub(crate) fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: i
     });
 }
 
-/// A labelled number `.input` committed on Enter / blur, like
-/// `form::number`, but unclamped: out-of-range values are reported by
-/// [`validate`].
+/// A labelled number field with a stepper, committed on Enter / blur /
+/// step; unclamped: out-of-range values are reported by [`validate`].
 pub(crate) fn number_field(ui: &mut Ui, label: &str, value: &mut i64, width: f32) {
     let draft_id = Id::unique(("session-dialog-number", label));
     let mut draft: String = ui.ctx().data(|d| d.get_temp(draft_id)).unwrap_or_else(|| value.to_string());
-    let resp = form::input(ui, &mut draft, InputOpts::new("").width(width));
-    labelled(ui, &resp, label);
-    if resp.has_focus() {
+    let out = form::number(ui, &mut draft, label, width);
+    let resp = out.resp;
+    if out.step != 0 {
+        *value = draft.trim().parse::<i64>().unwrap_or(*value) + out.step;
+        ui.ctx().data_mut(|d| d.remove::<String>(draft_id));
+        return;
+    }
+    // Ctrl+Enter saves the dialog in this same frame while the field keeps
+    // its focus (a single-line TextEdit only surrenders it on plain Enter):
+    // commit the draft first, or the save writes the previous value.
+    let save_chord = form::ctrl_enter(ui);
+    if resp.has_focus() && !save_chord {
         ui.ctx().data_mut(|d| d.insert_temp(draft_id, draft));
         return;
     }
-    if resp.lost_focus() {
+    if resp.lost_focus() || save_chord {
         match draft.trim().parse::<i64>() {
             Ok(n) => *value = n,
             Err(_) => tracing::debug!(field = label, input = %draft, "session_dialog: not a number, kept {value}"),
@@ -905,7 +899,7 @@ fn rich_hint(ui: &mut Ui, parts: &[(&str, bool)]) {
     let t = tokens(ui.ctx());
     let mut job = LayoutJob::default();
     for (text, mono) in parts {
-        let font_id = if *mono { FontId::monospace(size::XS) } else { font(size::XS) };
+        let font_id = if *mono { FontId::monospace(size::SM) } else { font(size::SM) };
         job.append(text, 0.0, TextFormat { font_id, color: t.muted, ..Default::default() });
     }
     job.wrap.max_width = ui.available_width();
@@ -936,17 +930,16 @@ fn parse_hex(s: &str) -> Option<Color32> {
 pub(crate) fn swatches(ui: &mut Ui, color: &mut Option<String>) {
     let t = tokens(ui.ctx());
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().item_spacing.x = 10.0;
         for (value, label) in SWATCHES {
             let selected = color.as_deref() == value;
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
+            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::click());
             let fill = value.and_then(parse_hex).unwrap_or(SLATE);
-            ui.painter().rect_filled(rect, 2.0, fill);
+            ui.painter().rect_filled(rect, radius::MD, fill);
             if selected {
-                ui.painter().rect_stroke(rect.expand(2.0), 3.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
-            } else {
-                let c = if resp.hovered() { t.muted } else { t.border };
-                ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, c), StrokeKind::Inside);
+                ui.painter().rect_stroke(rect.expand(3.0), radius::MD + 3.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+            } else if resp.hovered() {
+                ui.painter().rect_stroke(rect.expand(3.0), radius::MD + 3.0, Stroke::new(2.0, t.border_strong), StrokeKind::Inside);
             }
             widgets::focus_ring(ui, &resp, rect);
             widgets::a11y_selected(&resp, egui::Role::Button, selected, label);
@@ -960,11 +953,10 @@ pub(crate) fn swatches(ui: &mut Ui, color: &mut Option<String>) {
 /// `FontFamilyPicker`: installed monospace fonts plus "Custom…", which shows a free-text
 /// field. A value that is not a preset shows as Custom.
 pub(crate) fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut bool) {
-    const CUSTOM_FONT: &str = "__custom__";
-    let mut options: Vec<(String, String)> = font_presets::choices().to_vec();
-    options.push((CUSTOM_FONT.into(), "Custom…".into()));
+    const CUSTOM_FONT: &str = font_presets::CUSTOM_FONT;
+    let options = font_presets::choices_with_custom();
     let mut choice = if *custom { CUSTOM_FONT.to_string() } else { value.clone() };
-    if form::select(ui, Id::unique(("session-dialog", "font-family")), &mut choice, &options, None) {
+    if form::select(ui, Id::unique(("session-dialog", "font-family")), &mut choice, options, None) {
         tracing::debug!(font = %choice, "session_dialog: font family picked");
         if choice == CUSTOM_FONT {
             *custom = true;
@@ -983,39 +975,11 @@ const CURSORS: [(&str, &str, Icon); 3] = [("block", "Block", Icon::Square), ("ba
 
 /// Segmented Block / Bar / Underline buttons.
 pub(crate) fn cursor_style(ui: &mut Ui, value: &mut String) {
-    let t = tokens(ui.ctx());
-    let widths: Vec<f32> = CURSORS
-        .iter()
-        .map(|(_, label, _)| ui.painter().layout_no_wrap(label.to_string(), font(size::XS), t.fg).size().x + 12.0 + 6.0 + 24.0)
-        .collect();
-    let (group, _) = ui.allocate_exact_size(vec2(widths.iter().sum(), 28.0), Sense::hover());
-    let mut x = group.left();
-    for ((v, label, icon), w) in CURSORS.iter().zip(widths) {
-        let r = Rect::from_min_size(pos2(x, group.top()), vec2(w, group.height()));
-        x += w;
-        let resp = ui.interact(r, Id::unique(("session-dialog-cursor", *v)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-        let on = value == v;
-        let fill = if on {
-            t.surface2
-        } else if resp.hovered() {
-            style::over(t.surface, t.surface2, 0.6)
-        } else {
-            t.surface
-        };
-        ui.painter().rect_filled(r, 0.0, fill);
-        let color = if on || resp.hovered() { t.fg } else { t.muted };
-        icon.paint(ui, Rect::from_center_size(pos2(r.left() + 18.0, r.center().y), Vec2::splat(12.0)), 12.0, color);
-        widgets::paint_text(ui, Rect::from_min_max(pos2(r.left() + 30.0, r.top()), r.right_bottom()), label, font(size::XS), color);
-        if r.left() > group.left() {
-            ui.painter().vline(r.left(), r.y_range(), Stroke::new(1.0, t.border));
-        }
-        widgets::focus_ring(ui, &resp, r);
-        widgets::a11y_selected(&resp, egui::Role::Button, on, label);
-        if resp.clicked() {
-            *value = v.to_string();
-        }
+    let items: Vec<Segment<'_, &str>> = CURSORS.iter().map(|(v, label, icon)| Segment::text(*v, label).with_icon(*icon)).collect();
+    let mut chosen = value.as_str();
+    if widgets::segmented(ui, Id::unique("session-dialog-cursor"), &mut chosen, &items) {
+        *value = chosen.to_string();
     }
-    ui.painter().rect_stroke(group, 2.0, Stroke::new(1.0, t.border), StrokeKind::Inside);
 }
 
 fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
@@ -1023,7 +987,7 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         if env.is_empty() {
-            ui.label(RichText::new("No variables.").font(font(size::XS)).color(t.muted).italics());
+            ui.label(RichText::new("No variables.").font(font(size::SM)).color(t.muted).italics());
         }
         let mut remove = None;
         for (i, p) in env.iter_mut().enumerate() {
@@ -1031,11 +995,11 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 let r = form::input(ui, &mut p.key, InputOpts::new("NAME").mono().width(180.0));
                 labelled(ui, &r, &format!("env name {}", i + 1));
-                let value_w = ui.available_width() - 30.0 - 8.0;
+                let value_w = ui.available_width() - 28.0 - 8.0;
                 let r = form::input(ui, &mut p.value, InputOpts::new("value").mono().width(value_w));
                 labelled(ui, &r, &format!("env value {}", i + 1));
                 let what = if p.key.is_empty() { (i + 1).to_string() } else { p.key.clone() };
-                if widgets::Ghost::icon_only(Icon::Trash, &format!("remove env {what}")).quiet().show(ui).clicked() {
+                if widgets::Button::icon_only(Icon::Trash, &format!("remove env {what}"), widgets::Variant::Ghost).small().show(ui).clicked() {
                     remove = Some(i);
                 }
             });
@@ -1043,31 +1007,10 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
         if let Some(i) = remove {
             env.remove(i);
         }
-        if dashed_button(ui, Icon::Plus, "Add variable").clicked() {
+        if widgets::Button::ghost("Add variable").icon(Icon::Plus).small().show(ui).clicked() {
             env.push(EnvPair { key: String::new(), value: String::new() });
         }
     });
-}
-
-/// The env editor's dashed "Add variable" button.
-fn dashed_button(ui: &mut Ui, icon: Icon, text: &str) -> Response {
-    let t = tokens(ui.ctx());
-    let g = ui.painter().layout_no_wrap(text.to_string(), font(size::XS), t.fg);
-    let (rect, resp) = ui.allocate_exact_size(vec2(g.size().x + 12.0 + 4.0 + 16.0, 24.0), Sense::click());
-    let hovered = resp.hovered();
-    let border = if hovered { t.accent } else { t.border };
-    let r = rect.shrink(0.5);
-    let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-    for w in corners.windows(2) {
-        ui.painter().extend(egui::Shape::dashed_line(&[w[0], w[1]], Stroke::new(1.0, border), 3.0, 2.0));
-    }
-    let color = if hovered { t.fg } else { t.muted };
-    icon.paint(ui, Rect::from_center_size(pos2(rect.left() + 14.0, rect.center().y), Vec2::splat(12.0)), 12.0, color);
-    let h = g.size().y;
-    ui.painter().galley_with_override_text_color(Pos2::new(rect.left() + 24.0, rect.center().y - h / 2.0), g, color);
-    widgets::focus_ring(ui, &resp, rect);
-    widgets::a11y(&resp, egui::Role::Button, text);
-    resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 #[cfg(test)]

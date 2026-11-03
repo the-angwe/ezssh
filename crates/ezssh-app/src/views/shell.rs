@@ -2,7 +2,7 @@
 //! rail) on the left, tab strip and MDI area in the middle, status bar at
 //! the bottom, and the shell-level dialogs on top.
 
-use egui::{CursorIcon, Frame, Id, Pos2, Rect, Sense, Stroke, Ui, vec2};
+use egui::{Frame, Id, Pos2, Rect, Stroke, Ui, vec2};
 
 use crate::app::App;
 use crate::icons::Icon;
@@ -14,29 +14,50 @@ use crate::views::{
 };
 use crate::widgets;
 
+/// The collapsed sidebar rail (px).
+const RAIL_W: f32 = 36.0;
+
+/// The quit confirmation, on both screens: tabs stay connected while the
+/// vault is locked.
+pub fn quit_confirm(app: &mut App, ctx: &egui::Context) {
+    if !app.dialogs.quit_confirm {
+        return;
+    }
+    let answer = dialogs::confirm(
+        ctx,
+        Id::unique("confirm-quit"),
+        dialogs::Confirm { title: "Quit ezSsh?", body: "Connected sessions will be closed.", confirm_text: "Quit", danger: true },
+    );
+    match answer {
+        Some(true) => app.quit(),
+        Some(false) => app.dialogs.quit_confirm = false,
+        None => {}
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = tokens(ui.ctx());
     let ctx = ui.ctx().clone();
 
     egui::Panel::bottom("status-bar").exact_size(STATUS_BAR_H).show_separator_line(false).resizable(false).frame(Frame::NONE.fill(t.surface)).show(ui, |ui| {
         let r = ui.max_rect();
-        ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, t.border));
+        // The one place chrome meets the terminal's palette from below.
+        ui.painter().hline(r.x_range(), r.top() + 0.5, Stroke::new(1.0, t.border));
         statusbar::show(app, ui);
     });
 
     if app.tabs.sidebar_collapsed {
-        egui::Panel::left("sidebar-rail").exact_size(24.0).show_separator_line(false).resizable(false).frame(Frame::NONE.fill(t.surface)).show(ui, |ui| {
+        egui::Panel::left("sidebar-rail").exact_size(RAIL_W).show_separator_line(false).resizable(false).frame(Frame::NONE.fill(t.surface)).show(ui, |ui| {
             let r = ui.max_rect();
             ui.painter().vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, t.border));
-            let resp = ui.interact(r, Id::unique("sidebar-rail"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-            widgets::a11y(&resp, egui::Role::Button, "Show sessions sidebar");
-            if resp.hovered() {
-                ui.painter().rect_filled(r, 0.0, t.surface2);
-            }
-            Icon::PanelLeftOpen.paint(ui, r, 14.0, if resp.hovered() { t.fg } else { t.muted });
-            if resp.on_hover_text("Show sessions (Ctrl+B)").clicked() {
+            let mut top = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(4.0, 8.0))).layout(egui::Layout::top_down(egui::Align::Center)));
+            if widgets::icon_btn(&mut top, Icon::PanelLeftOpen, false, "Show sessions sidebar").on_hover_text("Show sessions (Ctrl+B)").clicked() {
                 app.tabs.sidebar_collapsed = false;
             }
+            // The app actions stay reachable with the sidebar away.
+            let mut bottom = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(4.0, 8.0))).layout(egui::Layout::bottom_up(egui::Align::Center)));
+            bottom.spacing_mut().item_spacing.y = 2.0;
+            sidebar::app_actions(app, &mut bottom);
         });
     } else {
         let width = app.layout.sidebar_width;
@@ -105,19 +126,6 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
         }
     }
 
-    if app.dialogs.quit_confirm {
-        let answer = dialogs::confirm(
-            ctx,
-            Id::unique("confirm-quit"),
-            dialogs::Confirm { title: "Quit ezSsh?", body: "Connected sessions will be closed.", confirm_text: "Quit", danger: true },
-        );
-        match answer {
-            Some(true) => app.quit(),
-            Some(false) => app.dialogs.quit_confirm = false,
-            None => {}
-        }
-    }
-
     if let Some((tab, text, lines)) = &app.dialogs.paste {
         let (tab, lines) = (*tab, *lines);
         let answer = dialogs::confirm(
@@ -181,9 +189,9 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
     if app.dialogs.settings.is_some() {
         settings::show(app, ctx);
     }
-    // Phase 5 dialogs. Each shows its `app.dialogs` slot when set; the
-    // credentials manager comes after the session dialog so it stacks on
-    // top when opened from a picker.
+    // Each dialog shows its `app.dialogs` slot when set; the credentials
+    // manager comes after the session dialog so it stacks on top when
+    // opened from a picker.
     session_dialog::show(app, ctx);
     credentials::show(app, ctx);
     forwards::dialogs(app, ctx);

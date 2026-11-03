@@ -7,17 +7,17 @@
 //! never while a call runs or while a one-time result is shown.
 
 use egui::text::LayoutJob;
-use egui::{Align, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, TextFormat, Ui, vec2};
+use egui::{Align, Color32, CornerRadius, FontId, Frame, Id, Layout, Margin, Response, RichText, TextFormat, Ui, vec2};
 use ezssh_core::{AppError, api};
 use zeroize::Zeroizing;
 
 use crate::app::{App, Screen};
 use crate::form;
 use crate::icons::Icon;
-use crate::style::{alpha, font, size, tokens};
+use crate::style::{CONTROL_H, alpha, font, radius, size, tokens};
 use crate::tabs::TabId;
 use crate::views::unlock::{self, UnlockState};
-use crate::widgets::{self, Dialog, Ghost, Tone};
+use crate::widgets::{self, Button, Dialog};
 
 /// The word the reset dialog asks for.
 const CONFIRM_WORD: &str = "DELETE";
@@ -26,56 +26,45 @@ const RESET_TOKEN: &str = "DELETE-MY-VAULT";
 
 // ---------------------------------------------------------------- shared bits
 
-/// A wrapping paragraph of `text-xs` (or `text-[11px]`) copy.
+/// A wrapping paragraph of body copy (13 px).
 pub(crate) fn para(ui: &mut Ui, text: &str, color: Color32) -> Response {
-    ui.add(egui::Label::new(RichText::new(text).font(font(size::XS)).color(color)).wrap())
+    ui.add(egui::Label::new(RichText::new(text).font(font(size::BASE)).color(color)).wrap())
 }
 
 /// A wrapping paragraph with an inline `<code>` path chip in the middle.
 pub(crate) fn para_with_code(ui: &mut Ui, before: &str, code: &str, after: &str) -> Response {
     let t = tokens(ui.ctx());
     let mut job = LayoutJob::default();
-    let plain = TextFormat { font_id: font(size::XS), color: t.muted, ..TextFormat::default() };
+    let plain = TextFormat { font_id: font(size::BASE), color: t.muted, ..TextFormat::default() };
     job.append(before, 0.0, plain.clone());
-    job.append(code, 0.0, TextFormat { font_id: FontId::monospace(size::XS - 0.5), color: t.fg, background: alpha(t.surface2, 0.6), ..TextFormat::default() });
+    job.append(code, 0.0, TextFormat { font_id: FontId::monospace(size::SM), color: t.fg, background: t.surface2, ..TextFormat::default() });
     job.append(after, 0.0, plain);
     job.wrap.max_width = ui.available_width();
     ui.add(egui::Label::new(job).wrap())
 }
 
-/// A labelled password field (`PasswordField`): muted label above, the
-/// field below; `eye` adds the show / hide toggle inside it.
+/// A labelled password field: the label above, the field below; `eye`
+/// adds the show / hide toggle inside it.
 fn password_field(ui: &mut Ui, label: &str, value: &mut String, shown: bool, eye: Option<&mut bool>, enabled: bool) -> Response {
-    let t = tokens(ui.ctx());
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 4.0;
-        let label_resp = ui.label(RichText::new(label).font(font(size::XS)).color(t.muted));
-        let right = if eye.is_some() { 36 } else { 8 };
-        let edit = egui::TextEdit::singleline(value)
-            .desired_width(ui.available_width())
-            .font(font(size::BASE))
-            .margin(Margin { left: 8, right, top: 6, bottom: 6 })
-            .password(!shown)
-            .background_color(t.surface2);
-        let resp = ui.add_enabled(enabled, edit).labelled_by(label_resp.id);
-        crate::form::forget_history(ui, &resp);
-        let stroke = if resp.has_focus() { Stroke::new(1.0, t.accent) } else { Stroke::new(1.0, t.border) };
-        ui.painter().rect_stroke(resp.rect, 2.0, stroke, StrokeKind::Inside);
-        if let Some(eye) = eye {
-            let r = Rect::from_center_size(Pos2::new(resp.rect.right() - 18.0, resp.rect.center().y), vec2(28.0, 28.0));
-            let b = ui.interact(r, resp.id.with("eye"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-            widgets::paint_icon_button(ui, &b, r, if *eye { Icon::EyeOff } else { Icon::Eye }, 13.0, false, None);
-            widgets::a11y(&b, egui::Role::Button, if *eye { "Hide password" } else { "Show password" });
-            if b.on_hover_text(if *eye { "Hide" } else { "Show" }).clicked() {
-                *eye = !*eye;
+    form::field(ui, label, None, |ui| {
+        let resp = match eye {
+            Some(eye) => {
+                *eye = shown;
+                form::secret(ui, value, "", eye, None)
             }
-        }
+            None => {
+                let mut o = form::InputOpts::new("");
+                o.password = !shown;
+                o.enabled = enabled;
+                form::input(ui, value, o)
+            }
+        };
+        form::labelled(ui, &resp, label);
         resp
     })
-    .inner
 }
 
-/// A plain `.input` with an accessible name (the recovery code / DELETE
+/// A plain input with an accessible name (the recovery code / DELETE
 /// boxes), optionally mono and centred.
 fn text_field(ui: &mut Ui, value: &mut String, hint: &str, name: &str, mono_size: Option<f32>, center: bool) -> Response {
     let t = tokens(ui.ctx());
@@ -84,14 +73,14 @@ fn text_field(ui: &mut Ui, value: &mut String, hint: &str, name: &str, mono_size
         .hint_text(RichText::new(hint).color(alpha(t.muted, 0.8)))
         .desired_width(ui.available_width())
         .font(font_id)
-        .align(if center { egui::Align2::CENTER_TOP } else { egui::Align2::LEFT_TOP })
-        .margin(Margin::symmetric(8, 6))
+        .align(if center { egui::Align2::CENTER_CENTER } else { egui::Align2::LEFT_CENTER })
+        .margin(Margin::symmetric(10, 7))
+        .min_size(vec2(0.0, CONTROL_H))
         .background_color(t.surface2);
     let resp = ui.add(edit).accessible_name(name);
     // The recovery code is a secret too.
     crate::form::forget_history(ui, &resp);
-    let stroke = if resp.has_focus() { Stroke::new(1.0, t.accent) } else { Stroke::new(1.0, t.border) };
-    ui.painter().rect_stroke(resp.rect, 2.0, stroke, StrokeKind::Inside);
+    widgets::input_frame(ui, resp.rect, resp.has_focus(), false);
     resp
 }
 
@@ -100,10 +89,12 @@ fn text_field(ui: &mut Ui, value: &mut String, hint: &str, name: &str, mono_size
 fn success_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     let t = tokens(ui.ctx());
     ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 12.0;
-        Icon::CheckCircle.show(ui, 22.0, t.success);
+        ui.spacing_mut().item_spacing.x = 14.0;
+        let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), egui::Sense::hover());
+        widgets::icon_tile(ui, r, Icon::CheckCircle, t.success, 18.0);
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
+            ui.add_space(2.0);
             add(ui);
         });
     });
@@ -170,7 +161,7 @@ fn show_change_password(app: &mut App, ctx: &egui::Context) {
         let mut finish = false;
         // Backdrop and Escape are inert here: the only way on is the
         // button, as in the TSX (it reloaded the page).
-        Dialog::new(id, 460.0).strip(None, "Master password changed").row_gap(12.0).show_split(
+        Dialog::new(id, 460.0).header(None, crate::style::tokens(ctx).accent, "Master password changed", None).row_gap(12.0).show_split(
             ctx,
             |ui| {
                 success_body(ui, |ui| {
@@ -189,7 +180,7 @@ fn show_change_password(app: &mut App, ctx: &egui::Context) {
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::primary_with_icon(ui, None, "Unlock", Tone::Accent, true, size::SM).clicked() {
+                if widgets::Button::primary("Unlock").show(ui).clicked() {
                     finish = true;
                 }
             }),
@@ -206,13 +197,16 @@ fn show_change_password(app: &mut App, ctx: &egui::Context) {
     let can_submit = !busy && !dlg.old.is_empty() && !dlg.new.is_empty() && !dlg.confirm.is_empty();
     let mut submit = false;
     let mut close = false;
-    let out = Dialog::new(id, 460.0).strip(None, "Change master password").row_gap(12.0).show_split(
+    let out = Dialog::new(id, 460.0).header(None, crate::style::tokens(ctx).accent, "Change master password", None).row_gap(12.0).show_split(
         ctx,
         |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                Icon::KeyRound.show(ui, 13.0, t.muted);
-                para(ui, "Re-encrypts every credential and sync passphrase. A snapshot of the current vault is saved first.", t.muted);
+                Icon::KeyRound.show(ui, 16.0, t.muted);
+                ui.vertical(|ui| {
+                    ui.set_width(ui.available_width());
+                    para(ui, "Re-encrypts every credential and sync passphrase. A snapshot of the current vault is saved first.", t.muted);
+                });
             });
             let shown = dlg.show;
             let r = password_field(ui, "Current password", &mut dlg.old, shown, Some(&mut dlg.show), !busy);
@@ -236,10 +230,10 @@ fn show_change_password(app: &mut App, ctx: &egui::Context) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 // Enter submits only when the button would (HTML implicit
                 // submission skips a disabled submit button).
-                if widgets::primary_with_icon(ui, None, if busy { "Changing\u{2026}" } else { "Change password" }, Tone::Accent, can_submit, size::SM).clicked() || (enter && can_submit) {
+                if widgets::Button::primary(if busy { "Changing\u{2026}" } else { "Change password" }).enabled(can_submit).show(ui).clicked() || (enter && can_submit) {
                     submit = true;
                 }
-                if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+                if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                     close = true;
                 }
             });
@@ -414,7 +408,7 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
     let t = tokens(ctx);
     let now = ctx.input(|i| i.time);
     let mut action = None;
-    let out = Dialog::new(Id::unique("recovery-code"), 520.0).strip(Some(Icon::KeyRound), "Recovery code").row_gap(12.0).show_split(
+    let out = Dialog::new(Id::unique("recovery-code"), 520.0).header(Icon::KeyRound, crate::style::tokens(ctx).accent, "Recovery code", None).row_gap(12.0).show_split(
         ctx,
         |ui| match &dlg.phase {
             Phase::Probing => {
@@ -448,10 +442,7 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
                 }
                 let enter = crate::form::entered(ui, &r);
                 if matches!(dlg.phase, Phase::Replace) {
-                    ui.checkbox(
-                        &mut dlg.understand,
-                        RichText::new("I understand the existing recovery code will stop working as soon as the new one is generated.").font(font(size::XS)).color(t.fg),
-                    );
+                    form::checkbox(ui, &mut dlg.understand, "I understand the existing recovery code will stop working as soon as the new one is generated.", None);
                 }
                 if let Some(e) = &dlg.error {
                     widgets::error_strip(ui, e);
@@ -459,10 +450,10 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
                 let can_submit = !verifying && !dlg.password.is_empty() && !(matches!(dlg.phase, Phase::Replace) && !dlg.understand);
                 widgets::button_row(ui, |ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    if widgets::primary_with_icon(ui, None, if verifying { "Generating\u{2026}" } else { "Generate code" }, Tone::Accent, can_submit, size::SM).clicked() || (enter && can_submit) {
+                    if widgets::Button::primary(if verifying { "Generating\u{2026}" } else { "Generate code" }).enabled(can_submit).show(ui).clicked() || (enter && can_submit) {
                         action = Some(CodeAction::Submit);
                     }
-                    if Ghost::new("Cancel").enabled(!verifying).show(ui).clicked() {
+                    if Button::secondary("Cancel").enabled(!verifying).show(ui).clicked() {
                         action = Some(CodeAction::Close);
                     }
                 });
@@ -475,14 +466,13 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
                     "Save this code somewhere safe (printout, password manager) now \u{2014} we will never show it again. Using it to unlock the vault invalidates it, so plan to set a new master password right after.",
                 );
                 Frame::new()
-                    .fill(alpha(t.surface2, 0.6))
-                    .stroke(Stroke::new(1.0, t.border))
-                    .corner_radius(CornerRadius::same(2))
-                    .inner_margin(Margin::same(12))
+                    .fill(t.surface2)
+                    .corner_radius(CornerRadius::same(radius::LG as u8))
+                    .inner_margin(Margin::same(16))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.vertical_centered(|ui| {
-                            ui.add(egui::Label::new(RichText::new(code.as_str()).font(FontId::monospace(size::LG)).color(t.fg)).selectable(true).wrap())
+                            ui.add(egui::Label::new(RichText::new(code.as_str()).font(FontId::monospace(size::LG + 2.0)).color(t.fg)).selectable(true).wrap())
                                 .accessible_name("Recovery code");
                         });
                     });
@@ -491,22 +481,22 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
                 }
                 ui.horizontal(|ui| {
                     let copied = dlg.copied_until.is_some_and(|until| now < until);
-                    if Ghost::new(if copied { "Copied" } else { "Copy" }).icon(Icon::Copy).compact().show(ui).clicked() {
+                    if Button::secondary(if copied { "Copied" } else { "Copy" }).icon(Icon::Copy).small().show(ui).clicked() {
                         // Best effort, as in the TSX: the code stays on screen.
                         ui.ctx().copy_text(code.to_string());
                         tracing::debug!("vault: recovery code copied to the clipboard");
                         dlg.copied_until = Some(now + 1.5);
                         ui.ctx().request_repaint_after(std::time::Duration::from_millis(1500));
                     }
-                    let regen_w = 12.0 + 4.0 + 16.0 + ui.painter().layout_no_wrap("Regenerate".into(), font(size::XS), t.fg).size().x;
+                    let regen_w = 14.0 + 8.0 + 20.0 + ui.painter().layout_no_wrap("Regenerate".into(), font(size::SM), t.fg).size().x;
                     ui.add_space((ui.available_width() - regen_w).max(0.0));
-                    if Ghost::new("Regenerate").icon(Icon::RefreshCcw).compact().show(ui).on_hover_text("Generate a different code (invalidates this one)").clicked() {
+                    if Button::secondary("Regenerate").icon(Icon::RefreshCcw).small().show(ui).on_hover_text("Generate a different code (invalidates this one)").clicked() {
                         action = Some(CodeAction::Regenerate);
                     }
                 });
                 para(ui, "Hyphens are purely visual \u{2014} you can type the code with or without them when unlocking.", t.muted);
                 widgets::button_row(ui, |ui| {
-                    if widgets::primary_with_icon(ui, None, "I've saved it", Tone::Accent, true, size::SM).clicked() {
+                    if widgets::Button::primary("I've saved it").show(ui).clicked() {
                         action = Some(CodeAction::Close);
                     }
                 });
@@ -672,7 +662,7 @@ fn recovery_unlock_frame(ctx: &egui::Context, dlg: &mut RecoveryUnlock) -> Optio
     let t = tokens(ctx);
     let busy = dlg.busy;
     let mut action = None;
-    let out = Dialog::new(Id::unique("recovery-unlock"), 460.0).strip(Some(Icon::KeyRound), "Use recovery code").row_gap(12.0).show_split(
+    let out = Dialog::new(Id::unique("recovery-unlock"), 460.0).header(Icon::KeyRound, crate::style::tokens(ctx).accent, "Use recovery code", None).row_gap(12.0).show_split(
         ctx,
         |ui| {
             para(ui, "Enter the 24-character recovery code you saved. Hyphens, spaces, and case are ignored.", t.muted);
@@ -688,10 +678,10 @@ fn recovery_unlock_frame(ctx: &egui::Context, dlg: &mut RecoveryUnlock) -> Optio
             }
             widgets::button_row(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                if widgets::primary_with_icon(ui, None, if busy { "Unlocking\u{2026}" } else { "Unlock" }, Tone::Accent, can_submit, size::SM).clicked() || enter {
+                if widgets::Button::primary(if busy { "Unlocking\u{2026}" } else { "Unlock" }).enabled(can_submit).show(ui).clicked() || enter {
                     action = Some(UnlockAction::Submit);
                 }
-                if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+                if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                     action = Some(UnlockAction::Close);
                 }
             });
@@ -755,7 +745,7 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
     let id = Id::unique("reset-vault");
     let mut action = None;
     if let Some(snapshot) = &dlg.done {
-        Dialog::new(id, 480.0).strip(None, "Vault reset").row_gap(12.0).show_split(
+        Dialog::new(id, 480.0).header(None, crate::style::tokens(ctx).accent, "Vault reset", None).row_gap(12.0).show_split(
             ctx,
             |ui| {
                 success_body(ui, |ui| {
@@ -769,7 +759,7 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::primary_with_icon(ui, None, "Set a new master password", Tone::Accent, true, size::SM).clicked() {
+                if widgets::Button::primary("Set a new master password").show(ui).clicked() {
                     action = Some(UnlockAction::Finish);
                 }
             }),
@@ -781,7 +771,7 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
 
     let busy = dlg.busy;
     let armed = dlg.typed == CONFIRM_WORD;
-    let out = Dialog::new(id, 480.0).strip(None, "Reset vault").row_gap(12.0).show_split(
+    let out = Dialog::new(id, 480.0).header(None, crate::style::tokens(ctx).accent, "Reset vault", None).row_gap(12.0).show_split(
         ctx,
         |ui| {
             form::note(
@@ -791,11 +781,11 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
                 "This wipes every saved credential, sync passphrase, and the vault key itself. Sessions are kept but lose their saved auth. There is no undo \u{2014} the only recoverable copy is the snapshot we will write to disk before the wipe.",
             );
             ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.spacing_mut().item_spacing.y = 6.0;
                 let mut job = LayoutJob::default();
-                let plain = TextFormat { font_id: font(size::XS), color: t.muted, ..TextFormat::default() };
+                let plain = TextFormat { font_id: font(size::SM), color: t.fg2, ..TextFormat::default() };
                 job.append("Type ", 0.0, plain.clone());
-                job.append(CONFIRM_WORD, 0.0, TextFormat { font_id: FontId::monospace(size::XS), color: t.fg, ..TextFormat::default() });
+                job.append(CONFIRM_WORD, 0.0, TextFormat { font_id: FontId::monospace(size::SM), color: t.fg, ..TextFormat::default() });
                 job.append(" to confirm", 0.0, plain);
                 ui.label(job);
                 let r = text_field(ui, &mut dlg.typed, CONFIRM_WORD, "Confirmation", Some(size::BASE), false);
@@ -812,10 +802,10 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
             }
             widgets::button_row(ui, |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                if widgets::primary_with_icon(ui, Some(Icon::Trash), if busy { "Resetting\u{2026}" } else { "Reset vault" }, Tone::Danger, !busy && armed, size::SM).clicked() {
+                if widgets::Button::danger(if busy { "Resetting\u{2026}" } else { "Reset vault" }).icon(Icon::Trash).enabled(!busy && armed).show(ui).clicked() {
                     action = Some(UnlockAction::Submit);
                 }
-                if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+                if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                     action = Some(UnlockAction::Close);
                 }
             });

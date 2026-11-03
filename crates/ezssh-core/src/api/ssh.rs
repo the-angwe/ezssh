@@ -44,7 +44,9 @@ pub async fn ssh_write(
     connection_id: u64,
     bytes: Vec<u8>,
 ) -> Result<()> {
-    state.ssh.write(connection_id, bytes).await;
+    if !state.ssh.write(connection_id, bytes).await {
+        tracing::debug!(connection_id, "ssh_write: connection is gone, input dropped");
+    }
     Ok(())
 }
 
@@ -54,7 +56,9 @@ pub async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<()> {
-    state.ssh.resize(connection_id, cols, rows).await;
+    if !state.ssh.resize(connection_id, cols, rows).await {
+        tracing::debug!(connection_id, "ssh_resize: connection is gone, resize dropped");
+    }
     Ok(())
 }
 

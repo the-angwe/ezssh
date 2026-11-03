@@ -9,7 +9,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use egui::{Align, Color32, CornerRadius, Frame, Id, Layout, Margin, Stroke, Ui};
+use egui::{Align, Color32, CornerRadius, Frame, Id, Layout, Margin, Ui};
 use ezssh_core::api;
 use ezssh_core::db::credentials::CredentialMeta;
 use zeroize::Zeroizing;
@@ -17,8 +17,8 @@ use zeroize::Zeroizing;
 use crate::app::App;
 use crate::form;
 use crate::icons::Icon;
-use crate::style::{font, size, tokens};
-use crate::widgets::{self, Ghost, Tone};
+use crate::style::{font, radius, size, tokens};
+use crate::widgets;
 
 /// Result slot of an in-flight `credential_create`, filled by the core
 /// continuation and taken by the picker on its next frame.
@@ -173,17 +173,17 @@ impl CredPicker {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 let mut options: Vec<(Option<i64>, String)> = vec![(None, format!("— choose saved {} —", self.verb()))];
                 options.extend(app.creds.of_kind(self.kind).map(|c| (Some(c.id), c.label.clone())));
-                let manage_w = 30.0;
+                let manage_w = 28.0;
                 let add_w = if self.adding { 0.0 } else { add_button_width(ui) + 8.0 };
                 let select_w = (ui.available_width() - manage_w - add_w - 8.0).max(120.0);
                 if form::select(ui, self.salt.with("select"), value, &options, Some(select_w)) {
                     tracing::debug!(kind = self.kind, credential = ?value, "cred_picker: picked");
                 }
-                if !self.adding && Ghost::new("Add new").icon(Icon::Plus).quiet().show(ui).clicked() {
+                if !self.adding && widgets::Button::ghost("Add new").icon(Icon::Plus).small().show(ui).clicked() {
                     self.adding = true;
                     self.focus_label = true;
                 }
-                if Ghost::icon_only(Icon::Settings2, "Manage credentials").quiet().show(ui).on_hover_text("Manage credentials").clicked() {
+                if widgets::Button::icon_only(Icon::Settings2, "Manage credentials", widgets::Variant::Ghost).small().show(ui).on_hover_text("Manage credentials").clicked() {
                     tracing::debug!("cred_picker: open the manager");
                     app.dialogs.credentials = Some(Default::default());
                 }
@@ -193,9 +193,8 @@ impl CredPicker {
             }
             Frame::new()
                 .fill(t.surface2)
-                .stroke(Stroke::new(1.0, t.border))
-                .corner_radius(CornerRadius::same(2))
-                .inner_margin(Margin::same(12))
+                .corner_radius(CornerRadius::same(radius::LG as u8))
+                .inner_margin(Margin::same(14))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.spacing_mut().item_spacing.y = 8.0;
@@ -212,15 +211,18 @@ impl CredPicker {
                         form::secret(ui, &mut self.secret, hint, &mut self.show, None)
                     };
                     crate::form::labelled(ui, &s, "New credential secret");
+                    // Enter in the label or (single-line) secret submits, as in
+                    // the credentials manager's form.
+                    let enter = form::entered(ui, &l) || (self.kind != "private_key" && form::entered(ui, &s));
                     if let Some(e) = &self.err {
-                        ui.label(egui::RichText::new(e).font(font(size::XS)).color(t.danger));
+                        ui.label(egui::RichText::new(e).font(font(size::SM)).color(t.danger));
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if widgets::primary(ui, "Save credential", Tone::Accent, !self.busy, size::XS).clicked() {
+                        if widgets::Button::primary("Save credential").small().enabled(!self.busy).show(ui).clicked() || (enter && !self.busy) {
                             self.create(app);
                         }
-                        if widgets::ghost(ui, "Cancel", size::XS).clicked() {
+                        if widgets::Button::secondary("Cancel").small().show(ui).clicked() {
                             self.reset_form();
                         }
                     });
@@ -230,8 +232,8 @@ impl CredPicker {
 }
 
 fn add_button_width(ui: &Ui) -> f32 {
-    let g = ui.painter().layout_no_wrap("Add new".into(), font(size::XS), Color32::WHITE);
-    g.size().x + 12.0 + 6.0 + 20.0
+    let g = ui.painter().layout_no_wrap("Add new".into(), font(size::SM), Color32::WHITE);
+    g.size().x + 14.0 + 8.0 + 20.0
 }
 
 #[cfg(test)]

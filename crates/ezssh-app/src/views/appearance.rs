@@ -20,9 +20,9 @@ use crate::app::App;
 use crate::font_presets::{self, MAX_FONT_SIZE, MIN_FONT_SIZE};
 use crate::form;
 use crate::icons::Icon;
-use crate::style::{size, tokens};
+use crate::style::tokens;
 use crate::tabs::TabId;
-use crate::widgets::{self, DialogPart, Tone};
+use crate::widgets::{self, DialogPart};
 
 const WIDTH: f32 = 480.0;
 
@@ -171,9 +171,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let t = tokens(ctx);
     let mut action = None;
     let out = widgets::Dialog::new(Id::unique("appearance-dialog"), WIDTH)
-        .padding(20)
         .row_gap(16.0)
         .header(Icon::Palette, t.accent, "Appearance", Some(&title))
+        .plain_subtitle()
         .footer(widgets::DialogFooter::Strip)
         .busy(dlg.busy)
         .show(ctx, |ui, part| match part {
@@ -183,7 +183,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 form::field(
                     ui,
                     "Font family",
-                    Some("(default) uses the app's OS-aware mono stack. Presets list fonts that ship with your OS by default."),
+                    Some("(default) uses the bundled monospace font. The list shows the monospace families installed on this computer."),
                     |ui| font_family_picker(ui, &mut d.font_family, &mut dlg.font_custom),
                 );
                 two_columns(
@@ -204,16 +204,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
             }
             DialogPart::Footer => {
-                if widgets::primary(ui, "Save to session", Tone::Accent, !dlg.busy, size::SM)
+                if widgets::Button::primary("Save to session").enabled(!dlg.busy).show(ui)
                     .on_hover_text("Save as the session's default; its other open tabs follow")
                     .clicked()
                 {
                     action = Some(Action::Save);
                 }
-                if widgets::Ghost::new("Apply to tab").enabled(!dlg.busy).show(ui).on_hover_text("Use for this tab only").clicked() {
+                if widgets::Button::secondary("Apply to tab").enabled(!dlg.busy).show(ui).on_hover_text("Use for this tab only").clicked() {
                     action = Some(Action::Apply);
                 }
-                if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
                     action = Some(Action::Cancel);
                 }
             }

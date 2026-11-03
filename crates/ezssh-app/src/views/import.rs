@@ -15,8 +15,8 @@ use crate::app::App;
 use crate::files::{Filter, Pick};
 use crate::form;
 use crate::icons::Icon;
-use crate::style::{alpha, font, font_semibold, size, tokens};
-use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
+use crate::style::{alpha, font, font_semibold, radius, size, tokens};
+use crate::widgets::{self, Button, Dialog, DialogFooter, DialogPart};
 
 /// Rows listed before "… and N more".
 const LIST_MAX: usize = 200;
@@ -106,10 +106,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         DialogPart::Footer => {
             let can = dlg.preview.as_ref().is_some_and(|p| !p.sessions.is_empty()) && !busy;
             let icon = if busy { Icon::Loader2 } else { Icon::Upload };
-            if widgets::primary_with_icon(ui, Some(icon), "Import", Tone::Accent, can, size::SM).clicked() {
+            if widgets::Button::primary("Import").icon(icon).enabled(can).show(ui).clicked() {
                 act = Some(Act::Import);
             }
-            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
         }
@@ -301,7 +301,7 @@ fn body(ui: &mut Ui, dlg: &mut ImportDialog) {
                     session_line(ui, s);
                 }
                 if n > LIST_MAX {
-                    ui.label(RichText::new(format!("… and {} more", n - LIST_MAX)).font(font(size::XS)).italics().color(t.muted));
+                    ui.label(RichText::new(format!("… and {} more", n - LIST_MAX)).font(font(size::SM)).italics().color(t.muted));
                 }
             });
         });
@@ -335,20 +335,19 @@ fn stat_row(ui: &mut Ui, p: &MobaImportPreview, key_files: usize) {
     ];
     let gap = 8.0;
     let w = (ui.available_width() - gap * 4.0) / 5.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::hover());
     for (i, (label, value, warn)) in cells.into_iter().enumerate() {
         let r = Rect::from_min_size(Pos2::new(rect.left() + i as f32 * (w + gap), rect.top()), vec2(w, rect.height()));
-        ui.painter().rect_filled(r, 2.0, alpha(t.surface2, 0.3));
-        ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, t.border), StrokeKind::Inside);
+        ui.painter().rect_filled(r, radius::LG, t.surface2);
         let color = if warn { t.warning } else { t.fg };
-        let v = ui.painter().layout_no_wrap(value.to_string(), font_semibold(size::LG + 3.0), color);
+        let v = ui.painter().layout_no_wrap(value.to_string(), font_semibold(size::XL), color);
         let vh = v.size().y;
-        ui.painter().galley(Pos2::new(r.left() + 8.0, r.top() + 6.0), v, color);
+        ui.painter().galley(Pos2::new(r.left() + 10.0, r.top() + 8.0), v, color);
         widgets::paint_text(
             ui,
-            Rect::from_min_size(Pos2::new(r.left() + 8.0, r.top() + 6.0 + vh), vec2(w - 16.0, 14.0)),
+            Rect::from_min_size(Pos2::new(r.left() + 10.0, r.top() + 8.0 + vh), vec2(w - 20.0, 14.0)),
             &label.to_uppercase(),
-            font_semibold(size::XS - 1.0),
+            font_semibold(size::XS),
             t.muted,
         );
         let id = ui.scope_id().with(("stat", i));
@@ -381,14 +380,14 @@ fn list(ui: &mut Ui, salt: (&str, u8), max_h: f32, add: impl FnOnce(&mut Ui)) {
 
 fn mono_line(ui: &mut Ui, text: &str, color: Color32) {
     let w = ui.available_width();
-    let g = widgets::elide(ui, text, egui::FontId::monospace(size::XS), w);
-    ui.label(RichText::new(g.text()).font(egui::FontId::monospace(size::XS)).color(color));
+    let g = widgets::elide(ui, text, egui::FontId::monospace(size::SM), w);
+    ui.label(RichText::new(g.text()).font(egui::FontId::monospace(size::SM)).color(color));
 }
 
 /// `name · user@host[:port] [auth] key-file folder/path`.
 fn session_line(ui: &mut Ui, s: &ParsedMobaSession) {
     let t = tokens(ui.ctx());
-    let mono = |text: &str, color: Color32| RichText::new(text.to_string()).font(egui::FontId::monospace(size::XS)).color(color);
+    let mono = |text: &str, color: Color32| RichText::new(text.to_string()).font(egui::FontId::monospace(size::SM)).color(color);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.label(mono(&s.name, t.fg));
@@ -403,8 +402,8 @@ fn session_line(ui: &mut Ui, s: &ParsedMobaSession) {
         } else {
             (s.auth_type.as_str(), t.warning)
         };
-        Frame::new().fill(alpha(color, 0.2)).corner_radius(CornerRadius::same(2)).inner_margin(Margin::symmetric(4, 0)).show(ui, |ui| {
-            ui.label(RichText::new(badge).font(font(size::XS - 1.0)).color(color));
+        Frame::new().fill(alpha(color, 0.16)).corner_radius(CornerRadius::same(radius::PILL as u8)).inner_margin(Margin::symmetric(6, 1)).show(ui, |ui| {
+            ui.label(RichText::new(badge).font(font(size::XS)).color(color));
         });
         if let Some(k) = &s.private_key_path {
             ui.add_space(4.0);
@@ -426,30 +425,30 @@ fn key_file_name(raw: &str) -> &str {
 fn strategy_option(ui: &mut Ui, on: bool, label: &str, hint: &str) -> egui::Response {
     let t = tokens(ui.ctx());
     let w = ui.available_width();
-    let text_w = w - 16.0 - 26.0;
-    let title_g = ui.painter().layout(label.to_string(), font_semibold(size::SM), t.fg, text_w);
-    let hint_g = ui.painter().layout(hint.to_string(), font(size::XS), t.muted, text_w);
-    let h = 8.0 + title_g.size().y + 2.0 + hint_g.size().y + 8.0;
+    let text_w = w - 24.0 - 30.0;
+    let title_g = ui.painter().layout(label.to_string(), font_semibold(size::BASE), t.fg, text_w);
+    let hint_g = ui.painter().layout(hint.to_string(), font(size::SM), t.muted, text_w);
+    let h = 10.0 + title_g.size().y + 2.0 + hint_g.size().y + 10.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     let hovered = resp.hovered();
     let (border, fill) = if on {
-        (t.accent, alpha(t.accent, 0.1))
+        (t.accent, t.accent_soft)
     } else if hovered {
-        (t.muted, Color32::TRANSPARENT)
+        (t.border_strong, t.surface2)
     } else {
-        (t.border, Color32::TRANSPARENT)
+        (t.border_strong, Color32::TRANSPARENT)
     };
-    ui.painter().rect_filled(rect, 2.0, fill);
-    ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, border), StrokeKind::Inside);
-    let c = Pos2::new(rect.left() + 8.0 + 7.0, rect.top() + 8.0 + title_g.size().y / 2.0);
-    ui.painter().circle_stroke(c, 6.0, Stroke::new(1.0, if on { t.accent } else { t.border_strong }));
+    ui.painter().rect_filled(rect, radius::LG, fill);
+    ui.painter().rect_stroke(rect, radius::LG, Stroke::new(1.0, border), StrokeKind::Inside);
+    let c = Pos2::new(rect.left() + 12.0 + 8.0, rect.top() + 10.0 + title_g.size().y / 2.0);
+    ui.painter().circle_stroke(c, 7.0, Stroke::new(1.5, if on { t.accent } else { t.border_strong }));
     if on {
         ui.painter().circle_filled(c, 3.5, t.accent);
     }
-    let x = rect.left() + 8.0 + 14.0 + 10.0;
+    let x = rect.left() + 12.0 + 16.0 + 12.0;
     let th = title_g.size().y;
-    ui.painter().galley(Pos2::new(x, rect.top() + 8.0), title_g, t.fg);
-    ui.painter().galley(Pos2::new(x, rect.top() + 8.0 + th + 2.0), hint_g, t.muted);
+    ui.painter().galley(Pos2::new(x, rect.top() + 10.0), title_g, t.fg);
+    ui.painter().galley(Pos2::new(x, rect.top() + 10.0 + th + 2.0), hint_g, t.muted);
     widgets::focus_ring(ui, &resp, rect);
     widgets::a11y_selected(&resp, egui::Role::RadioButton, on, label);
     resp.on_hover_cursor(CursorIcon::PointingHand)

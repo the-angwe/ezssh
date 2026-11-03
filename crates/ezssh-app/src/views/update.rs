@@ -22,9 +22,9 @@ use ezssh_core::updater::{Config, Update};
 use crate::app::App;
 use crate::icons::Icon;
 use crate::settings::Value;
-use crate::style::{alpha, font, font_semibold, size, tokens};
+use crate::style::{alpha, font, font_semibold, radius, size, tokens};
 use crate::views::vault_dialogs::para;
-use crate::widgets::{self, Dialog, Tone};
+use crate::widgets::{self, Dialog};
 
 /// "Installed" stays up this long before the restart.
 const RESTART_DELAY: Duration = Duration::from_millis(800);
@@ -268,7 +268,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut action = None;
     // The body's checkbox (the footer closure holds `action`).
     let mut channel = None;
-    let out = Dialog::new(Id::unique("update-dialog"), 520.0).strip(Some(Icon::Sparkles), "ezSsh updates").busy(busy).row_gap(12.0).show_split(
+    let out = Dialog::new(Id::unique("update-dialog"), 520.0).header(Icon::Sparkles, crate::style::tokens(ctx).accent, "ezSsh updates", None).busy(busy).row_gap(12.0).show_split(
         ctx,
         |ui| {
             match &dlg.phase {
@@ -291,19 +291,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         Icon::Download.show(ui, 14.0, t.accent);
-                        ui.label(RichText::new(&update.version).font(egui::FontId::new(size::XS, app.mono.clone())).color(t.fg));
+                        ui.label(RichText::new(&update.version).font(egui::FontId::new(size::SM, app.mono.clone())).color(t.fg));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let text = match total {
                                 Some(tt) => format!("{} / {}", format_bytes(*downloaded), format_bytes(*tt)),
                                 None => format_bytes(*downloaded),
                             };
-                            ui.label(RichText::new(text).font(font(size::XS)).color(t.muted));
+                            ui.label(RichText::new(text).font(font(size::SM)).color(t.muted));
                         });
                     });
                     progress_bar(ui, *downloaded, *total);
                     let done = total.is_some_and(|tt| tt > 0 && *downloaded >= tt);
                     let note = if done { "Signature verified. Installing\u{2026}" } else { "Downloading and verifying the signature\u{2026}" };
-                    ui.label(RichText::new(note).font(font(size::XS)).color(t.muted));
+                    ui.label(RichText::new(note).font(font(size::SM)).color(t.muted));
                 }
                 Phase::Installed(u) => {
                     ui.horizontal(|ui| {
@@ -335,22 +335,23 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         Some(&mut |ui: &mut Ui| match &dlg.phase {
             Phase::Available(u) => {
                 if u.installable() {
-                    if widgets::primary_with_icon(ui, Some(Icon::Download), "Install & restart", Tone::Accent, true, size::SM).clicked() {
+                    if widgets::Button::primary("Install & restart").icon(Icon::Download).show(ui).clicked() {
                         action = Some(Action::Install(u.clone()));
                     }
-                } else if widgets::primary_with_icon(ui, Some(Icon::Globe2), "Open releases page", Tone::Accent, true, size::SM).clicked() {
+                } else if widgets::Button::primary("Open releases page").icon(Icon::Globe2).show(ui).clicked() {
                     action = Some(Action::OpenPage(u.release_page.clone()));
                 }
-                if widgets::Ghost::new("Later").show(ui).clicked() {
+                if widgets::Button::secondary("Later").show(ui).clicked() {
                     action = Some(Action::Close);
                 }
             }
             phase => {
-                if widgets::Ghost::new("Close").enabled(!busy).show(ui).clicked() {
-                    action = Some(Action::Close);
-                }
-                if matches!(phase, Phase::UpToDate | Phase::Error(_)) && widgets::Ghost::new("Check again").icon(Icon::RefreshCw).show(ui).clicked() {
+                // Right-to-left: the action goes first so it sits rightmost.
+                if matches!(phase, Phase::UpToDate | Phase::Error(_)) && widgets::Button::secondary("Check again").icon(Icon::RefreshCw).show(ui).clicked() {
                     action = Some(Action::Recheck);
+                }
+                if widgets::Button::secondary("Close").enabled(!busy).show(ui).clicked() {
+                    action = Some(Action::Close);
                 }
             }
         }),
@@ -393,32 +394,30 @@ fn available(ui: &mut Ui, u: &Update, kind: Option<ezssh_core::updater::InstallK
     let t = tokens(ui.ctx());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        ui.label(RichText::new("Current").font(font(size::XS)).color(t.muted));
-        ui.label(RichText::new(&u.current_version).font(egui::FontId::monospace(size::SM)).color(t.fg));
-        ui.label(RichText::new("\u{2192}").font(font(size::SM)).color(t.muted));
-        ui.label(RichText::new("New").font(font(size::XS)).color(t.muted));
-        ui.label(RichText::new(&u.version).font(egui::FontId::monospace(size::SM)).strong().color(t.accent));
+        ui.label(RichText::new("Current").font(font(size::SM)).color(t.muted));
+        ui.label(RichText::new(&u.current_version).font(egui::FontId::monospace(size::BASE)).color(t.fg));
+        ui.label(RichText::new("\u{2192}").font(font(size::BASE)).color(t.muted));
+        ui.label(RichText::new("New").font(font(size::SM)).color(t.muted));
+        ui.label(RichText::new(&u.version).font(egui::FontId::monospace(size::BASE)).strong().color(t.accent));
         if u.pre_release {
             badge(ui, "PRE-RELEASE");
         }
     });
     if let Some(d) = u.date.as_deref() {
-        let shown = chrono::DateTime::parse_from_rfc3339(d)
-            .map(|dt| dt.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M").to_string())
-            .unwrap_or_else(|_| d.to_string());
-        ui.label(RichText::new(format!("Published {shown}")).font(font(size::XS)).color(t.muted));
+        let shown = super::backup::local_time(d, false);
+        ui.label(RichText::new(format!("Published {shown}")).font(font(size::SM)).color(t.muted));
     }
     if let Some(notes) = u.notes.as_deref() {
-        ui.label(RichText::new("RELEASE NOTES").font(font(size::XS)).color(t.muted));
+        crate::form::caption(ui, "Release notes");
         egui::Frame::new()
-            .fill(alpha(t.surface2, 0.4))
+            .fill(t.bg)
             .stroke(Stroke::new(1.0, t.border))
-            .corner_radius(3)
-            .inner_margin(10)
+            .corner_radius(radius::LG as u8)
+            .inner_margin(12)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 egui::ScrollArea::vertical().max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {
-                    ui.add(egui::Label::new(RichText::new(notes).font(egui::FontId::monospace(size::XS)).color(t.fg)).wrap());
+                    ui.add(egui::Label::new(RichText::new(notes).font(egui::FontId::monospace(size::SM)).color(t.fg)).wrap());
                 });
             });
     }
@@ -439,15 +438,14 @@ fn available(ui: &mut Ui, u: &Update, kind: Option<ezssh_core::updater::InstallK
 fn badge(ui: &mut Ui, text: &str) {
     let t = tokens(ui.ctx());
     egui::Frame::new()
-        .fill(alpha(t.warning, 0.15))
-        .stroke(Stroke::new(1.0, alpha(t.warning, 0.3)))
-        .corner_radius(2)
-        .inner_margin(egui::Margin::symmetric(5, 1))
+        .fill(alpha(t.warning, 0.14))
+        .corner_radius(radius::PILL as u8)
+        .inner_margin(egui::Margin::symmetric(7, 2))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 3.0;
-                Icon::FlaskConical.show(ui, 10.0, t.warning);
-                ui.label(RichText::new(text).font(font_semibold(10.0)).color(t.warning));
+                ui.spacing_mut().item_spacing.x = 4.0;
+                Icon::FlaskConical.show(ui, 11.0, t.warning);
+                ui.label(RichText::new(text).font(font_semibold(size::XS)).color(t.warning));
             });
         });
 }
@@ -455,19 +453,19 @@ fn badge(ui: &mut Ui, text: &str) {
 fn progress_bar(ui: &mut Ui, value: u64, total: Option<u64>) {
     let t = tokens(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), egui::Sense::hover());
-    ui.painter().rect_filled(r, 1.0, t.surface2);
+    ui.painter().rect_filled(r, radius::PILL, t.surface3);
     match total.filter(|t| *t > 0) {
         Some(tt) => {
             let f = (value as f32 / tt as f32).clamp(0.0, 1.0);
             let mut fill = r;
             fill.set_width(r.width() * f);
-            ui.painter().rect_filled(fill, 1.0, t.accent);
+            ui.painter().rect_filled(fill, radius::PILL, t.accent);
         }
         None => {
             // Unknown size: a third-wide bar that pulses.
             let mut fill = r;
             fill.set_width(r.width() / 3.0);
-            ui.painter().rect_filled(fill, 1.0, alpha(t.accent, widgets::pulse(ui.ctx())));
+            ui.painter().rect_filled(fill, radius::PILL, alpha(t.accent, widgets::pulse(ui.ctx())));
         }
     }
 }

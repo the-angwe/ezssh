@@ -21,8 +21,8 @@ use crate::files::{Filter, Pick};
 use crate::form;
 use crate::icons::Icon;
 use crate::settings::Settings;
-use crate::style::{Theme, alpha, font, font_semibold, size, tokens};
-use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
+use crate::style::{Theme, alpha, font, font_semibold, radius, size, tokens};
+use crate::widgets::{self, Button, Dialog, DialogFooter, DialogPart};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -145,13 +145,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             shared::error_line(ui, dlg.err.as_deref());
         }
         (DialogPart::Footer, Step::Passphrase) => {
-            if widgets::primary(ui, "Unlock backup", Tone::Accent, !busy && !dlg.passphrase.is_empty(), size::SM).clicked() {
+            if widgets::Button::primary("Unlock backup").enabled(!busy && !dlg.passphrase.is_empty()).show(ui).clicked() {
                 act = Some(Act::Unlock);
             }
             if busy {
                 form::spinner(ui, 12.0);
             }
-            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
         }
@@ -163,17 +163,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }
         (DialogPart::Footer, Step::Select) => {
             let total = dlg.preview.as_ref().map_or(0, |p| dlg.sel.total(p));
-            if widgets::primary(ui, "Import selected", Tone::Accent, !busy && total > 0, size::SM).clicked() {
+            if widgets::Button::primary("Import selected").enabled(!busy && total > 0).show(ui).clicked() {
                 act = Some(Act::Restore);
             }
             if busy {
                 form::spinner(ui, 12.0);
             }
-            if Ghost::new("Cancel").enabled(!busy).show(ui).clicked() {
+            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                 act = Some(Act::Close);
             }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.label(RichText::new(format!("{total} items selected")).font(font(size::XS)).color(t.muted));
+                ui.label(RichText::new(format!("{total} items selected")).font(font(size::SM)).color(t.muted));
             });
         }
     });
@@ -356,7 +356,8 @@ fn summary_text(s: &RestoreSummary) -> String {
 fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
     let t = tokens(ui.ctx());
     let version = format!("v{}", p.app_version);
-    shared::rich(ui, &[(Span::Muted, "Created "), (Span::Mono, &p.created_at), (Span::Muted, " · version "), (Span::Mono, &version)]);
+    let created = shared::local_time(&p.created_at, true);
+    shared::rich(ui, &[(Span::Muted, "Created "), (Span::Mono, &created), (Span::Muted, " · version "), (Span::Mono, &version)]);
 
     // Folders.
     let all = p.folders.iter().map(|f| f.id);
@@ -426,7 +427,7 @@ fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
             if r.changed() {
                 tracing::debug!(on = sel.settings, "restore: settings toggled");
             }
-            Icon::Key.show(ui, 13.0, t.muted);
+            Icon::Key.show(ui, 14.0, t.muted);
         });
     }
 
@@ -461,7 +462,7 @@ fn section<K: Ord + Clone>(
         ui.spacing_mut().item_spacing.y = 6.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            icon.show(ui, 13.0, t.muted);
+            icon.show(ui, 14.0, t.muted);
             form::caption(ui, &format!("{title} ({}/{})", set.len(), all.len()));
             if !all.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -474,7 +475,7 @@ fn section<K: Ord + Clone>(
             }
         });
         if all.is_empty() {
-            ui.label(RichText::new("none in backup").font(font(size::XS)).italics().color(t.muted));
+            ui.label(RichText::new("none in backup").font(font(size::SM)).italics().color(t.muted));
         } else {
             egui::ScrollArea::vertical().id_salt(("restore-section", title)).max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
@@ -497,15 +498,15 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
     let t = tokens(ui.ctx());
     let w = ui.available_width();
     let mut on = set.contains(&key);
-    ui.allocate_ui_with_layout(vec2(w, 20.0), Layout::left_to_right(Align::Center), |ui| {
+    ui.allocate_ui_with_layout(vec2(w, 24.0), Layout::left_to_right(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let hover_rect = ui.max_rect();
         if ui.rect_contains_pointer(hover_rect) {
-            ui.painter().rect_filled(hover_rect, 2.0, alpha(t.surface2, 0.6));
+            ui.painter().rect_filled(hover_rect, radius::MD, t.surface2);
         }
         ui.add_space(4.0);
         let sub_w = sub.map_or(0.0, |s| {
-            let g = ui.painter().layout_no_wrap(s.to_string(), egui::FontId::monospace(size::XS), t.muted);
+            let g = ui.painter().layout_no_wrap(s.to_string(), egui::FontId::monospace(size::SM), t.muted);
             g.size().x.min(220.0) + 8.0
         });
         let marker_w = match marker {
@@ -514,8 +515,8 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
             None => 0.0,
         };
         let label_w = (w - sub_w - marker_w - 40.0).max(60.0);
-        let g = widgets::elide(ui, label, font(size::XS), label_w);
-        let r = ui.checkbox(&mut on, RichText::new(g.text()).font(font(size::XS)).color(t.fg));
+        let g = widgets::elide(ui, label, font(size::BASE), label_w);
+        let r = ui.checkbox(&mut on, RichText::new(g.text()).font(font(size::BASE)).color(t.fg));
         if r.changed() {
             if on {
                 set.insert(key.clone());
@@ -536,8 +537,8 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
         if let Some(s) = sub {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(4.0);
-                let g = widgets::elide(ui, s, egui::FontId::monospace(size::XS), 220.0);
-                ui.label(RichText::new(g.text()).font(egui::FontId::monospace(size::XS)).color(t.muted));
+                let g = widgets::elide(ui, s, egui::FontId::monospace(size::SM), 220.0);
+                ui.label(RichText::new(g.text()).font(egui::FontId::monospace(size::SM)).color(t.muted));
             });
         }
     });
@@ -545,10 +546,10 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
 
 /// A small tinted badge with an icon.
 fn pill(ui: &mut Ui, icon: Icon, text: &str, color: egui::Color32) {
-    Frame::new().fill(alpha(color, 0.15)).corner_radius(CornerRadius::same(2)).inner_margin(Margin::symmetric(4, 1)).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.x = 3.0;
-        icon.show(ui, 10.0, color);
-        ui.label(RichText::new(text).font(font_semibold(size::XS - 1.0)).color(color));
+    Frame::new().fill(alpha(color, 0.14)).corner_radius(CornerRadius::same(radius::PILL as u8)).inner_margin(Margin::symmetric(7, 2)).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        icon.show(ui, 11.0, color);
+        ui.label(RichText::new(text).font(font_semibold(size::XS)).color(color));
     });
 }
 

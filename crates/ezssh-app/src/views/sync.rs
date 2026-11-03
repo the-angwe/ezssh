@@ -18,8 +18,8 @@ use crate::app::App;
 use crate::files::Pick;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
-use crate::style::{alpha, size, tokens};
-use crate::widgets::{self, Dialog, DialogFooter, DialogPart, Ghost, Tone};
+use crate::style::{radius, size, tokens};
+use crate::widgets::{self, Button, Dialog, DialogFooter, DialogPart};
 
 /// How often the open dialog refreshes the sync status.
 const POLL: Duration = Duration::from_secs(3);
@@ -219,7 +219,7 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
                     let browse_w = 86.0;
                     let w = ui.available_width() - browse_w - 8.0;
                     let r = form::input(ui, &mut dlg.path, InputOpts::new(r"C:\Users\you\Dropbox\ezssh").mono().width(w));
-                    if Ghost::new("Browse").icon(Icon::FolderOpen).show(ui).clicked() {
+                    if Button::secondary("Browse").icon(Icon::FolderOpen).show(ui).clicked() {
                         *act = Some(Act::Browse);
                     }
                     r
@@ -273,12 +273,12 @@ fn passphrase_fields(ui: &mut Ui, pass: &mut String, confirm: &mut String, shown
 fn status_strip(ui: &mut Ui, s: &SyncStatus) {
     let t = tokens(ui.ctx());
     let enabled = s.kind != "none";
-    let mono = |text: &str, color| RichText::new(text.to_string()).font(egui::FontId::monospace(size::XS)).color(color);
+    let mono = |text: &str, color| RichText::new(text.to_string()).font(egui::FontId::monospace(size::SM)).color(color);
     Frame::new()
-        .fill(alpha(t.surface2, 0.3))
+        .fill(t.bg)
         .stroke(Stroke::new(1.0, t.border))
-        .corner_radius(CornerRadius::same(2))
-        .inner_margin(Margin::same(12))
+        .corner_radius(CornerRadius::same(radius::LG as u8))
+        .inner_margin(Margin::same(14))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
@@ -295,7 +295,7 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 ui.label(mono("Status", t.muted));
                 if enabled {
-                    Icon::Check.show(ui, 12.0, t.success);
+                    Icon::Check.show(ui, 14.0, t.success);
                     ui.label(mono(&format!("Enabled — {}", s.kind), t.fg));
                 } else {
                     ui.label(mono("Not configured", t.muted));
@@ -321,7 +321,7 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label(mono("Last sync: ", t.muted));
-                    ui.label(mono(&s.last_success_at.as_deref().map_or_else(|| "—".to_string(), display_time), t.fg));
+                    ui.label(mono(&s.last_success_at.as_deref().map_or_else(|| "—".to_string(), |t| shared::local_time(t, true)), t.fg));
                     if s.pending {
                         ui.add_space(8.0);
                         ui.label(mono("(writing…)", t.accent));
@@ -338,50 +338,31 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
         });
 }
 
-/// The core's RFC 3339 timestamp in local time, `YYYY-MM-DD HH:MM:SS`
-/// Anything else is shown as stored.
-fn display_time(s: &str) -> String {
-    display_time_in(s, &chrono::Local)
-}
-
-fn display_time_in<Tz: chrono::TimeZone>(s: &str, tz: &Tz) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    match chrono::DateTime::parse_from_rfc3339(s) {
-        Ok(t) => t.with_timezone(tz).format("%Y-%m-%d %H:%M:%S").to_string(),
-        Err(e) => {
-            tracing::debug!(value = s, error = %e, "sync: last-sync time not RFC 3339, shown as stored");
-            s.to_string()
-        }
-    }
-}
-
 fn footer(ui: &mut Ui, dlg: &SyncDialog, act: &mut Option<Act>) {
     let t = tokens(ui.ctx());
     let busy = dlg.busy;
     let enabled = dlg.enabled();
     let same_kind = dlg.status.as_ref().is_some_and(|s| s.kind == dlg.kind.id());
     let label = if enabled && same_kind { "Update & push" } else { "Enable sync" };
-    if widgets::primary(ui, label, Tone::Accent, !busy, size::SM).clicked() {
+    if widgets::Button::primary(label).enabled(!busy).show(ui).clicked() {
         *act = Some(Act::Save);
     }
     if busy {
         form::spinner(ui, 12.0);
     }
     if enabled {
-        if Ghost::new("Push now").icon(Icon::RefreshCw).enabled(!busy).show(ui).clicked() {
+        if Button::secondary("Push now").icon(Icon::RefreshCw).enabled(!busy).show(ui).clicked() {
             *act = Some(Act::Push);
         }
         if dlg.status.as_ref().is_some_and(|s| s.kind == "s3")
-            && Ghost::new("Pull from cloud").icon(Icon::Download).enabled(!busy).show(ui)
+            && Button::secondary("Pull from cloud").icon(Icon::Download).enabled(!busy).show(ui)
                 .on_hover_text("Download the remote bundle and open the Restore dialog")
                 .clicked()
         {
             *act = Some(Act::Pull);
         }
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            if Ghost::new("Disable").color(t.danger).enabled(!busy).show(ui).clicked() {
+            if Button::secondary("Disable").tint(t.danger).enabled(!busy).show(ui).clicked() {
                 *act = Some(Act::Disable);
             }
         });
@@ -585,10 +566,11 @@ mod tests {
     #[test]
     fn times_and_passphrase_wording() {
         let cet = chrono::FixedOffset::east_opt(3600).expect("offset");
-        assert_eq!(display_time_in("2026-11-01T12:34:56.123456+00:00", &cet), "2026-11-01 13:34:56");
-        assert_eq!(display_time_in("2026-11-01T23:34:56Z", &cet), "2026-11-02 00:34:56");
-        assert_eq!(display_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc), "2026-11-01 10:34:56");
-        assert_eq!(display_time("soon"), "soon");
+        assert_eq!(shared::local_time_in("2026-11-01T12:34:56.123456+00:00", &cet, true), "2026-11-01 13:34:56");
+        assert_eq!(shared::local_time_in("2026-11-01T23:34:56Z", &cet, true), "2026-11-02 00:34:56");
+        assert_eq!(shared::local_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc, true), "2026-11-01 10:34:56");
+        assert_eq!(shared::local_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc, false), "2026-11-01 10:34");
+        assert_eq!(shared::local_time("soon", true), "soon");
         assert_eq!(check("short", "short"), Err("Passphrase must be ≥ 8 characters"));
         assert_eq!(check("long enough", "nope nope"), Err("Passphrases do not match"));
     }

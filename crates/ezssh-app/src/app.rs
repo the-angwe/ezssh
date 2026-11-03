@@ -103,6 +103,9 @@ pub struct App {
     /// UI monospace (`font-mono`): the terminal's default font.
     pub(crate) mono: FontFamily,
     pub(crate) xstatus: Option<XServerStatus>,
+    /// `Event::Closed` that arrived for a connection id no tab knew yet
+    /// (a shell that exits at once); replayed when the connect lands.
+    pub(crate) early_closed: HashMap<u64, ezssh_core::Event>,
     xpoll_at: Instant,
     pub(crate) last_input: Instant,
     /// Quit confirmed: let the next close request through.
@@ -168,6 +171,7 @@ impl App {
             fonts,
             mono,
             xstatus: None,
+            early_closed: HashMap::new(),
             xpoll_at: Instant::now(),
             last_input: Instant::now(),
             allow_close: false,
@@ -300,7 +304,7 @@ impl App {
     pub(crate) fn apply_settings(&mut self) {
         self.rebuild_term_style();
         let osc52 = self.settings.bool("terminal.osc52Clipboard");
-        for slot in self.terms.values() {
+        for slot in self.terms.values_mut() {
             slot.term.set_palette(self.term_style.palette.clone());
             slot.term.set_osc52_write(osc52);
         }
@@ -445,6 +449,11 @@ impl App {
             self.tabs.active = Some(id);
             self.strip.reveal_active = true;
         }
+        // A frame minimised in Cascade has no cell in the other modes and
+        // a blank area in Tabs: activating it brings it back.
+        if self.tabs.is_minimized(id) {
+            self.tabs.restore(id);
+        }
         if let Some(slot) = self.terms.get_mut(&id) {
             slot.focus = true;
         }
@@ -506,7 +515,11 @@ impl App {
             }
             ctx.request_repaint_after((limit - idle).min(IDLE_TICK));
         }
-        // X server pill.
+        // X server pill (VcXsrv is Windows-only; elsewhere the poll would
+        // only stat Windows paths and keep a 5 s wake-up).
+        if !cfg!(windows) {
+            return;
+        }
         if now >= self.xpoll_at {
             self.xpoll_at = now + XSERVER_POLL;
             self.core.call("xserver_status", |st| async move { api::xserver::xserver_status(&st).await }, |app, r| match r {
@@ -525,7 +538,8 @@ impl App {
             tracing::info!("app: quitting");
             return;
         }
-        let live = matches!(self.screen, Screen::Main) && self.tabs.any_connected();
+        // Locking keeps the connections up, so the unlock screen asks too.
+        let live = self.tabs.any_connected();
         if live && self.settings.bool("sessions.confirmExit") {
             tracing::info!("app: close requested with live tabs, asking");
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -539,19 +553,25 @@ impl App {
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
-    /// Ctrl+B / Ctrl+Shift+W, only while no terminal has the keyboard
-    /// (a terminal gets ^B and ^W itself: tmux, readline).
+    /// Ctrl+B / Ctrl+K / Ctrl+Shift+W, only while no terminal has the
+    /// keyboard (a terminal gets ^B, ^K and ^W itself: tmux, readline).
     pub(crate) fn global_shortcuts(&mut self, ctx: &egui::Context) {
         if self.any_modal_open() {
             return;
         }
-        let (toggle, cycle) = ctx.input_mut(|i| {
+        let (toggle, cycle, filter) = ctx.input_mut(|i| {
             let cycle = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::W);
             let toggle = i.consume_key(Modifiers::COMMAND, Key::B);
-            (toggle, cycle)
+            let filter = i.consume_key(Modifiers::COMMAND, Key::K);
+            (toggle, cycle, filter)
         });
         if toggle {
             self.tabs.sidebar_collapsed = !self.tabs.sidebar_collapsed;
+        }
+        if filter {
+            tracing::debug!("app: Ctrl+K, focus the session filter");
+            self.tabs.sidebar_collapsed = false;
+            self.sidebar.focus_filter = true;
         }
         if cycle {
             self.tabs.view_mode = self.tabs.view_mode.next();
@@ -610,6 +630,7 @@ impl eframe::App for App {
             Screen::Unlock(_) => views::unlock::show(self, ui),
             Screen::Main => views::shell::show(self, ui),
         }
+        views::shell::quit_confirm(self, &ctx);
         self.toasts.show(&ctx);
         self.update_title(&ctx);
     }

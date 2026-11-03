@@ -23,12 +23,14 @@ impl Aead256 {
         Ok((nonce_bytes.to_vec(), ct))
     }
 
-    pub fn decrypt(&self, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
+    /// The plaintext comes back zeroized on drop: every caller holds a
+    /// secret (a credential, a passphrase, the vault key, a bundle).
+    pub fn decrypt(&self, nonce: &[u8], ciphertext: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         if nonce.len() != NONCE_LEN { return Err(AppError::Crypto); }
         let cipher =
             ChaCha20Poly1305::new_from_slice(&*self.0).map_err(|_| AppError::Crypto)?;
         let nonce = Nonce::try_from(nonce).map_err(|_| AppError::Crypto)?;
-        cipher.decrypt(&nonce, ciphertext).map_err(|_| AppError::Crypto)
+        cipher.decrypt(&nonce, ciphertext).map(Zeroizing::new).map_err(|_| AppError::Crypto)
     }
 }
 
@@ -42,7 +44,7 @@ mod tests {
         let a = Aead256::new(&key);
         let (nonce, ct) = a.encrypt(b"hello secret").unwrap();
         let pt = a.decrypt(&nonce, &ct).unwrap();
-        assert_eq!(pt, b"hello secret");
+        assert_eq!(&pt[..], b"hello secret");
     }
 
     #[test]

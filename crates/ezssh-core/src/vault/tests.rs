@@ -68,7 +68,7 @@ async fn change_password_re_encrypts_credentials() {
         sqlx::query_as("SELECT nonce, ciphertext FROM credentials WHERE label = ?")
             .bind("prod-db").fetch_one(&pool).await.unwrap();
     let pt = decrypt_with(&st2, &n2, &c2).unwrap();
-    assert_eq!(pt, b"hunter2-secret");
+    assert_eq!(&pt[..], b"hunter2-secret");
 }
 
 #[tokio::test]
@@ -95,7 +95,7 @@ async fn change_password_re_encrypts_sync_blobs() {
     let bytes = B64.decode(&new_blob).unwrap();
     let (n2, c2) = bytes.split_at(crate::vault::aead::NONCE_LEN);
     let pt = decrypt_with(&st2, n2, c2).unwrap();
-    assert_eq!(pt, b"s3-passphrase-original");
+    assert_eq!(&pt[..], b"s3-passphrase-original");
 }
 
 #[tokio::test]
@@ -126,13 +126,13 @@ async fn change_password_handles_credentials_and_sync_blobs_together() {
     let (n2, c2): (Vec<u8>, Vec<u8>) =
         sqlx::query_as("SELECT nonce, ciphertext FROM credentials WHERE label = ?")
             .bind("c").fetch_one(&pool).await.unwrap();
-    assert_eq!(decrypt_with(&st2, &n2, &c2).unwrap(), b"cred-pt");
+    assert_eq!(&decrypt_with(&st2, &n2, &c2).unwrap()[..], b"cred-pt");
 
     let blob: String = sqlx::query_scalar("SELECT value FROM app_settings WHERE key = ?")
         .bind("sync.local.passphrase_blob").fetch_one(&pool).await.unwrap();
     let bytes = B64.decode(&blob).unwrap();
     let (bn, bc) = bytes.split_at(crate::vault::aead::NONCE_LEN);
-    assert_eq!(decrypt_with(&st2, bn, bc).unwrap(), b"blob-pt");
+    assert_eq!(&decrypt_with(&st2, bn, bc).unwrap()[..], b"blob-pt");
 }
 
 #[tokio::test]
@@ -162,7 +162,7 @@ async fn recovery_code_unlocks_vault() {
     let unlocked = VaultState::Unlocked { key };
     let (n, c) = encrypt_with(&st, b"smuggled").unwrap();
     let pt = decrypt_with(&unlocked, &n, &c).unwrap();
-    assert_eq!(pt, b"smuggled");
+    assert_eq!(&pt[..], b"smuggled");
 }
 
 #[tokio::test]

@@ -178,6 +178,12 @@ impl russh::server::Handler for SshHandler {
     async fn shell_request(&mut self, channel: ChannelId, session: &mut Session) -> Result<(), Self::Error> {
         session.channel_success(channel)?;
         self.shells.insert(channel);
+        // Nobody reads a shell channel's `Channel<Msg>` (the echo runs in
+        // `data`); russh still queues every packet on it and its session
+        // loop blocks once 100 wait unread. Drain it.
+        if let Some(mut ch) = self.channels.remove(&channel) {
+            tokio::spawn(async move { while ch.wait().await.is_some() {} });
+        }
         session.data(channel, &b"ezssh-testsrv echo shell (type exit to leave)\r\n$ "[..])?;
         Ok(())
     }

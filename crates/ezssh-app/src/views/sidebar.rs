@@ -2,7 +2,7 @@
 //! context menus, and the small folder / session dialogs. The session
 //! editor and the root menu's dialogs live in their own modules.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use egui::{Color32, CursorIcon, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, vec2};
 use ezssh_core::api;
@@ -12,7 +12,9 @@ use ezssh_core::db::sessions::Session;
 use crate::app::App;
 use crate::core::Core;
 use crate::icons::Icon;
-use crate::style::{ROW_H, alpha, font, font_semibold, size, tokens};
+use crate::form::{self, InputOpts};
+use crate::style::{ICON_BTN, ROW_H, ROW_INSET, alpha, font, font_semibold, radius, size, tokens};
+use crate::tabs::TabStatus;
 use crate::tabs::session_summary;
 use crate::views::dialogs::{self, MoveState, PromptAnswer, PromptState};
 use crate::widgets::{self, Menu, MenuEntry, MenuResult};
@@ -62,6 +64,25 @@ pub fn slot_rejected(slot: DropSlot, source: (RowKind, i64)) -> bool {
         (RowKind::Folder, DropSlot::IntoFolder(f) | DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f)) => f == source.1,
         (RowKind::Session, DropSlot::BeforeSession(s) | DropSlot::AfterSession(s)) => s == source.1,
         _ => false,
+    }
+}
+
+/// A folder dropped into (or beside a row inside) its own subtree: the
+/// core would refuse it as a cycle, so the target is not offered either.
+pub fn into_own_subtree(slot: DropSlot, source: (RowKind, i64), folders: &[Folder], sessions: &[Session]) -> bool {
+    if source.0 != RowKind::Folder {
+        return false;
+    }
+    let desc = descendants(folders, source.1);
+    match slot {
+        DropSlot::IntoRoot => false,
+        DropSlot::IntoFolder(f) => desc.contains(&f),
+        DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f) => {
+            folders.iter().find(|x| x.id == f).and_then(|x| x.parent_id).is_some_and(|p| desc.contains(&p))
+        }
+        DropSlot::BeforeSession(s) | DropSlot::AfterSession(s) => {
+            sessions.iter().find(|x| x.id == s).and_then(|x| x.folder_id).is_some_and(|p| desc.contains(&p))
+        }
     }
 }
 
@@ -137,7 +158,7 @@ pub fn plan_drop(source: (RowKind, i64), slot: DropSlot, folders: &[Folder], ses
             let Some(cur) = folders.iter().find(|f| f.id == id) else {
                 return (vec![], None);
             };
-            if slot == DropSlot::IntoFolder(id) || dest == Some(id) {
+            if slot == DropSlot::IntoFolder(id) || dest == Some(id) || into_own_subtree(slot, source, folders, sessions) {
                 return (vec![], None);
             }
             if into {
@@ -261,6 +282,9 @@ pub struct Sidebar {
     pub sessions: Vec<Session>,
     expanded: HashSet<i64>,
     selected: Option<i64>,
+    /// The filter field's text (Ctrl+K focuses it).
+    pub filter: String,
+    pub focus_filter: bool,
     menu: Option<Menu<Action>>,
     prompt: Option<Prompt>,
     confirm: Option<Pending>,
@@ -369,39 +393,68 @@ impl Sidebar {
 
 const AUTOSCROLL_EDGE: f32 = 28.0;
 const AUTOSCROLL_SPEED: f32 = 10.0;
+/// The top bar (filter, ＋, collapse) and the footer (app actions).
+const BAR_H: f32 = 44.0;
+const FOOTER_H: f32 = 40.0;
+/// Indent per tree level.
+const INDENT: f32 = 14.0;
 
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = tokens(ui.ctx());
     let pane = ui.max_rect();
     let width = pane.width() - 1.0;
 
-    // Toolbar.
-    let bar = Rect::from_min_size(pane.min, vec2(width, ROW_H));
-    ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, Stroke::new(1.0, t.border));
-    let mut toolbar = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(6.0, 2.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
-    toolbar.spacing_mut().item_spacing.x = 2.0;
-    if widgets::icon_button(&mut toolbar, Icon::Plus, 24.0, 14.0, false, "New session").clicked() {
-        act(app, Action::NewSession(None));
+    // Top bar: the filter field, the ＋ menu and the collapse button.
+    let bar = Rect::from_min_size(pane.min, vec2(width, BAR_H));
+    let inner = Rect::from_min_max(Pos2::new(bar.left() + 8.0, bar.top() + 8.0), Pos2::new(bar.right() - 8.0, bar.bottom() - 8.0));
+    let mut top = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    top.spacing_mut().item_spacing.x = 4.0;
+    let filter_w = (inner.width() - 2.0 * ICON_BTN - 8.0).max(48.0);
+    let filter = form::input(&mut top, &mut app.sidebar.filter, InputOpts::new("Filter sessions").icon(Icon::Search).width(filter_w).small());
+    form::labelled(&top, &filter, "Filter sessions");
+    if std::mem::take(&mut app.sidebar.focus_filter) {
+        filter.request_focus();
     }
-    if widgets::icon_button(&mut toolbar, Icon::FolderPlus, 24.0, 14.0, false, "New folder").clicked() {
-        app.sidebar.prompt = Some(Prompt::NewFolder(None, PromptState::new("New folder", "Folder name", "", "My servers", "Create")));
+    if filter.has_focus() && top.input(|i| i.key_pressed(egui::Key::Escape)) && !app.sidebar.filter.is_empty() {
+        app.sidebar.filter.clear();
     }
-    if widgets::icon_button(&mut toolbar, Icon::FileInput, 24.0, 14.0, false, "Import from MobaXterm").clicked() {
-        act(app, Action::Import);
+    let plus = widgets::icon_btn(&mut top, Icon::Plus, false, "New");
+    if plus.clicked() {
+        app.sidebar.menu = Some(Menu::new(
+            plus.rect.left_bottom() + vec2(0.0, 4.0),
+            vec![
+                MenuEntry::item("New session", Action::NewSession(None)).icon(Icon::Terminal),
+                MenuEntry::item("New folder", Action::NewFolder(None)).icon(Icon::FolderPlus),
+                MenuEntry::Separator,
+                MenuEntry::item("Import from MobaXterm…", Action::Import).icon(Icon::FileInput),
+            ],
+        ));
     }
-    toolbar.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if widgets::icon_button(ui, Icon::PanelLeftClose, 24.0, 14.0, false, "Hide sessions (Ctrl+B)").clicked() {
-            app.tabs.sidebar_collapsed = true;
-        }
-    });
+    if widgets::icon_btn(&mut top, Icon::PanelLeftClose, false, "Hide sessions (Ctrl+B)").clicked() {
+        app.tabs.sidebar_collapsed = true;
+    }
+
+    // Footer: vault state and the app actions.
+    let footer = Rect::from_min_max(Pos2::new(pane.left(), pane.bottom() - FOOTER_H), Pos2::new(pane.left() + width, pane.bottom()));
+    ui.painter().hline(footer.x_range(), footer.top() + 0.5, Stroke::new(1.0, t.border));
+    let mut foot = ui.new_child(egui::UiBuilder::new().max_rect(footer.shrink2(vec2(8.0, 6.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    foot.spacing_mut().item_spacing.x = 2.0;
+    let left = app_actions(app, &mut foot);
+    let label_r = Rect::from_min_max(Pos2::new(footer.left() + 12.0, footer.top()), Pos2::new(left - 8.0, footer.bottom()));
+    if label_r.width() > 40.0 {
+        Icon::ShieldCheck.paint(ui, Rect::from_center_size(Pos2::new(label_r.left() + 7.0, label_r.center().y), vec2(14.0, 14.0)), 14.0, t.success);
+        let shown = widgets::paint_text(ui, label_r.with_min_x(label_r.left() + 20.0), "Unlocked", font(size::SM), t.muted);
+        ui.interact(shown.union(Rect::from_center_size(Pos2::new(label_r.left() + 7.0, label_r.center().y), vec2(14.0, 14.0))), ui.scope_id().with("vault-state"), Sense::hover())
+            .on_hover_text("The vault is unlocked. Lock it with the lock button; open tabs stay connected.");
+    }
 
     // Tree.
-    let tree_rect = Rect::from_min_max(Pos2::new(pane.left(), bar.bottom()), Pos2::new(pane.left() + width, pane.bottom()));
+    let tree_rect = Rect::from_min_max(Pos2::new(pane.left(), bar.bottom()), Pos2::new(pane.left() + width, footer.top()));
     let mut tree = ui.new_child(egui::UiBuilder::new().max_rect(tree_rect).id_salt("sidebar-tree"));
     let dragging = app.sidebar.drag.is_some();
     if dragging && app.sidebar.target == Some(DropSlot::IntoRoot) {
-        tree.painter().rect_filled(tree_rect, 0.0, alpha(t.accent, 0.1));
-        tree.painter().rect_stroke(tree_rect.shrink(1.0), 0.0, Stroke::new(1.0, alpha(t.accent, 0.4)), StrokeKind::Inside);
+        tree.painter().rect_filled(tree_rect.shrink(4.0), radius::LG, t.accent_soft);
+        tree.painter().rect_stroke(tree_rect.shrink(4.0), radius::LG, Stroke::new(1.0, alpha(t.accent, 0.5)), StrokeKind::Inside);
     }
     // Background: root context menu, and the "into root" drop zone.
     let bg = tree.interact(tree_rect, Id::unique("sidebar-tree-bg"), Sense::click());
@@ -416,6 +469,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let mut opened: Option<Session> = None;
     let mut new_session = false;
     let mut actions: Vec<(Pos2, MenuOpen)> = Vec::new();
+    // Sessions with an open tab (the best status when several).
+    let mut open: HashMap<i64, TabStatus> = HashMap::new();
+    for tab in &app.tabs.tabs {
+        let e = open.entry(tab.session.id).or_insert(tab.status);
+        if tab.status == TabStatus::Connected || (*e != TabStatus::Connected && tab.status == TabStatus::Connecting) {
+            *e = tab.status;
+        }
+    }
+    let shown = filter_sets(&app.sidebar);
     egui::ScrollArea::vertical().id_salt("sidebar-scroll").auto_shrink(false).show(&mut tree, |ui| {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -427,8 +489,16 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
             return;
         }
-        let mut ctx = Walk { rows: &mut rows, opened: &mut opened, menus: &mut actions };
+        let mut ctx = Walk { rows: &mut rows, opened: &mut opened, menus: &mut actions, open: &open, shown: shown.as_ref() };
         walk(ui, &mut app.sidebar, None, 0, &mut ctx);
+        if let Some((s, _)) = &shown
+            && s.is_empty()
+        {
+            ui.add_space(24.0);
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new("No sessions match").font(font(size::SM)).color(t.muted));
+            });
+        }
         // Auto-scroll near the edges while dragging.
         if dragging && let Some(p) = pointer {
             let clip = ui.clip_rect();
@@ -471,6 +541,81 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     menu(app, ui.ctx());
 }
 
+/// The app-level actions (updates, lock, theme, settings) as icon
+/// buttons, laid out in `ui`'s direction. Shared by the sidebar footer
+/// and the collapsed rail. Returns the min x reached.
+pub fn app_actions(app: &mut App, ui: &mut Ui) -> f32 {
+    if widgets::icon_btn(ui, Icon::Settings, false, "Settings").clicked() {
+        app.dialogs.settings = Some(crate::views::settings::SettingsDialog::default());
+    }
+    let dark = app.theme == crate::style::Theme::Dark;
+    if widgets::icon_btn(ui, if dark { Icon::Sun } else { Icon::Moon }, false, if dark { "Light theme" } else { "Dark theme" }).clicked() {
+        app.set_theme(app.theme.toggled());
+    }
+    if widgets::icon_btn(ui, Icon::Lock, false, "Lock vault").clicked() {
+        app.lock();
+    }
+    updates_button(app, ui);
+    ui.min_rect().left()
+}
+
+/// Sparkles: opens the update dialog; an accent dot while a newer release
+/// is known.
+fn updates_button(app: &mut App, ui: &mut Ui) {
+    let t = tokens(ui.ctx());
+    let enabled = app.updater.cfg.is_some();
+    let tip = match &app.updater.available {
+        Some(u) => format!("Update available: v{}", u.version),
+        None => "Check for updates".to_string(),
+    };
+    let resp = ui.add_enabled_ui(enabled, |ui| widgets::icon_btn(ui, Icon::Sparkles, false, &tip)).inner;
+    let resp = resp.on_disabled_hover_text("Update checks are off in this run");
+    if app.updater.available.is_some() {
+        ui.painter().circle_filled(resp.rect.right_top() + vec2(-7.0, 7.0), 3.0, t.accent);
+    }
+    if resp.clicked() {
+        crate::views::update::open(app);
+    }
+}
+
+/// With a filter typed: the sessions and folders to show. A session shows
+/// when its name, host or user contains the text, or a folder above it
+/// matches by name; a folder shows when it holds a shown session or
+/// matches itself.
+fn filter_sets(sb: &Sidebar) -> Option<(HashSet<i64>, HashSet<i64>)> {
+    let q = sb.filter.trim().to_lowercase();
+    if q.is_empty() {
+        return None;
+    }
+    let hit = |s: &str| s.to_lowercase().contains(&q);
+    let parent_of = |f: i64| sb.folders.iter().find(|x| x.id == f).and_then(|x| x.parent_id);
+    let ancestors = |mut f: Option<i64>| {
+        let mut out = Vec::new();
+        while let Some(id) = f {
+            if out.contains(&id) {
+                break;
+            }
+            out.push(id);
+            f = parent_of(id);
+        }
+        out
+    };
+    let matching_folders: HashSet<i64> = sb.folders.iter().filter(|f| hit(&f.name)).map(|f| f.id).collect();
+    let mut sessions = HashSet::new();
+    let mut folders = HashSet::new();
+    for s in &sb.sessions {
+        let chain = ancestors(s.folder_id);
+        if hit(&s.name) || hit(&s.host) || hit(&s.username) || chain.iter().any(|f| matching_folders.contains(f)) {
+            sessions.insert(s.id);
+            folders.extend(chain);
+        }
+    }
+    for f in &matching_folders {
+        folders.extend(ancestors(Some(*f)));
+    }
+    Some((sessions, folders))
+}
+
 enum MenuOpen {
     Folder(i64),
     Session(i64),
@@ -480,13 +625,21 @@ struct Walk<'a> {
     rows: &'a mut Vec<(RowKind, i64, Rect)>,
     opened: &'a mut Option<Session>,
     menus: &'a mut Vec<(Pos2, MenuOpen)>,
+    /// Sessions with an open tab.
+    open: &'a HashMap<i64, TabStatus>,
+    /// Filter result: (sessions, folders) to show; `None` = everything.
+    shown: Option<&'a (HashSet<i64>, HashSet<i64>)>,
 }
 
 /// Folders before sessions at every depth.
 fn walk(ui: &mut Ui, sb: &mut Sidebar, parent: Option<i64>, depth: usize, w: &mut Walk<'_>) {
     let folders: Vec<Folder> = sb.folders.iter().filter(|f| f.parent_id == parent).cloned().collect();
     for f in folders {
-        let open = sb.expanded.contains(&f.id);
+        if w.shown.is_some_and(|(_, fs)| !fs.contains(&f.id)) {
+            continue;
+        }
+        // A filter opens every folder with a match.
+        let open = w.shown.is_some() || sb.expanded.contains(&f.id);
         folder_row(ui, sb, &f, depth, open, w);
         if open {
             walk(ui, sb, Some(f.id), depth + 1, w);
@@ -494,6 +647,9 @@ fn walk(ui: &mut Ui, sb: &mut Sidebar, parent: Option<i64>, depth: usize, w: &mu
     }
     let sessions: Vec<Session> = sb.sessions.iter().filter(|s| s.folder_id == parent).cloned().collect();
     for s in sessions {
+        if w.shown.is_some_and(|(ss, _)| !ss.contains(&s.id)) {
+            continue;
+        }
         session_row(ui, sb, &s, depth, w);
     }
 }
@@ -506,7 +662,11 @@ fn count_sessions(sb: &Sidebar, folder: i64) -> usize {
 fn drop_line(ui: &Ui, rect: Rect, top: bool) {
     let t = tokens(ui.ctx());
     let y = if top { rect.top() } else { rect.bottom() };
-    ui.painter().rect_filled(Rect::from_min_max(Pos2::new(rect.left(), y - 1.0), Pos2::new(rect.right(), y + 1.0)), 1.0, t.accent);
+    ui.painter().rect_filled(
+        Rect::from_min_max(Pos2::new(rect.left() + ROW_INSET, y - 1.0), Pos2::new(rect.right() - ROW_INSET, y + 1.0)),
+        1.0,
+        t.accent,
+    );
 }
 
 fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: bool, w: &mut Walk<'_>) {
@@ -517,49 +677,40 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
     let into = sb.drag.is_some() && sb.target == Some(DropSlot::IntoFolder(f.id));
     let hovered = resp.hovered() || resp.contains_pointer();
     if into {
-        ui.painter().rect_filled(rect, 0.0, alpha(t.accent, 0.2));
-        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, alpha(t.accent, 0.6)), StrokeKind::Inside);
-    } else if hovered && sb.drag.is_none() {
-        ui.painter().rect_filled(rect, 0.0, alpha(t.surface2, 0.7));
+        let pill = rect.shrink2(vec2(ROW_INSET, 1.0));
+        ui.painter().rect_filled(pill, radius::MD, t.accent_soft);
+        ui.painter().rect_stroke(pill, radius::MD, Stroke::new(1.0, alpha(t.accent, 0.6)), StrokeKind::Inside);
+    } else {
+        widgets::row_fill(ui, rect, hovered && sb.drag.is_none(), false);
     }
     widgets::a11y_selected(&resp, egui::Role::TreeItem, open, &f.name);
     let fade = if source { 0.5 } else { 1.0 };
-    let x0 = rect.left() + 6.0 + depth as f32 * 12.0;
+    let x0 = rect.left() + ROW_INSET + 4.0 + depth as f32 * INDENT;
     let cy = rect.center().y;
     (if open { Icon::ChevronDown } else { Icon::ChevronRight }).paint(
         ui,
         Rect::from_center_size(Pos2::new(x0 + 6.0, cy), vec2(12.0, 12.0)),
-        11.0,
-        alpha(t.muted, 0.8 * fade),
+        12.0,
+        alpha(t.muted, 0.9 * fade),
     );
-    let (icon, ic) = if open { (Icon::FolderOpen, t.accent) } else { (Icon::Folder, alpha(t.accent, 0.7)) };
-    icon.paint(ui, Rect::from_center_size(Pos2::new(x0 + 12.0 + 6.0 + 7.0, cy), vec2(14.0, 14.0)), 14.0, alpha(ic, ic.a() as f32 / 255.0 * fade));
+    let icon = if open { Icon::FolderOpen } else { Icon::Folder };
+    let icon_x = x0 + 12.0 + 6.0;
+    icon.paint(ui, Rect::from_center_size(Pos2::new(icon_x + 8.0, cy), vec2(16.0, 16.0)), 16.0, alpha(if hovered || into { t.fg2 } else { t.muted }, fade));
 
-    // Right side: trash on hover, then the session count badge.
-    let mut right = rect.right() - 8.0;
-    let trash_rect = Rect::from_center_size(Pos2::new(right - 10.0, cy), vec2(20.0, 20.0));
-    let trash = ui.interact(trash_rect, resp.id.with("trash"), Sense::click());
-    if hovered && sb.drag.is_none() {
-        widgets::paint_icon_button(ui, &trash, trash_rect, Icon::Trash, 11.0, false, Some(t.danger));
-        right -= 22.0;
-    }
-    widgets::a11y(&trash, egui::Role::Button, &format!("Delete folder {}", f.name));
-    if trash.on_hover_text("Delete folder").clicked() {
-        sb.confirm = Some(Pending::DeleteFolder(f.clone()));
-    }
+    // Right side: the session count.
+    let mut right = rect.right() - ROW_INSET - 6.0;
     let count = count_sessions(sb, f.id);
     if count > 0 {
-        let g = ui.painter().layout_no_wrap(count.to_string(), egui::FontId::monospace(10.0), t.muted);
-        let badge = Rect::from_min_max(Pos2::new(right - g.size().x - 12.0, cy - 8.0), Pos2::new(right, cy + 8.0));
-        ui.painter().rect_filled(badge, 2.0, alpha(t.surface2, if hovered { 1.0 } else { 0.8 }));
-        let color = if hovered { alpha(t.fg, 0.8) } else { t.muted };
-        ui.painter().galley_with_override_text_color(badge.center() - g.size() / 2.0, g, color);
+        let text = count.to_string();
+        let cw = widgets::chip_width(ui, &text, false);
+        let badge = Rect::from_min_max(Pos2::new(right - cw, cy - 9.0), Pos2::new(right, cy + 9.0));
+        widgets::paint_chip(ui, badge, &text, None, false, false);
         right = badge.left() - 6.0;
         ui.interact(badge, resp.id.with("badge"), Sense::hover()).on_hover_text(format!("{count} session{}", if count == 1 { "" } else { "s" }));
     }
-    let name_left = x0 + 12.0 + 6.0 + 14.0 + 6.0;
-    let color = alpha(if hovered || into { t.fg } else { alpha(t.fg, 0.8) }, fade);
-    widgets::paint_text(ui, Rect::from_min_max(Pos2::new(name_left, rect.top()), Pos2::new(right, rect.bottom())), &f.name, font_semibold(size::XS), color);
+    let name_left = icon_x + 16.0 + 8.0;
+    let color = alpha(if hovered || into { t.fg } else { t.fg2 }, fade);
+    widgets::paint_text(ui, Rect::from_min_max(Pos2::new(name_left, rect.top()), Pos2::new(right, rect.bottom())), &f.name, font_semibold(size::BASE), color);
 
     if sb.target == Some(DropSlot::BeforeFolder(f.id)) {
         drop_line(ui, rect, true);
@@ -570,7 +721,7 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
     if resp.drag_started() {
         sb.drag = Some((RowKind::Folder, f.id));
     }
-    if resp.clicked() && !sb.expanded.remove(&f.id) {
+    if resp.clicked() && w.shown.is_none() && !sb.expanded.remove(&f.id) {
         sb.expanded.insert(f.id);
     }
     if resp.secondary_clicked()
@@ -587,36 +738,33 @@ fn session_row(ui: &mut Ui, sb: &mut Sidebar, s: &Session, depth: usize, w: &mut
     let selected = sb.selected == Some(s.id);
     let source = sb.drag == Some((RowKind::Session, s.id));
     let hovered = resp.hovered() && sb.drag.is_none();
-    if selected {
-        ui.painter().rect_filled(rect, 0.0, alpha(t.accent, 0.18));
-    } else if hovered {
-        ui.painter().rect_filled(rect, 0.0, alpha(t.surface2, 0.7));
-    }
+    widgets::row_fill(ui, rect, hovered, selected);
     widgets::a11y_selected(&resp, egui::Role::TreeItem, selected, &s.name);
     let fade = if source { 0.5 } else { 1.0 };
     let color = parse_color(s.color.as_deref().unwrap_or(""));
-    // Left rail: selected accent > session colour.
-    let rail = if selected { Some(t.accent) } else { color };
-    if let Some(c) = rail {
-        ui.painter().rect_filled(Rect::from_min_max(Pos2::new(rect.left(), rect.top() + 4.0), Pos2::new(rect.left() + 3.0, rect.bottom() - 4.0)), 1.0, c);
-    }
-    let x0 = rect.left() + 6.0 + (depth + 1) as f32 * 12.0;
+    let x0 = rect.left() + ROW_INSET + 4.0 + (depth + 1) as f32 * INDENT;
     let tile = Rect::from_center_size(Pos2::new(x0 + 9.0, rect.center().y), vec2(18.0, 18.0));
     let kind_default = match s.session_kind.as_str() {
         "wsl" => t.warning,
         "local" => t.success,
         _ => t.accent,
     };
-    ui.painter().rect_filled(tile, 2.0, alpha(color.unwrap_or(kind_default), fade));
+    ui.painter().rect_filled(tile, radius::SM, alpha(color.unwrap_or(kind_default), fade));
     let icon = match s.session_kind.as_str() {
         "wsl" => Icon::SquareTerminal,
         "local" => Icon::MonitorDot,
         _ => Icon::Server,
     };
     icon.paint(ui, tile, 11.0, alpha(Color32::WHITE, fade));
-    let name_rect = Rect::from_min_max(Pos2::new(tile.right() + 8.0, rect.top()), Pos2::new(rect.right() - 8.0, rect.bottom()));
-    let f = if selected { font_semibold(size::XS) } else { font(size::XS) };
-    widgets::paint_text(ui, name_rect, &s.name, f, alpha(if selected || hovered { t.fg } else { alpha(t.fg, 0.9) }, fade));
+    let mut right = rect.right() - ROW_INSET - 6.0;
+    if let Some(status) = w.open.get(&s.id) {
+        widgets::status_dot(ui, Pos2::new(right - 5.0, rect.center().y), *status, 11.0);
+        ui.interact(Rect::from_center_size(Pos2::new(right - 5.0, rect.center().y), vec2(12.0, 12.0)), resp.id.with("open"), Sense::hover())
+            .on_hover_text(format!("Open tab: {}", status.label()));
+        right -= 16.0;
+    }
+    let name_rect = Rect::from_min_max(Pos2::new(tile.right() + 8.0, rect.top()), Pos2::new(right, rect.bottom()));
+    widgets::paint_text(ui, name_rect, &s.name, font(size::BASE), alpha(if selected || hovered { t.fg } else { t.fg2 }, fade));
 
     if sb.target == Some(DropSlot::BeforeSession(s.id)) {
         drop_line(ui, rect, true);
@@ -658,7 +806,7 @@ fn drag_update(app: &mut App, ui: &Ui, tree_rect: Rect) {
             Some((kind, id, r)) => slot_for_row((p.y - r.top()) / r.height().max(1.0), *kind, *id, source.0),
             None => DropSlot::IntoRoot,
         };
-        (!slot_rejected(slot, source)).then_some(slot)
+        (!slot_rejected(slot, source) && !into_own_subtree(slot, source, &app.sidebar.folders, &app.sidebar.sessions)).then_some(slot)
     });
     app.sidebar.target = slot;
     if escape {

@@ -8,7 +8,7 @@
 //! by the ezTerm app's password picker (in a database it wrote) shows in a
 //! small delete-only group.
 
-use egui::{Align, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui, UiBuilder, vec2};
+use egui::{Align, CornerRadius, Frame, Id, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
 use ezssh_core::api;
 use ezssh_core::db::credentials::CredentialDetail;
 use zeroize::Zeroizing;
@@ -17,8 +17,8 @@ use super::dialogs::{self, Confirm};
 use crate::app::App;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
-use crate::style::{alpha, font, font_semibold, over, size, tokens};
-use crate::widgets::{self, Ghost, IconBtn, Tone};
+use crate::style::{alpha, font, font_semibold, radius, size, tokens};
+use crate::widgets::{self, Button, DialogFooter, DialogPart, IconBtn};
 
 struct Group {
     kind: &'static str,
@@ -194,40 +194,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let t = tokens(ctx);
     let mut ops: Vec<Op> = Vec::new();
     let mut close = false;
-    let screen = ctx.content_rect();
-    let w = 600.0_f32.min(screen.width() - 32.0);
-    let header_h = 42.0;
-    let footer_h = 52.0;
-    let body_max = (screen.height() * 0.85 - header_h - footer_h).max(120.0);
-    let frame = Frame::new()
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.border))
-        .corner_radius(CornerRadius::same(4))
-        .shadow(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(115) });
-    let strip_fill = over(t.surface, t.surface2, 0.3);
-    let resp = egui::Modal::new(Id::unique("credentials-dialog")).backdrop_color(Color32::from_black_alpha(128)).frame(frame).show(ctx, |ui| {
-        ui.set_width(w);
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        // Header.
-        let (header, _) = ui.allocate_exact_size(vec2(w, header_h), Sense::hover());
-        ui.painter().rect_filled(header, CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 }, strip_fill);
-        ui.painter().hline(header.x_range(), header.bottom() - 0.5, Stroke::new(1.0, t.border));
-        ui.scope_builder(UiBuilder::new().max_rect(header.shrink2(vec2(16.0, 0.0))).layout(Layout::left_to_right(Align::Center)), |ui| {
-            ui.label(RichText::new("Credentials").font(font_semibold(size::SM)).color(t.fg));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    RichText::new("Stored encrypted in the vault · changes apply to every session using them").font(font(size::XS)).color(t.muted),
-                );
-            });
-        });
-        // Body.
-        egui::ScrollArea::vertical().id_salt("credentials-body").max_height(body_max).auto_shrink([false, true]).show(ui, |ui| {
-            Frame::new().inner_margin(Margin::same(16)).show(ui, |ui| {
-                ui.set_width(w - 32.0);
-                ui.spacing_mut().item_spacing.y = 20.0;
+    let out = widgets::Dialog::new(Id::unique("credentials-dialog"), 620.0)
+        .header(Icon::KeySquare, t.accent, "Credentials", Some("Stored encrypted in the vault · changes apply to every session using them"))
+        .plain_subtitle()
+        .footer(DialogFooter::Strip)
+        .row_gap(20.0)
+        .show(ctx, |ui, part| match part {
+            DialogPart::Body => {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    Icon::Lock.show(ui, 13.0, t.muted);
+                    Icon::Lock.show(ui, 14.0, t.muted);
                     form::hint(ui, "Session passwords are saved with each session: edit the session to change one.");
                 });
                 for g in &GROUPS {
@@ -236,23 +212,18 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 if d.items.iter().any(|c| c.kind == UNATTACHED.kind) {
                     group(ui, &mut d, &UNATTACHED, &mut ops);
                 }
-            });
-        });
-        // Footer.
-        let (strip, _) = ui.allocate_exact_size(vec2(w, footer_h), Sense::hover());
-        ui.painter().rect_filled(strip, CornerRadius { nw: 0, ne: 0, sw: 4, se: 4 }, strip_fill);
-        ui.painter().hline(strip.x_range(), strip.top() + 0.5, Stroke::new(1.0, t.border));
-        ui.scope_builder(UiBuilder::new().max_rect(strip.shrink2(vec2(16.0, 12.0))).layout(Layout::right_to_left(Align::Center)), |ui| {
-            if widgets::ghost(ui, "Close", size::SM).clicked() {
-                close = true;
+            }
+            DialogPart::Footer => {
+                if widgets::Button::secondary("Close").show(ui).clicked() {
+                    close = true;
+                }
             }
         });
-    });
-    // Backdrop closes; Escape unwinds one layer: inline edit, then dialog
-    // (the confirm is its own top modal and takes Escape itself).
-    if resp.backdrop_response.clicked() {
+    // Backdrop and ✕ close; Escape unwinds one layer: inline edit, then
+    // dialog (the confirm is its own top modal and takes Escape itself).
+    if out.backdrop || out.close {
         close = true;
-    } else if resp.is_top_modal && !resp.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+    } else if out.escape {
         if d.edit.is_some() || d.add_kind.is_some() {
             d.edit = None;
             d.add_kind = None;
@@ -305,15 +276,15 @@ fn group(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
     let t = tokens(ui.ctx());
     let rows: Vec<CredentialDetail> = d.items.iter().filter(|c| c.kind == g.kind).cloned().collect();
     ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 8.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.set_min_height(26.0);
-            g.icon.show(ui, 13.0, t.accent);
-            form::caption(ui, g.title);
+            ui.set_min_height(28.0);
+            g.icon.show(ui, 16.0, t.muted);
+            ui.label(RichText::new(g.title).font(font_semibold(size::MD)).color(t.fg));
             if g.editable {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if Ghost::new("Add").size(size::XS).icon(Icon::Plus).label(&format!("Add {}", g.title)).show(ui).clicked() {
+                    if Button::secondary("Add").small().icon(Icon::Plus).label(&format!("Add {}", g.title)).show(ui).clicked() {
                         d.edit = None;
                         d.add_kind = Some(g.kind);
                         d.add_label.clear();
@@ -324,7 +295,7 @@ fn group(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
                 });
             }
         });
-        Frame::new().stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(2)).show(ui, |ui| {
+        Frame::new().stroke(Stroke::new(1.0, t.border_strong)).corner_radius(CornerRadius::same(radius::LG as u8)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 0.0;
             let adding = d.add_kind == Some(g.kind);
@@ -332,7 +303,7 @@ fn group(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
                 Frame::new().inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     let text = if d.loaded { format!("No {} saved.", g.title.to_lowercase()) } else { "Loading…".into() };
-                    ui.label(RichText::new(text).font(font(size::XS)).color(t.muted));
+                    ui.label(RichText::new(text).font(font(size::SM)).color(t.muted));
                 });
             }
             for (i, c) in rows.iter().enumerate() {
@@ -374,8 +345,8 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                         resp.request_focus();
                     }
                     save |= crate::form::entered(ui, &resp);
-                    save |= widgets::primary(ui, "Save", Tone::Accent, !busy, size::XS).clicked();
-                    cancel = widgets::ghost(ui, "Cancel", size::XS).clicked();
+                    save |= widgets::Button::primary("Save").small().enabled(!busy).show(ui).clicked();
+                    cancel = widgets::Button::secondary("Cancel").small().show(ui).clicked();
                 });
                 if save && !label.trim().is_empty() {
                     renamed = Some(label.trim().to_string());
@@ -390,7 +361,7 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
         }
 
         // Label, date and usage; the buttons show on hover or focus.
-        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
         let hovered = ui.rect_contains_pointer(rect);
         let btns: Vec<(Icon, String, String)> = if g.editable {
             vec![
@@ -403,21 +374,21 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
         };
         let btns_left = rect.right() - 28.0 * btns.len() as f32;
         let text_w = btns_left - rect.left() - 8.0;
-        widgets::paint_text(ui, Rect::from_min_size(rect.min, vec2(text_w, 16.0)), &c.label, font_semibold(size::XS), t.fg);
+        widgets::paint_text(ui, Rect::from_min_size(rect.min, vec2(text_w, 18.0)), &c.label, font_semibold(size::BASE), t.fg);
         let added = format!("Added {}", c.created_at.get(..10).unwrap_or(&c.created_at));
-        let sub = Rect::from_min_size(Pos2::new(rect.left(), rect.top() + 16.0), vec2(text_w, 16.0));
-        let added_r = widgets::paint_text(ui, sub, &added, font(size::XS), t.muted);
+        let sub = Rect::from_min_size(Pos2::new(rect.left(), rect.top() + 18.0), vec2(text_w, 18.0));
+        let added_r = widgets::paint_text(ui, sub, &added, font(size::SM), t.muted);
         let n = c.used_by.len();
         let usage = if n > 0 { format!("· Used by {n} session{}", plural(n)) } else { "· Not used by any session".to_string() };
         let usage_color = if n > 0 { t.muted } else { alpha(t.muted, 0.7) };
-        let usage_r = widgets::paint_text(ui, sub.with_min_x(added_r.right() + 8.0), &usage, font(size::XS), usage_color);
+        let usage_r = widgets::paint_text(ui, sub.with_min_x(added_r.right() + 8.0), &usage, font(size::SM), usage_color);
         if n > 0 {
             let names: Vec<&str> = c.used_by.iter().map(|s| s.name.as_str()).collect();
             ui.interact(usage_r, Id::unique(("credential-usage", c.id)), Sense::hover()).on_hover_text(names.join("\n"));
         }
         for (i, (icon, label, tip)) in btns.iter().enumerate() {
-            let r = Rect::from_min_size(Pos2::new(btns_left + 28.0 * i as f32 + 4.0, rect.center().y - 12.0), vec2(24.0, 24.0));
-            let mut b = IconBtn::new(*icon, label.clone(), tip).visible(hovered);
+            let r = Rect::from_min_size(Pos2::new(btns_left + 28.0 * i as f32, rect.center().y - 14.0), vec2(28.0, 28.0));
+            let mut b = IconBtn::new(*icon, label.clone(), tip).icon_size(16.0).visible(hovered);
             if *icon == Icon::Trash {
                 b = b.hover(t.danger, alpha(t.danger, 0.1));
             }
@@ -449,8 +420,8 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                 }
                 save |= enter;
                 widgets::button_row(ui, |ui| {
-                    save |= widgets::primary(ui, "Replace secret", Tone::Accent, !busy && !secret.is_empty(), size::XS).clicked();
-                    cancel = widgets::ghost(ui, "Cancel", size::XS).clicked();
+                    save |= widgets::Button::primary("Replace secret").small().enabled(!busy && !secret.is_empty()).show(ui).clicked();
+                    cancel = widgets::Button::secondary("Cancel").small().show(ui).clicked();
                 });
                 if save && !secret.is_empty() {
                     secret_out = Some((**secret).clone());
@@ -481,7 +452,7 @@ fn secret_input(ui: &mut Ui, kind: &str, hint: &str, value: &mut String, shown: 
 fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
     let t = tokens(ui.ctx());
     let busy = d.busy;
-    Frame::new().fill(alpha(t.surface2, 0.4)).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+    Frame::new().fill(t.surface2).corner_radius(CornerRadius { nw: 0, ne: 0, sw: radius::LG as u8, se: radius::LG as u8 }).inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 8.0;
         let label_resp =
@@ -495,8 +466,8 @@ fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>
         let mut save = crate::form::entered(ui, &label_resp) || secret_enter;
         let mut cancel = false;
         widgets::button_row(ui, |ui| {
-            save |= widgets::primary(ui, "Save credential", Tone::Accent, !busy && ready, size::XS).clicked();
-            cancel = widgets::ghost(ui, "Cancel", size::XS).clicked();
+            save |= widgets::Button::primary("Save credential").small().enabled(!busy && ready).show(ui).clicked();
+            cancel = widgets::Button::secondary("Cancel").small().show(ui).clicked();
         });
         if cancel {
             d.add_kind = None;

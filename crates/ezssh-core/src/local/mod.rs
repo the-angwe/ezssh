@@ -8,10 +8,11 @@
 //! `local_disconnect` commands route through the per-connection mpsc to a
 //! writer thread that owns the `MasterPty`.
 //!
-//! The child process is not explicitly waited on — dropping the stdin
-//! sender closes the mpsc, the writer thread exits, the master drops,
-//! ConPTY kills the child, and the reader thread observes EOF and emits
-//! the close event.
+//! The writer thread owns the child: on `LocalInput::Close` (from the UI's
+//! disconnect, or from the reader thread once it saw EOF) it kills a
+//! still-running child, waits on it, and only then drops the writer and
+//! the master. Killing first matters on Unix, where portable-pty's writer
+//! sends "\n" + VEOF on drop.
 
 pub mod registry;
 pub mod shells;

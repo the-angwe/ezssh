@@ -8,14 +8,16 @@ use ezssh_term::{Overlay, TermAction, TerminalView};
 use crate::app::App;
 use crate::icons::Icon;
 use crate::layout::{FORWARDS_PANE_W, SFTP_PANE_MAX, TERMINAL_MIN_W};
-use crate::style::{alpha, font, size, tokens};
+use crate::style::{self, font, radius, size, tokens};
 use crate::tabs::{CascadeGeom, Edge, TabId, TabStatus, ViewMode};
 use crate::widgets;
 
 /// Cascade title bar height (px).
-const CHROME_H: f32 = 24.0;
+const CHROME_H: f32 = 28.0;
 /// Minimized strip height (px).
-const STRIP_H: f32 = 28.0;
+const STRIP_H: f32 = 36.0;
+/// Gutter between tiles (px): the `bg` ground shows through.
+const GUTTER: f32 = 4.0;
 /// Tile grid rows never get shorter than this; past it the grid scrolls.
 const GRID_ROW_MIN: f32 = 160.0;
 
@@ -24,6 +26,9 @@ pub struct MdiState {
     /// A terminal had keyboard focus this frame (global shortcuts yield).
     pub term_focused: bool,
     cascade_drag: Option<CascadeDrag>,
+    /// The cascade frame area of this frame (the MDI area minus the
+    /// minimised strip), for the chrome's maximise / drag maths.
+    frames: Option<Rect>,
 }
 
 #[derive(Clone, Copy)]
@@ -70,13 +75,13 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect) {
             }
         }
         ViewMode::TileH | ViewMode::TileV => {
-            ui.painter().rect_filled(area, 0.0, t.border_strong);
+            ui.painter().rect_filled(area, 0.0, t.bg);
             let n = visible.len().max(1) as f32;
             let horizontal = mode == ViewMode::TileH;
             let span = if horizontal { area.height() } else { area.width() };
-            let each = (span - (n - 1.0)) / n;
+            let each = (span - GUTTER * (n - 1.0)) / n;
             for (i, id) in visible.iter().enumerate() {
-                let off = i as f32 * (each + 1.0);
+                let off = i as f32 * (each + GUTTER);
                 let r = if horizontal {
                     Rect::from_min_size(Pos2::new(area.left(), area.top() + off), vec2(area.width(), each))
                 } else {
@@ -86,20 +91,20 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect) {
             }
         }
         ViewMode::TileGrid | ViewMode::Auto => {
-            ui.painter().rect_filled(area, 0.0, t.border_strong);
+            ui.painter().rect_filled(area, 0.0, t.bg);
             let (rows, cols) = app.tabs.grid_dims();
             // Extra tabs get extra rows (CSS grid-auto-rows).
             let rows = rows.max(visible.len().div_ceil(cols.max(1)));
-            let row_h = ((area.height() - (rows as f32 - 1.0)) / rows as f32).max(GRID_ROW_MIN);
-            let col_w = (area.width() - (cols as f32 - 1.0)) / cols as f32;
-            let content_h = rows as f32 * row_h + (rows as f32 - 1.0);
+            let row_h = ((area.height() - GUTTER * (rows as f32 - 1.0)) / rows as f32).max(GRID_ROW_MIN);
+            let col_w = (area.width() - GUTTER * (cols as f32 - 1.0)) / cols as f32;
+            let content_h = rows as f32 * row_h + GUTTER * (rows as f32 - 1.0);
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area).id_salt("mdi-grid"));
             egui::ScrollArea::vertical().id_salt("mdi-grid-scroll").auto_shrink(false).show(&mut child, |ui| {
                 let (content, _) = ui.allocate_exact_size(vec2(area.width(), content_h), Sense::hover());
                 for (i, id) in visible.iter().enumerate() {
                     let (r, c) = (i / cols, i % cols);
                     let cell = Rect::from_min_size(
-                        Pos2::new(content.left() + c as f32 * (col_w + 1.0), content.top() + r as f32 * (row_h + 1.0)),
+                        Pos2::new(content.left() + c as f32 * (col_w + GUTTER), content.top() + r as f32 * (row_h + GUTTER)),
                         vec2(col_w, row_h),
                     );
                     slot(app, ui, *id, cell, Slot::Cell);
@@ -108,9 +113,9 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect) {
         }
         ViewMode::Cascade => {
             ui.painter().rect_filled(area, 0.0, t.bg);
-            ui.painter().rect_filled(area, 0.0, alpha(t.surface2, 0.3));
             let any_min = !app.tabs.minimized.is_empty();
             let frames = if any_min { area.with_max_y(area.bottom() - STRIP_H) } else { area };
+            app.mdi.frames = Some(frames);
             cascade_drag(app, ui, frames);
             // A press raises and activates the topmost frame under it.
             let rects: Vec<(TabId, Rect)> = app
@@ -167,8 +172,8 @@ fn slot(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect, kind: Slot) {
             ui.painter().rect_filled(rect, 0.0, t.bg);
         }
         Slot::Frame => {
-            ui.painter().rect_filled(rect.translate(vec2(0.0, 4.0)).expand(2.0), 4.0, egui::Color32::from_black_alpha(40));
-            ui.painter().rect_filled(rect, 3.0, t.bg);
+            ui.painter().add(style::popup_shadow().as_shape(rect, radius::LG));
+            ui.painter().rect_filled(rect, radius::LG, t.surface);
             body = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + CHROME_H), rect.max).shrink(1.0);
             chrome(app, ui, id, rect);
         }
@@ -204,7 +209,7 @@ fn slot(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect, kind: Slot) {
         }
         Slot::Frame => {
             let border = if active { t.accent } else { t.border_strong };
-            ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, border), StrokeKind::Inside);
+            ui.painter().rect_stroke(rect, radius::LG, Stroke::new(1.0, border), StrokeKind::Inside);
         }
         _ => {}
     }
@@ -294,32 +299,34 @@ fn chrome(app: &mut App, ui: &mut Ui, id: TabId, rect: Rect) {
     };
     let maximized = app.tabs.cascade.get(&id).is_some_and(|g| g.maximized);
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), CHROME_H));
-    ui.painter().rect_filled(bar, egui::CornerRadius { nw: 3, ne: 3, sw: 0, se: 0 }, alpha(t.surface, 0.95));
+    ui.painter().rect_filled(bar, egui::CornerRadius { nw: radius::LG as u8, ne: radius::LG as u8, sw: 0, se: 0 }, t.surface);
     ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, Stroke::new(1.0, t.border));
     let resp = ui.interact(bar, Id::unique(("cascade-bar", id)), Sense::click_and_drag()).on_hover_cursor(CursorIcon::Move);
-    let area = ui.max_rect();
-    widgets::status_dot(ui, Pos2::new(bar.left() + 13.0, bar.center().y), tab.status, 11.0);
-    let mut bx = bar.right() - 8.0;
+    // The CentralPanel rect includes the tab strip; frames are laid out in
+    // the area `show` computed.
+    let area = app.mdi.frames.unwrap_or_else(|| ui.max_rect());
+    widgets::status_dot(ui, Pos2::new(bar.left() + 14.0, bar.center().y), tab.status, 11.0);
+    let mut bx = bar.right() - 6.0;
     let mut clicked = None;
     for (icon, tip, what) in [
         (Icon::X, "Close", 2),
         (if maximized { Icon::Minimize2 } else { Icon::Maximize2 }, if maximized { "Restore" } else { "Maximize" }, 1),
         (Icon::Minus, "Minimize", 0),
     ] {
-        let r = Rect::from_center_size(Pos2::new(bx - 10.0, bar.center().y), vec2(20.0, 20.0));
-        bx -= 22.0;
+        let r = Rect::from_center_size(Pos2::new(bx - 11.0, bar.center().y), vec2(22.0, 22.0));
+        bx -= 24.0;
         let b = ui.interact(r, resp.id.with(tip), Sense::click());
-        widgets::paint_icon_button(ui, &b, r, icon, 11.0, false, if what == 2 { Some(t.danger) } else { None });
+        widgets::paint_icon_button(ui, &b, r, icon, 12.0, false, if what == 2 { Some(t.danger) } else { None });
         widgets::a11y(&b, egui::Role::Button, tip);
         if b.on_hover_text(tip).clicked() {
             clicked = Some(what);
         }
     }
-    let name_rect = Rect::from_min_max(Pos2::new(bar.left() + 24.0, bar.top()), Pos2::new(bx - 4.0, bar.bottom()));
-    widgets::paint_text(ui, name_rect, &tab.session.name, font(size::XS), t.fg);
+    let name_rect = Rect::from_min_max(Pos2::new(bar.left() + 26.0, bar.top()), Pos2::new(bx - 4.0, bar.bottom()));
+    widgets::paint_text(ui, name_rect, &tab.session.name, font(size::SM), t.fg);
     let resp = resp.on_hover_text(tab.summary());
 
-    let frames_h = area.height() - if app.tabs.minimized.is_empty() { 0.0 } else { STRIP_H };
+    let frames_h = area.height();
     match clicked {
         Some(0) => app.tabs.minimize(id),
         Some(1) => app.tabs.toggle_maximize(id, area.width(), frames_h),
@@ -423,15 +430,15 @@ fn minimized_strip(app: &mut App, ui: &mut Ui, rect: Rect) {
     let items: Vec<(TabId, String, TabStatus)> =
         app.tabs.tabs.iter().filter(|tab| app.tabs.is_minimized(tab.id)).map(|tab| (tab.id, tab.session.name.clone(), tab.status)).collect();
     for (id, name, status) in items {
-        let g = widgets::elide(ui, &name, font(size::XS), 160.0);
-        let w = 8.0 + 10.0 + 6.0 + g.size().x + 8.0;
-        let r = Rect::from_min_size(Pos2::new(x, rect.center().y - 10.0), vec2(w, 20.0));
-        x += w + 4.0;
+        let g = widgets::elide(ui, &name, font(size::SM), 160.0);
+        let w = 10.0 + 6.0 + 8.0 + g.size().x + 12.0;
+        let r = Rect::from_min_size(Pos2::new(x, rect.center().y - 13.0), vec2(w, 26.0));
+        x += w + 6.0;
         let resp = ui.interact(r, Id::unique(("minimized", id)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-        ui.painter().rect_filled(r, 2.0, if resp.hovered() { t.surface2 } else { t.bg });
-        ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, t.border), StrokeKind::Inside);
+        ui.painter().rect_filled(r, radius::MD, if resp.hovered() { t.surface3 } else { t.surface2 });
         widgets::status_dot(ui, Pos2::new(r.left() + 13.0, r.center().y), status, 10.0);
-        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 24.0, r.center().y - g.size().y / 2.0), g, t.fg);
+        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 24.0, r.center().y - g.size().y / 2.0), g, if resp.hovered() { t.fg } else { t.fg2 });
+        widgets::focus_ring(ui, &resp, r);
         widgets::a11y(&resp, egui::Role::Button, &format!("Restore {name}"));
         if resp.on_hover_text(format!("Restore {name}")).clicked() {
             restore = Some(id);

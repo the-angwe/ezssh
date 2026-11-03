@@ -6,7 +6,7 @@
 //! As in the session dialog, a password is typed (it belongs to the
 //! session); a blank field keeps the stored one.
 
-use egui::{Align, Color32, CornerRadius, Frame, Id, Key, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
+use egui::{Frame, Id, Key, Margin, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 use ezssh_core::db::sessions::{Session, SessionInput};
 use ezssh_core::{Secret, api};
 use zeroize::Zeroizing;
@@ -16,9 +16,9 @@ use crate::form::labelled;
 use crate::app::App;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
-use crate::style::{self, alpha, size, tokens};
+use crate::style::{alpha, tokens};
 use crate::tabs::TabId;
-use crate::widgets::{self, Tone};
+use crate::widgets::{self};
 
 pub struct AuthFix {
     pub session: Session,
@@ -82,18 +82,49 @@ impl AuthFix {
         }
     }
 
-    /// The session as stored, with this overlay's auth fields. `env` is
-    /// filled in by the save call.
+    /// The overlay's fields applied to the tab's copy of the row (the
+    /// save call applies them to the row as stored instead).
+    #[cfg(test)]
     fn to_input(&self) -> SessionInput {
-        let s = &self.session;
+        AuthFields {
+            username: self.username.trim().to_string(),
+            auth_type: self.auth_type.clone(),
+            credential_id: self.credential_id,
+            passphrase_id: self.passphrase_id,
+            password: (self.auth_type == "password" && !self.password.is_empty()).then(|| Secret::new(String::clone(&self.password))),
+        }
+        .into_input(&self.session)
+    }
+
+    fn header_line(&self) -> String {
+        let user = if self.username.is_empty() { "user" } else { self.username.as_str() };
+        let port = if self.session.port != 22 { format!(":{}", self.session.port) } else { String::new() };
+        format!("{user}@{}{port}", self.session.host)
+    }
+}
+
+/// The overlay's answer, applied to the stored row by the save call.
+struct AuthFields {
+    username: String,
+    auth_type: String,
+    credential_id: Option<i64>,
+    passphrase_id: Option<i64>,
+    password: Option<Secret>,
+}
+
+impl AuthFields {
+    /// `base` (the row as stored right now, fetched by the save call) with
+    /// this overlay's auth fields. `env` is filled in by the save call.
+    fn into_input(self, base: &Session) -> SessionInput {
+        let s = base;
         let key = self.auth_type == "key";
         SessionInput {
             folder_id: s.folder_id,
             name: s.name.clone(),
             host: s.host.clone(),
             port: s.port,
-            username: self.username.trim().to_string(),
-            auth_type: self.auth_type.clone(),
+            username: self.username,
+            auth_type: self.auth_type,
             credential_id: if key { self.credential_id } else { None },
             key_passphrase_credential_id: if key { self.passphrase_id } else { None },
             color: s.color.clone(),
@@ -109,15 +140,10 @@ impl AuthFix {
             session_kind: s.session_kind.clone(),
             forward_x11: s.forward_x11,
             starting_dir: s.starting_dir.clone(),
-            password: (self.auth_type == "password" && !self.password.is_empty()).then(|| Secret::new(String::clone(&self.password))),
+            password: self.password,
         }
     }
 
-    fn header_line(&self) -> String {
-        let user = if self.username.is_empty() { "user" } else { self.username.as_str() };
-        let port = if self.session.port != 22 { format!(":{}", self.session.port) } else { String::new() };
-        format!("{user}@{}{port}", self.session.host)
-    }
 }
 
 /// Save: the env vars first (they live in their own table and
@@ -132,11 +158,21 @@ fn save(app: &mut App, fix: &mut AuthFix, tab: TabId) {
     fix.err = None;
     fix.busy = true;
     let id = fix.session.id;
-    let mut input = fix.to_input();
-    tracing::debug!(tab, session = id, auth = %input.auth_type, new_password = input.password.is_some(), "auth_fix: saving");
+    // The tab's copy may predate a session-dialog save (host, name,
+    // folder…): overlay the auth fields onto the row as stored now.
+    let overlay = AuthFields {
+        username: fix.username.trim().to_string(),
+        auth_type: fix.auth_type.clone(),
+        credential_id: fix.credential_id,
+        passphrase_id: fix.passphrase_id,
+        password: (fix.auth_type == "password" && !fix.password.is_empty()).then(|| Secret::new(String::clone(&fix.password))),
+    };
+    tracing::debug!(tab, session = id, auth = %overlay.auth_type, new_password = overlay.password.is_some(), "auth_fix: saving");
     app.core.call(
         "auth_fix save",
         move |st| async move {
+            let base = api::sessions::session_get(&st, id).await?;
+            let mut input = overlay.into_input(&base);
             input.env = api::sessions::session_env_get(&st, id).await?;
             api::sessions::session_update(&st, id, input).await
         },
@@ -179,9 +215,10 @@ const METHODS: [(&str, Icon, &str, &str); 3] = [
     ("agent", Icon::Cpu, "SSH Agent", "Pageant / OpenSSH Agent"),
 ];
 
-const CARD_W: f32 = 480.0;
-const HEADER_H: f32 = 52.0;
-const FOOTER_H: f32 = 52.0;
+const CARD_W: f32 = 500.0;
+const HEADER_H: f32 = widgets::DIALOG_HEAD_H;
+const FOOTER_H: f32 = widgets::DIALOG_FOOTER_H;
+const PAD: f32 = 24.0;
 
 /// Paint the overlay of `tab` over its terminal `rect` (the tab's
 /// `TermSlot::auth_fix` is Some).
@@ -207,39 +244,25 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     let card_h = (HEADER_H + body_h + FOOTER_H).min(max_h);
     let card = Rect::from_center_size(rect.center(), vec2(card_w, card_h));
     let ui = &mut child;
-    ui.painter().add(egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(90) }.as_shape(card, 4));
-    ui.painter().rect_filled(card, 4.0, t.surface);
-    ui.painter().rect_stroke(card, 4.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    let card_id = Id::unique(("auth-fix-card", tab));
+    ui.painter().add(widgets::dialog_frame(t).shadow.as_shape(card, crate::style::radius::XL));
+    ui.painter().rect_filled(card, crate::style::radius::XL, t.surface);
+    ui.painter().rect_stroke(card, crate::style::radius::XL, egui::Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
 
     // Header.
     let header = Rect::from_min_size(card.min, vec2(card_w, HEADER_H));
-    ui.painter().hline(header.x_range(), header.bottom(), Stroke::new(1.0, t.border));
-    ui.scope_builder(UiBuilder::new().max_rect(header.shrink2(vec2(20.0, 0.0))), |ui| {
-        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            Icon::AlertTriangle.show(ui, 18.0, t.warning);
-            let text_w = ui.available_width() - 36.0;
-            ui.vertical(|ui| {
-                ui.set_width(text_w);
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.label(RichText::new("Fix authentication").font(style::font_semibold(size::SM)).color(t.fg));
-                ui.add(egui::Label::new(RichText::new(fix.header_line()).font(egui::FontId::monospace(size::XS)).color(t.muted)).truncate());
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if widgets::icon_button(ui, Icon::X, 24.0, 14.0, false, "Close").clicked() && !fix.busy {
-                    cancel = true;
-                }
-            });
-        });
-    });
+    let line = fix.header_line();
+    if widgets::dialog_header(ui, card_id, header, Some(Icon::AlertTriangle), t.warning, "Fix authentication", Some(&line), true, fix.busy) {
+        cancel = true;
+    }
 
     // Body.
     let footer = Rect::from_min_max(pos2(card.left(), card.bottom() - FOOTER_H), card.max);
     let body = Rect::from_min_max(pos2(card.left(), header.bottom()), pos2(card.right(), footer.top()));
     ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
         egui::ScrollArea::vertical().id_salt(("auth-fix-scroll", tab)).auto_shrink([false, true]).show(ui, |ui| {
-            let inner = Frame::new().inner_margin(Margin::same(20)).show(ui, |ui| {
-                ui.set_width(card_w - 40.0);
+            let inner = Frame::new().inner_margin(Margin::same(PAD as i8)).show(ui, |ui| {
+                ui.set_width(card_w - 2.0 * PAD);
                 ui.spacing_mut().item_spacing.y = 16.0;
                 form::note(ui, Icon::AlertTriangle, t.danger, &fix.message);
                 body_fields(app, ui, &mut fix);
@@ -252,18 +275,13 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     });
 
     // Footer.
-    ui.painter().rect_filled(footer, CornerRadius { nw: 0, ne: 0, sw: 4, se: 4 }, style::over(t.surface, t.surface2, 0.3));
-    ui.painter().hline(footer.x_range(), footer.top(), Stroke::new(1.0, t.border));
-    ui.scope_builder(UiBuilder::new().max_rect(footer.shrink2(vec2(20.0, 12.0))), |ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            if widgets::primary_with_icon(ui, Some(Icon::PlugZap), "Save & reconnect", Tone::Accent, !fix.busy, size::SM).clicked() {
-                submit = true;
-            }
-            if widgets::ghost(ui, "Close tab", size::SM).clicked() && !fix.busy {
-                cancel = true;
-            }
-        });
+    widgets::dialog_footer(ui, footer, PAD, |ui| {
+        if widgets::Button::primary("Save & reconnect").icon(Icon::PlugZap).enabled(!fix.busy).show(ui).clicked() {
+            submit = true;
+        }
+        if widgets::Button::secondary("Close tab").show(ui).clicked() && !fix.busy {
+            cancel = true;
+        }
     });
 
     // Escape: only for the active tab's overlay, and not while a dialog

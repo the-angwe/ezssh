@@ -42,6 +42,8 @@ pub struct ExportRow {
     pub id: i64,
     pub kind: String,
     pub label: String,
+    pub nonce: Vec<u8>,
+    pub ciphertext: Vec<u8>,
     /// Owning session of a session password; `None` for shared rows.
     pub session_id: Option<i64>,
 }
@@ -100,7 +102,7 @@ pub async fn list_detailed(pool: &SqlitePool) -> Result<Vec<CredentialDetail>> {
 
 /// Every row, session passwords included (backups and sync bundles).
 pub async fn list_for_export(pool: &SqlitePool) -> Result<Vec<ExportRow>> {
-    Ok(sqlx::query_as::<_, ExportRow>("SELECT id, kind, label, session_id FROM credentials ORDER BY id")
+    Ok(sqlx::query_as::<_, ExportRow>("SELECT id, kind, label, nonce, ciphertext, session_id FROM credentials ORDER BY id")
         .fetch_all(pool)
         .await?)
 }

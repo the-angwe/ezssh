@@ -20,7 +20,7 @@ use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::style::{alpha, font, font_semibold, size, tokens};
 use crate::tabs::TabId;
-use crate::widgets::{self, Ghost, IconBtn, Menu, MenuEntry, MenuResult, Tone};
+use crate::widgets::{self, Button, IconBtn, Menu, MenuEntry, MenuResult};
 
 // ---------------------------------------------------------------- labels
 
@@ -97,17 +97,16 @@ fn kind_icon(k: ForwardKind) -> Icon {
     }
 }
 
-/// Colour per forward kind: blue / amber / emerald (both themes).
-fn kind_tone(k: ForwardKind) -> Color32 {
+/// Colour per forward kind: accent / warning / success tokens (readable
+/// on both themes).
+fn kind_tone(ctx: &egui::Context, k: ForwardKind) -> Color32 {
+    let t = tokens(ctx);
     match k {
-        ForwardKind::Local => Color32::from_rgb(96, 165, 250),
-        ForwardKind::Remote => Color32::from_rgb(251, 191, 36),
-        ForwardKind::Dynamic => Color32::from_rgb(52, 211, 153),
+        ForwardKind::Local => t.accent,
+        ForwardKind::Remote => t.warning,
+        ForwardKind::Dynamic => t.success,
     }
 }
-
-/// Amber: the neutral "conflict" tone.
-const AMBER_500: Color32 = Color32::from_rgb(245, 158, 11);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RowStatus {
@@ -409,7 +408,7 @@ fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
 
 // ---------------------------------------------------------------- pane
 
-const HEADER_H: f32 = 37.0;
+const HEADER_H: f32 = crate::style::PANE_HEAD_H;
 
 /// Paint the pane of `tab` into `rect`.
 pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
@@ -441,11 +440,11 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     // Header.
     let header = Rect::from_min_size(rect.min, vec2(rect.width() - 1.0, HEADER_H));
     ui.painter().hline(header.x_range(), header.bottom() - 0.5, Stroke::new(1.0, tk.border));
-    ui.scope_builder(UiBuilder::new().max_rect(header.shrink2(vec2(12.0, 0.0))).layout(Layout::left_to_right(Align::Center)), |ui| {
-        ui.label(RichText::new("Forwards").font(font_semibold(size::SM)).color(tk.fg));
+    ui.scope_builder(UiBuilder::new().max_rect(Rect::from_min_max(header.min + vec2(14.0, 0.0), header.max - vec2(8.0, 0.0))).layout(Layout::left_to_right(Align::Center)), |ui| {
+        ui.label(RichText::new("Forwards").font(font_semibold(size::BASE)).color(tk.fg));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let tip = if connection_id.is_some() { "Add forward to this tab" } else { "Connect first to add a forward" };
-            if Ghost::new("Add").size(size::XS).icon(Icon::Plus).enabled(connection_id.is_some()).tooltip(tip).label("Add forward").show(ui).clicked() {
+            if widgets::Button::ghost("Add").small().icon(Icon::Plus).enabled(connection_id.is_some()).tooltip(tip).label("Add forward").show(ui).clicked() {
                 actions.push(Action::AddTab);
             }
         });
@@ -463,6 +462,7 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
         egui::ScrollArea::vertical().id_salt(("forwards-pane", tab)).auto_shrink(false).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
+            ui.add_space(4.0);
             if saved.is_empty() && tab_only.is_empty() {
                 egui::Frame::new().inner_margin(16).show(ui, |ui| {
                     ui.add(
@@ -558,40 +558,38 @@ struct RowOut {
 fn pane_row(ui: &mut Ui, id: Id, kind: ForwardKind, label: &str, status: RowStatus, note: Option<&str>, btns: &[IconBtn<'_>]) -> RowOut {
     let tk = tokens(ui.ctx());
     let width = ui.available_width();
-    let note_color = if status == RowStatus::Conflict { AMBER_500 } else { tk.danger };
-    let note_g = note.map(|n| ui.painter().layout(n.to_string(), font(size::XS), note_color, width - 24.0 - 24.0));
-    let h = 8.0 + 20.0 + note_g.as_ref().map_or(0.0, |g| 2.0 + g.size().y) + 8.0;
+    let note_color = if status == RowStatus::Conflict { tk.warning } else { tk.danger };
+    let note_g = note.map(|n| ui.painter().layout(n.to_string(), font(size::SM), note_color, width - 24.0 - 28.0));
+    let h = 6.0 + 24.0 + note_g.as_ref().map_or(0.0, |g| 2.0 + g.size().y) + 6.0;
     let (rect, row) = ui.allocate_exact_size(vec2(width, h), Sense::click());
     widgets::a11y(&row, egui::Role::ListItem, label);
     let mut out = RowOut { clicked: None, menu_at: None };
     if row.secondary_clicked() {
         out.menu_at = row.interact_pointer_pos().or_else(|| ui.ctx().pointer_latest_pos());
     }
-    if ui.rect_contains_pointer(rect) {
-        ui.painter().rect_filled(rect, 0.0, tk.surface2);
-    }
-    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, tk.border));
-    let line = Rect::from_min_size(Pos2::new(rect.left() + 12.0, rect.top() + 8.0), vec2(width - 24.0, 20.0));
+    let hovered = ui.rect_contains_pointer(rect);
+    widgets::row_fill(ui, rect, hovered, false);
+    let line = Rect::from_min_size(Pos2::new(rect.left() + 14.0, rect.top() + 6.0), vec2(width - 28.0, 24.0));
     let dot = match status {
         RowStatus::Running => tk.success,
         RowStatus::Error => tk.danger,
-        RowStatus::Conflict => AMBER_500,
+        RowStatus::Conflict => tk.warning,
         RowStatus::Idle => alpha(tk.muted, 0.6),
     };
     ui.painter().circle_filled(Pos2::new(line.left() + 3.0, line.center().y), 3.0, dot);
-    kind_icon(kind).paint(ui, Rect::from_center_size(Pos2::new(line.left() + 20.0, line.center().y), vec2(12.0, 12.0)), 12.0, kind_tone(kind));
-    let btn_w = 22.0;
+    kind_icon(kind).paint(ui, Rect::from_center_size(Pos2::new(line.left() + 21.0, line.center().y), vec2(14.0, 14.0)), 14.0, kind_tone(ui.ctx(), kind));
+    let btn_w = 24.0;
     let btns_left = line.right() - btn_w * btns.len() as f32;
-    let text = Rect::from_min_max(Pos2::new(line.left() + 34.0, line.top()), Pos2::new(btns_left - 6.0, line.bottom()));
-    widgets::paint_text(ui, text, label, egui::FontId::monospace(size::XS), tk.fg);
+    let text = Rect::from_min_max(Pos2::new(line.left() + 36.0, line.top()), Pos2::new(btns_left - 6.0, line.bottom()));
+    widgets::paint_text(ui, text, label, egui::FontId::monospace(size::SM), tk.fg);
     for (i, b) in btns.iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(btns_left + btn_w * i as f32 + 1.0, line.top()), vec2(20.0, 20.0));
+        let r = Rect::from_min_size(Pos2::new(btns_left + btn_w * i as f32, line.top()), vec2(24.0, 24.0));
         if b.show(ui, r, id.with(i)).clicked() {
             out.clicked = Some(i);
         }
     }
     if let Some(g) = note_g {
-        ui.painter().galley(Pos2::new(rect.left() + 12.0 + 24.0, line.bottom() + 2.0), g, note_color);
+        ui.painter().galley(Pos2::new(rect.left() + 14.0 + 28.0, line.bottom() + 2.0), g, note_color);
     }
     out
 }
@@ -628,7 +626,7 @@ pub fn session_tab(app: &mut App, ui: &mut Ui, session_id: Option<i64>) {
                 _ => {}
             }
         }
-        if Ghost::new("Add forward").size(size::XS).icon(Icon::Plus).label("Add forward").show(ui).clicked() {
+        if Button::secondary("Add forward").small().icon(Icon::Plus).label("Add forward").show(ui).clicked() {
             actions.push(Action::AddSaved(sid));
         }
     });
@@ -642,27 +640,26 @@ pub fn session_tab(app: &mut App, ui: &mut Ui, session_id: Option<i64>) {
 fn config_row(ui: &mut Ui, r: &Forward) -> Option<usize> {
     let tk = tokens(ui.ctx());
     let label = saved_label(r);
-    let (rect, row) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+    let (rect, row) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
     widgets::a11y(&row, egui::Role::ListItem, &label);
-    ui.painter().rect_stroke(rect, 3.0, Stroke::new(1.0, tk.border), StrokeKind::Inside);
-    let inner = rect.shrink2(vec2(8.0, 6.0));
-    kind_icon(parse_kind(&r.kind)).paint(ui, Rect::from_center_size(Pos2::new(inner.left() + 6.0, inner.center().y), vec2(12.0, 12.0)), 12.0, tk.muted);
-    let btns_left = inner.right() - 44.0;
+    ui.painter().rect_stroke(rect, crate::style::radius::LG, Stroke::new(1.0, tk.border_strong), StrokeKind::Inside);
+    let inner = rect.shrink2(vec2(10.0, 6.0));
+    kind_icon(parse_kind(&r.kind)).paint(ui, Rect::from_center_size(Pos2::new(inner.left() + 8.0, inner.center().y), vec2(14.0, 14.0)), 14.0, tk.muted);
+    let btns_left = inner.right() - 56.0;
     let mut text_right = btns_left - 8.0;
     if r.auto_start == 1 {
-        let g = ui.painter().layout_no_wrap("AUTO".into(), font(size::XS - 1.0), alpha(tk.success, 0.8));
-        let badge = Rect::from_min_size(Pos2::new(text_right - g.size().x - 8.0, inner.center().y - 8.0), vec2(g.size().x + 8.0, 16.0));
-        ui.painter().rect_stroke(badge, 2.0, Stroke::new(1.0, alpha(tk.success, 0.3)), StrokeKind::Inside);
-        ui.painter().galley(badge.center() - g.size() / 2.0, g, alpha(tk.success, 0.8));
+        let cw = widgets::chip_width(ui, "auto", false);
+        let badge = Rect::from_min_size(Pos2::new(text_right - cw, inner.center().y - 9.0), vec2(cw, 18.0));
+        widgets::paint_chip(ui, badge, "auto", Some(tk.success), false, false);
         text_right = badge.left() - 8.0;
     }
-    let text = Rect::from_min_max(Pos2::new(inner.left() + 20.0, inner.top()), Pos2::new(text_right, inner.bottom()));
-    widgets::paint_text(ui, text, &label, egui::FontId::monospace(size::XS), tk.fg);
+    let text = Rect::from_min_max(Pos2::new(inner.left() + 24.0, inner.top()), Pos2::new(text_right, inner.bottom()));
+    widgets::paint_text(ui, text, &label, egui::FontId::monospace(size::SM), tk.fg);
     let mut clicked = None;
     for (i, (icon, verb)) in [(Icon::Pencil, "Edit"), (Icon::Trash, "Delete")].into_iter().enumerate() {
-        let b = Rect::from_min_size(Pos2::new(btns_left + 22.0 * i as f32 + 2.0, inner.center().y - 10.0), vec2(20.0, 20.0));
+        let b = Rect::from_min_size(Pos2::new(btns_left + 28.0 * i as f32, inner.center().y - 14.0), vec2(28.0, 28.0));
         let id = Id::unique(("forward-config-btn", r.id, i));
-        if IconBtn::new(icon, format!("{verb} {label}"), verb).show(ui, b, id).clicked() {
+        if IconBtn::new(icon, format!("{verb} {label}"), verb).icon_size(16.0).show(ui, b, id).clicked() {
             clicked = Some(i);
         }
     }
@@ -721,6 +718,8 @@ pub(crate) struct ForwardDialog {
     persist: bool,
     busy: bool,
     err: Option<String>,
+    /// Focus the Name field on the first frame.
+    focus_name: bool,
 }
 
 /// The parsed, validated form.
@@ -755,6 +754,7 @@ impl ForwardDialog {
             persist: false,
             busy: false,
             err: None,
+            focus_name: true,
         };
         match &d.mode {
             Mode::SavedEdit { forward: f } => {
@@ -809,14 +809,14 @@ impl ForwardDialog {
         if !(1..=65535).contains(&dest_port) {
             return Err("Destination port must be 1–65535");
         }
-        Ok(Valid { bind_port: bind_port as u16, dest_addr: self.dest_addr.clone(), dest_port: dest_port as u16 })
+        Ok(Valid { bind_port: bind_port as u16, dest_addr: self.dest_addr.trim().to_string(), dest_port: dest_port as u16 })
     }
 
     fn input(&self, v: &Valid) -> ForwardInput {
         ForwardInput {
-            name: self.name.clone(),
+            name: self.name.trim().to_string(),
             kind: kind_str(self.kind).into(),
-            bind_addr: self.bind_addr.clone(),
+            bind_addr: self.bind_addr.trim().to_string(),
             bind_port: v.bind_port.into(),
             dest_addr: v.dest_addr.clone(),
             dest_port: v.dest_port.into(),
@@ -826,9 +826,9 @@ impl ForwardDialog {
 
     fn spec(&self, v: &Valid) -> ForwardSpec {
         ForwardSpec {
-            name: self.name.clone(),
+            name: self.name.trim().to_string(),
             kind: self.kind,
-            bind_addr: self.bind_addr.clone(),
+            bind_addr: self.bind_addr.trim().to_string(),
             bind_port: v.bind_port,
             dest_addr: v.dest_addr.clone(),
             dest_port: v.dest_port,
@@ -960,10 +960,13 @@ fn finish(app: &mut App, token: u64, r: Result<Saved, String>) {
         }
         Err(msg) => {
             tracing::warn!(token, "forwards: save failed: {msg}");
-            app.toasts.danger("Forward save failed", msg.clone());
-            if ours && let Some(d) = app.forwards.dialog.as_mut() {
-                d.busy = false;
-                d.err = Some(msg);
+            // The open dialog shows it inline; a toast only when nothing does.
+            match app.forwards.dialog.as_mut() {
+                Some(d) if ours => {
+                    d.busy = false;
+                    d.err = Some(msg);
+                }
+                _ => app.toasts.danger("Forward save failed", msg),
             }
         }
     }
@@ -1005,24 +1008,21 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     let busy = d.busy;
     let (mut save, mut cancel) = (false, false);
     let title = if d.mode.is_saved() { "Forward (session config)" } else { "Forward (this tab)" };
-    let out = widgets::dialog(
+    let focus_name = std::mem::take(&mut d.focus_name);
+    let chord = !busy && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
+    let out = widgets::Dialog::new(Id::unique("forward-dialog"), 560.0).header(Icon::Network, crate::style::tokens(ctx).accent, title, None).row_gap(12.0).busy(busy).show_split(
         ctx,
-        Id::unique("forward-dialog"),
-        560.0,
         |ui| {
-            ui.spacing_mut().item_spacing.y = 12.0;
-            ui.label(RichText::new(title).font(font_semibold(size::BASE)).color(tk.fg));
-            // The header strip's border, across the whole card.
-            let r = ui.available_rect_before_wrap();
-            ui.painter().hline((r.left() - 16.0)..=(r.right() + 16.0), r.top() - 3.0, Stroke::new(1.0, tk.border));
-            ui.add_space(8.0);
             let w = ui.available_width();
             let tiles = KIND_TILES.map(|(kind, label, hint)| (kind, kind_icon(kind), label, hint));
             if let Some(kind) = form::option_cards(ui, &d.kind, &tiles) {
                 d.kind = kind;
             }
             form::field(ui, "Name (optional)", None, |ui| {
-                form::input(ui, &mut d.name, InputOpts::new("e.g. Postgres dev")).accessible_name("Name (optional)");
+                let r = form::input(ui, &mut d.name, InputOpts::new("e.g. Postgres dev")).accessible_name("Name (optional)");
+                if focus_name {
+                    r.request_focus();
+                }
             });
             let first_w = w - 120.0 - 8.0;
             ui.horizontal_top(|ui| {
@@ -1059,14 +1059,14 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
                 form::checkbox(ui, &mut d.auto_start, "Auto-start when the session connects", None);
             }
             if let Some(err) = &d.err {
-                ui.label(RichText::new(err).font(font(size::SM)).color(tk.danger));
+                widgets::error_strip(ui, err);
             }
         },
         Some(&mut |ui: &mut Ui| {
-            if widgets::primary(ui, if busy { "Saving…" } else { "Save" }, Tone::Accent, !busy, size::SM).clicked() {
+            if widgets::Button::primary(if busy { "Saving…" } else { "Save" }).enabled(!busy).show(ui).clicked() {
                 save = true;
             }
-            if widgets::ghost(ui, "Cancel", size::SM).clicked() {
+            if widgets::Button::secondary("Cancel").show(ui).clicked() {
                 cancel = true;
             }
         }),
@@ -1074,7 +1074,7 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     if cancel || out.dismissed() {
         tracing::debug!("forwards: dialog closed");
         app.forwards.dialog = None;
-    } else if save {
+    } else if save || chord {
         submit(app);
     }
 }

@@ -81,6 +81,7 @@ async fn vault_unlock_inner(state: &AppState, password: &str) -> Result<()> {
             let vs = state.vault.read().await;
             if let Err(e) = state.sync.reload_from_db(&state.db, &vs).await {
                 tracing::warn!("sync reload_from_db failed: {e}");
+                record_sync_error(state, &e).await;
             }
             Ok(())
         }
@@ -94,6 +95,10 @@ async fn vault_unlock_inner(state: &AppState, password: &str) -> Result<()> {
 
 pub async fn vault_lock(state: &AppState) -> Result<()> {
     *state.vault.write().await = vault::VaultState::Locked;
+    // The sync writer would otherwise fail its next debounced push with
+    // "vault is locked" and persist that as the last sync error; the
+    // target is rebuilt from the database on unlock.
+    state.sync.set_target(crate::sync::SyncTarget::None).await;
     Ok(())
 }
 
@@ -107,6 +112,13 @@ pub async fn vault_verify_password(state: &AppState, password: String) -> Result
     let result = vault_verify_password_inner(state, &password).await;
     password.zeroize();
     result
+}
+
+/// The re-auth check behind every "enter the master password again"
+/// gate (`vault_verify_password`, backup export): the same lockout
+/// bookkeeping as `vault_unlock`.
+pub(crate) async fn verify_password_with_cooldown(state: &AppState, password: &str) -> Result<bool> {
+    vault_verify_password_inner(state, password).await
 }
 
 async fn vault_verify_password_inner(
@@ -316,6 +328,7 @@ async fn vault_unlock_with_recovery_inner(
             let vs = state.vault.read().await;
             if let Err(e) = state.sync.reload_from_db(&state.db, &vs).await {
                 tracing::warn!("sync reload_from_db failed after recovery unlock: {e}");
+                record_sync_error(state, &e).await;
             }
             Ok(())
         }
@@ -395,6 +408,16 @@ fn validate_new_password(new_password: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+/// A sync target that could not be rebuilt after unlock (a blob wrapped
+/// under another vault's key, a deleted folder) would otherwise show as
+/// "none" with no explanation; `sync_status` surfaces `sync.last_error`.
+async fn record_sync_error(state: &AppState, e: &AppError) {
+    let msg = format!("sync configuration could not be loaded: {e}");
+    if let Err(e2) = crate::db::settings::set(&state.db, crate::sync::KEY_LAST_ERROR, &msg).await {
+        tracing::warn!(error = %e2, "could not record the sync error");
+    }
 }
 
 fn check_cooldown(state: &AppState, now: i64) -> Result<()> {

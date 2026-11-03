@@ -204,21 +204,15 @@ impl Dimensions for GridSize {
     }
 }
 
-/// Throughput counters, for the spike's gate measurements.
-#[derive(Default)]
-pub struct Stats {
-    pub bytes: AtomicU64,
-    pub feed_nanos: AtomicU64,
-    pub feeds: AtomicU64,
-}
-
 struct Shared {
     term: FairMutex<Term<Listener>>,
     listener: Listener,
     parser: Mutex<Processor>,
     ctx: egui::Context,
-    stats: Stats,
-    exit: Mutex<Option<String>>,
+    /// Bumped per `feed`: the view keys its caches (link under the
+    /// pointer, find matches) on it so they are rebuilt only when the
+    /// grid may have changed.
+    feed_gen: AtomicU64,
 }
 
 /// Handed to the byte source. Cheap to clone.
@@ -228,7 +222,6 @@ pub struct Feeder(Arc<Shared>);
 impl Feeder {
     /// Run `bytes` through the parser into the terminal and request a repaint.
     pub fn feed(&self, bytes: &[u8]) {
-        let started = Instant::now();
         tracing::trace!(len = bytes.len(), head = %bytes[..bytes.len().min(160)].escape_ascii(), "term.feed");
         {
             let mut parser = match self.0.parser.lock() {
@@ -248,23 +241,10 @@ impl Feeder {
             }
             parser.advance(&mut hooked, bytes);
         }
-        let s = &self.0.stats;
-        s.bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-        s.feeds.fetch_add(1, Ordering::Relaxed);
-        s.feed_nanos.fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        self.0.feed_gen.fetch_add(1, Ordering::Release);
         self.0.ctx.request_repaint();
     }
 
-    /// The byte source ended (shell exited, channel closed, error).
-    pub fn exited(&self, reason: impl Into<String>) {
-        let reason = reason.into();
-        tracing::info!(%reason, "term.feed: source ended");
-        match self.0.exit.lock() {
-            Ok(mut e) => *e = Some(reason),
-            Err(e) => tracing::error!("term.feed: exit slot poisoned: {e}"),
-        }
-        self.0.ctx.request_repaint();
-    }
 }
 
 pub struct Terminal {
@@ -295,8 +275,7 @@ impl Terminal {
             listener: listener.clone(),
             parser: Mutex::new(Processor::new()),
             ctx: ctx.clone(),
-            stats: Stats::default(),
-            exit: Mutex::new(None),
+            feed_gen: AtomicU64::new(0),
         });
         let feeder = Feeder(shared.clone());
         let view = crate::view::ViewState::default();
@@ -311,18 +290,10 @@ impl Terminal {
         self.title.as_deref()
     }
 
-    pub fn exit_reason(&self) -> Option<String> {
-        match self.shared.exit.lock() {
-            Ok(e) => e.clone(),
-            Err(e) => {
-                tracing::error!("term: exit slot poisoned: {e}");
-                None
-            }
-        }
-    }
-
-    pub fn stats(&self) -> &Stats {
-        &self.shared.stats
+    /// Changes whenever bytes were fed since the last call: cheap "may the
+    /// grid have changed" test for the view's caches.
+    pub fn feed_generation(&self) -> u64 {
+        self.shared.feed_gen.load(Ordering::Acquire)
     }
 
     pub fn view_state(&self) -> &crate::view::ViewState {
@@ -343,7 +314,8 @@ impl Terminal {
     }
 
     /// Live switch for OSC 52 clipboard writes (`terminal.osc52Clipboard`).
-    pub fn set_osc52_write(&self, allow: bool) {
+    pub fn set_osc52_write(&mut self, allow: bool) {
+        self.options.osc52_write = allow;
         self.listener.0.osc52_write.store(allow, Ordering::Relaxed);
     }
 
@@ -370,7 +342,7 @@ impl Terminal {
         self.lock().set_options(config);
     }
 
-    /// The options in effect (scrollback, cursor, OSC 52 at creation).
+    /// The options in effect (scrollback, cursor, OSC 52).
     pub fn options(&self) -> &TermOptions {
         &self.options
     }

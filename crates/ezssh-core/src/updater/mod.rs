@@ -476,6 +476,11 @@ pub async fn download(
         {
             return Err(err(format!("download ended after {done} of {t} bytes")));
         }
+        // Without a Content-Length the loop above never reports a
+        // "finished" pair; the UI's throttle keys on `total == done`.
+        if total.is_none() {
+            progress(done, Some(done));
+        }
         file.flush().await.map_err(|e| err(format!("writing {}: {e}", path.display())))?;
         file.sync_all().await.map_err(|e| err(format!("writing {}: {e}", path.display())))?;
         verifier.finalize().map_err(|e| {

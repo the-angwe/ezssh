@@ -18,7 +18,7 @@ pub struct Forward {
     pub created_at: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ForwardInput {
     pub name:       String,
     pub kind:       String,
@@ -27,6 +27,20 @@ pub struct ForwardInput {
     pub dest_addr:  String,
     pub dest_port:  i64,
     pub auto_start: i64,
+}
+
+impl From<Forward> for ForwardInput {
+    fn from(f: Forward) -> Self {
+        Self {
+            name: f.name,
+            kind: f.kind,
+            bind_addr: f.bind_addr,
+            bind_port: f.bind_port,
+            dest_addr: f.dest_addr,
+            dest_port: f.dest_port,
+            auto_start: f.auto_start,
+        }
+    }
 }
 
 /// Validates the kind-specific shape of a `ForwardInput`. Local/Remote

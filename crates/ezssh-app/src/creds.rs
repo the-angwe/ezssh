@@ -15,6 +15,8 @@ pub struct CredCache {
     /// (clamp a selection that was deleted, …).
     pub generation: u64,
     pub loading: bool,
+    /// Reload requests issued; the continuation of the latest one clears `loading`.
+    requests: u64,
 }
 
 impl CredCache {
@@ -25,11 +27,18 @@ impl CredCache {
 
     pub fn reload(&mut self, core: &Core) {
         self.loading = true;
+        self.requests += 1;
+        let request = self.requests;
         core.call(
             "credential_list",
             |st| async move { api::credentials::credential_list(&st).await },
-            |app, r| {
-                app.creds.loading = false;
+            move |app, r| {
+                // Only the newest request clears the flag: an older answer
+                // must not declare the list settled while a newer one is
+                // still in flight.
+                if app.creds.requests == request {
+                    app.creds.loading = false;
+                }
                 match r {
                     Ok(list) => {
                         tracing::debug!(n = list.len(), "creds: reloaded");

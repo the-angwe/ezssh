@@ -309,6 +309,7 @@ impl App {
             // Tab closed or reconnected meanwhile: this connection is orphaned.
             if let Ok(id) = result {
                 tracing::debug!(tab, connection_id = id, "conn: stale connect result, disconnecting");
+                self.early_closed.remove(&id);
                 self.disconnect(family, id);
             }
             return;
@@ -328,6 +329,13 @@ impl App {
                 self.tabs.set_status(tab, TabStatus::Connected, None);
                 if let Some(slot) = self.terms.get_mut(&tab) {
                     slot.focus = true;
+                }
+                // The core spawns the reader before the connect call returns:
+                // a program that exits at once closed before this tab knew
+                // its connection id.
+                if let Some(event) = self.early_closed.remove(&id) {
+                    tracing::info!(tab, connection_id = id, "conn: replaying a close that arrived before the connect finished");
+                    self.on_connection_event(event);
                 }
             }
             Err(e) => {
@@ -397,7 +405,8 @@ impl App {
         match event {
             Event::Closed { connection_id, reason } => {
                 let Some(tab) = self.tabs.by_connection(connection_id) else {
-                    tracing::debug!(connection_id, ?reason, "conn: close for an unknown connection");
+                    tracing::debug!(connection_id, ?reason, "conn: close for an unknown connection, kept for the connect continuation");
+                    self.early_closed.insert(connection_id, Event::Closed { connection_id, reason });
                     return;
                 };
                 tracing::info!(tab, connection_id, ?reason, "conn: closed");

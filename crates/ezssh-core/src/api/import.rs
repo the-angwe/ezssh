@@ -68,7 +68,10 @@ pub async fn mobaxterm_preview(
             MAX_IMPORT_FILE_SIZE
         )));
     }
-    let text = fs::read_to_string(&path).await?;
+    // MobaXterm writes its ini in the Windows ANSI code page; accented
+    // session names would otherwise fail the whole import with an opaque
+    // io error. Lossy decoding keeps every ASCII field intact.
+    let text = String::from_utf8_lossy(&fs::read(&path).await?).into_owned();
     let parsed = mobaxterm::parse(&text);
 
     if parsed.sessions.len() > MAX_IMPORT_SESSIONS {
@@ -473,6 +476,23 @@ async fn import_key_files(
             .filter(|s| !s.is_empty())
             .unwrap_or("imported-key")
             .to_string();
+
+        // A re-import (strategy skip / overwrite) must not pile up a new
+        // copy of every key file each time: reuse the shared private key
+        // that an earlier import stored under the same label.
+        let existing: Option<(i64,)> = sqlx::query_as(
+            "SELECT id FROM credentials \
+             WHERE kind = 'private_key' AND label = ? AND session_id IS NULL \
+             ORDER BY id LIMIT 1",
+        )
+        .bind(&label)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if let Some((id,)) = existing {
+            tracing::debug!(label, id, "mobaxterm import: reusing the stored key");
+            map.insert(raw.to_string(), id);
+            continue;
+        }
 
         let (nonce, ct) = {
             let vault_state = state.vault.read().await;

@@ -115,7 +115,7 @@ pub async fn generate(
     let mut salt = [0u8; 16];
     SysRng.try_fill_bytes(&mut salt).map_err(|_| AppError::Crypto)?;
     let params = KdfParams::default();
-    let recovery_key = kdf::derive_key(code.as_bytes(), &salt, params)?;
+    let recovery_key = kdf::derive_key_blocking(Zeroizing::new(code.as_bytes().to_vec()), salt.to_vec(), params).await?;
     let aead = Aead256::new(&recovery_key);
     let (nonce, ct) = aead.encrypt(&**key)?;
     let mut wrapped = Vec::with_capacity(nonce.len() + ct.len());
@@ -213,6 +213,14 @@ pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing
 
     let stored: StoredKdfParams = serde_json::from_str(&params_json)?;
     let params: KdfParams = stored.into();
+    // The recovery wrap protects the vault key itself, so the same
+    // floor as `unlock` applies: a DB-write attacker must not be able
+    // to downgrade the work factor and crack the code offline.
+    if provisioned && !super::params_ok(&params) {
+        return Err(AppError::Validation(
+            "recovery KDF parameters look tampered; refusing to unlock".into(),
+        ));
+    }
     // Run the KDF against the (decoded || dummy) input regardless of
     // whether decode succeeded — constant-time-ish: we always pay one
     // Argon2id run before deciding to fail.
@@ -224,7 +232,7 @@ pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing
         }
         _ => Zeroizing::new(vec![0u8; 24]),
     };
-    let recovery_key = kdf::derive_key(&kdf_input, &salt, params)?;
+    let recovery_key = kdf::derive_key_blocking(kdf_input, salt, params).await?;
 
     if !provisioned || !decoded_ok || wrapped.len() < NONCE_LEN {
         return Err(AppError::BadPassword);
@@ -243,7 +251,7 @@ pub async fn unlock_with_code(pool: &SqlitePool, code: &str) -> Result<Zeroizing
     let (vnonce, vct) = verifier.split_at(NONCE_LEN);
     let pt = Aead256::new(&key_arr).decrypt(vnonce, vct)
         .map_err(|_| AppError::BadPassword)?;
-    if pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
+    if *pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
 
     // Consume the recovery wrap. Once unlocked via recovery, the
     // same code MUST NOT unlock again — that's the difference between

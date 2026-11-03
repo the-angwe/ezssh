@@ -109,6 +109,10 @@ impl CascadeGeom {
     /// geometry clamped so it never leaks off-screen after a window
     /// resize. Display only; nothing is written back.
     pub fn displayed(&self, area_w: f32, area_h: f32) -> (f32, f32, f32, f32) {
+        if self.maximized {
+            // Follows window resizes and the minimised strip appearing.
+            return (0.0, 0.0, area_w, area_h);
+        }
         let w = self.w.min(CASCADE_MIN_W.max(area_w));
         let h = self.h.min(CASCADE_MIN_H.max(area_h));
         let x = self.x.min(area_w - w).max(0.0);
@@ -309,30 +313,20 @@ impl Tabs {
     /// Remove a tab. The last tab becomes active if the closed one was.
     pub fn close(&mut self, id: TabId) {
         self.tabs.retain(|t| t.id != id);
-        if self.active == Some(id) {
-            self.active = self.tabs.last().map(|t| t.id);
-        }
         self.cascade.remove(&id);
         self.minimized.remove(&id);
+        if self.active == Some(id) {
+            // Prefer a tab that is on screen; a minimised one would leave
+            // the area blank.
+            self.active = self.visible().last().or(self.tabs.last()).map(|t| t.id);
+            if let Some(a) = self.active
+                && self.minimized.contains(&a)
+            {
+                self.restore(a);
+            }
+        }
         if self.pending_close == Some(id) {
             self.pending_close = None;
-        }
-    }
-
-    /// Close, or park in `pending_close` when the tab is connected and
-    /// `confirm_live` (`sessions.confirmCloseLive`) is on. Returns true
-    /// when the tab was closed right away.
-    pub fn request_close(&mut self, id: TabId, confirm_live: bool) -> bool {
-        match self.get(id) {
-            Some(t) if t.status == TabStatus::Connected && confirm_live => {
-                self.pending_close = Some(id);
-                false
-            }
-            Some(_) => {
-                self.close(id);
-                true
-            }
-            None => false,
         }
     }
 
@@ -481,17 +475,6 @@ mod tests {
         assert!(!t.cascade.contains_key(&ids[1]) && !t.minimized.contains(&ids[1]));
         t.close(ids[0]);
         assert_eq!(t.active, Some(ids[2]), "closing an inactive tab keeps the active one");
-    }
-
-    #[test]
-    fn request_close_confirms_only_live_tabs() {
-        let (mut t, ids) = tabs_with(2);
-        t.set_status(ids[0], TabStatus::Connected, None);
-        assert!(!t.request_close(ids[0], true));
-        assert_eq!(t.pending_close, Some(ids[0]));
-        assert!(t.request_close(ids[1], true), "connecting tabs close at once");
-        assert!(t.request_close(ids[0], false), "setting off");
-        assert_eq!(t.pending_close, None);
     }
 
     #[test]

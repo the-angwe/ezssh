@@ -39,8 +39,11 @@ pub(crate) const VAULT_BLOB_SETTING_KEYS: &[&str] = &[
 const MIN_KDF_M_COST_KIB: u32 = 32 * 1024;
 const MIN_KDF_T_COST: u32 = 2;
 
-fn params_ok(p: &KdfParams) -> bool {
-    p.m_cost_kib >= MIN_KDF_M_COST_KIB && p.t_cost >= MIN_KDF_T_COST && p.p_cost >= 1
+pub(super) fn params_ok(p: &KdfParams) -> bool {
+    p.m_cost_kib >= MIN_KDF_M_COST_KIB
+        && p.t_cost >= MIN_KDF_T_COST
+        && p.p_cost >= 1
+        && kdf::params_within_limits(p)
 }
 
 pub enum VaultState {
@@ -95,24 +98,10 @@ pub async fn init(pool: &SqlitePool, password: &str) -> Result<VaultState> {
 }
 
 pub async fn unlock(pool: &SqlitePool, password: &str) -> Result<VaultState> {
-    let row: (Vec<u8>, String, Vec<u8>) =
-        sqlx::query_as("SELECT salt, kdf_params, verifier FROM vault_meta WHERE id = 1")
-            .fetch_optional(pool).await?.ok_or(AppError::NotFound)?;
-    let (salt, params_json, verifier) = row;
-    let stored: StoredKdfParams = serde_json::from_str(&params_json)?;
-    let params: KdfParams = stored.into();
-    if !params_ok(&params) {
-        return Err(AppError::Validation(
-            "vault KDF parameters look tampered; refusing to unlock".into(),
-        ));
-    }
-    let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
-    if verifier.len() < NONCE_LEN { return Err(AppError::Crypto); }
-    let (nonce, ct) = verifier.split_at(NONCE_LEN);
-    let aead = Aead256::new(&key);
-    let pt = aead.decrypt(nonce, ct).map_err(|_| AppError::BadPassword)?;
-    if pt != VERIFIER_PLAINTEXT { return Err(AppError::BadPassword); }
-    Ok(VaultState::Unlocked { key })
+    verify_and_derive(pool, password)
+        .await?
+        .map(|key| VaultState::Unlocked { key })
+        .ok_or(AppError::BadPassword)
 }
 
 /// Verify a password against the stored vault metadata without returning
@@ -142,17 +131,17 @@ pub(crate) async fn verify_and_derive(
     let params: KdfParams = stored.into();
     if !params_ok(&params) {
         return Err(AppError::Validation(
-            "vault KDF parameters look tampered; refusing to verify".into(),
+            "vault KDF parameters look tampered; refusing to unlock".into(),
         ));
     }
-    let key = kdf::derive_key(password.as_bytes(), &salt, params)?;
+    let key = kdf::derive_key_blocking(Zeroizing::new(password.as_bytes().to_vec()), salt, params).await?;
     if verifier.len() < NONCE_LEN {
         return Err(AppError::Crypto);
     }
     let (nonce, ct) = verifier.split_at(NONCE_LEN);
     let aead = Aead256::new(&key);
     match aead.decrypt(nonce, ct) {
-        Ok(pt) if pt == VERIFIER_PLAINTEXT => Ok(Some(key)),
+        Ok(pt) if *pt == VERIFIER_PLAINTEXT => Ok(Some(key)),
         _ => Ok(None),
     }
 }
@@ -164,7 +153,7 @@ pub fn encrypt_with(state: &VaultState, plaintext: &[u8]) -> Result<(Vec<u8>, Ve
     }
 }
 
-pub fn decrypt_with(state: &VaultState, nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
+pub fn decrypt_with(state: &VaultState, nonce: &[u8], ciphertext: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     match state {
         VaultState::Unlocked { key } => Aead256::new(key).decrypt(nonce, ciphertext),
         _ => Err(AppError::VaultLocked),
@@ -200,7 +189,7 @@ pub async fn change_password(
     let mut new_salt = [0u8; 16];
     SysRng.try_fill_bytes(&mut new_salt).map_err(|_| AppError::Crypto)?;
     let params = KdfParams::default();
-    let new_key = kdf::derive_key(new_password.as_bytes(), &new_salt, params)?;
+    let new_key = kdf::derive_key_blocking(Zeroizing::new(new_password.as_bytes().to_vec()), new_salt.to_vec(), params).await?;
     let old_aead = Aead256::new(old_key);
     let new_aead = Aead256::new(&new_key);
 
@@ -218,15 +207,14 @@ pub async fn change_password(
     // would otherwise land a new row encrypted under the OLD key after
     // our SELECT but before our vault_meta rewrite, and would be
     // unreadable forever after.
-    let mut tx = pool.begin().await?;
-    sqlx::query("BEGIN IMMEDIATE").execute(&mut *tx).await.ok();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
     let cred_rows: Vec<(i64, Vec<u8>, Vec<u8>)> =
         sqlx::query_as("SELECT id, nonce, ciphertext FROM credentials")
             .fetch_all(&mut *tx).await?;
     for (id, nonce, ct) in cred_rows {
         if nonce.len() != NONCE_LEN { return Err(AppError::Crypto); }
-        let pt = Zeroizing::new(old_aead.decrypt(&nonce, &ct)?);
+        let pt = old_aead.decrypt(&nonce, &ct)?;
         let (n2, c2) = new_aead.encrypt(&pt)?;
         sqlx::query("UPDATE credentials SET nonce = ?, ciphertext = ? WHERE id = ?")
             .bind(&n2).bind(&c2).bind(id)
@@ -238,10 +226,25 @@ pub async fn change_password(
             sqlx::query_as("SELECT value FROM app_settings WHERE key = ?")
                 .bind(*key).fetch_optional(&mut *tx).await?;
         let Some((b64,)) = row else { continue };
-        let bytes = B64.decode(&b64).map_err(|_| AppError::Crypto)?;
-        if bytes.len() < NONCE_LEN { return Err(AppError::Crypto); }
-        let (nonce, ct) = bytes.split_at(NONCE_LEN);
-        let pt = Zeroizing::new(old_aead.decrypt(nonce, ct)?);
+        // `sync_disable` used to leave "" behind, and a restored backup
+        // may carry a blob wrapped under another vault's key. Neither
+        // is readable under the old key, so neither can be re-wrapped:
+        // drop the row (sync has to be configured again) instead of
+        // failing every password change from here on.
+        let unreadable = match B64.decode(&b64) {
+            Ok(bytes) if bytes.len() >= NONCE_LEN => {
+                let (nonce, ct) = bytes.split_at(NONCE_LEN);
+                old_aead.decrypt(nonce, ct).ok()
+            }
+            _ => None,
+        };
+        let Some(pt) = unreadable else {
+            tracing::warn!(key, "change_password: setting blob not readable under the current key; removing it");
+            sqlx::query("DELETE FROM app_settings WHERE key = ?")
+                .bind(*key)
+                .execute(&mut *tx).await?;
+            continue;
+        };
         let (n2, c2) = new_aead.encrypt(&pt)?;
         let mut combined = Vec::with_capacity(n2.len() + c2.len());
         combined.extend_from_slice(&n2);

@@ -19,8 +19,10 @@ static LAST_MS: AtomicU64 = AtomicU64::new(0);
 /// not queue up seconds of beeps).
 pub fn ring() {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-    let last = LAST_MS.swap(now, Ordering::Relaxed);
-    if now.saturating_sub(last) < 100 {
+    // Only a bell that rings moves the window; swapping first would let a
+    // stream faster than 10 Hz ring once and then never.
+    let last = LAST_MS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 100 || LAST_MS.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_err() {
         return;
     }
     let spawned = std::thread::Builder::new().name("bell".into()).spawn(|| {
@@ -44,9 +46,43 @@ fn play() -> Result<(), String> {
     if ok == 0 { Err(format!("Beep failed: {}", std::io::Error::last_os_error())) } else { Ok(()) }
 }
 
+/// The numeric user id, for a per-user fallback directory name.
+#[cfg(unix)]
+fn unsafe_uid() -> u32 {
+    // SAFETY: getuid has no preconditions and cannot fail.
+    unsafe { libc_getuid() }
+}
+#[cfg(not(unix))]
+fn unsafe_uid() -> u32 {
+    0
+}
+#[cfg(unix)]
+unsafe extern "C" {
+    #[link_name = "getuid"]
+    fn libc_getuid() -> u32;
+}
+
 #[cfg(not(windows))]
 fn play() -> Result<(), String> {
-    let path = std::env::temp_dir().join(format!("ezssh-bell-{FREQ_HZ}hz-{MILLIS}ms.wav"));
+    // A per-user directory: the shared temp dir would let another user
+    // plant the file. XDG_RUNTIME_DIR is 0700 by contract; the fallback
+    // directory is created 0700 here.
+    let dir = match std::env::var_os("XDG_RUNTIME_DIR") {
+        Some(d) => std::path::PathBuf::from(d),
+        None => {
+            let d = std::env::temp_dir().join(format!("ezssh-{}", unsafe_uid()));
+            std::fs::create_dir_all(&d).map_err(|e| format!("creating {}: {e}", d.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Err(e) = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700)) {
+                    tracing::debug!(path = %d.display(), "bell: could not restrict the directory: {e}");
+                }
+            }
+            d
+        }
+    };
+    let path = dir.join(format!("ezssh-bell-{FREQ_HZ}hz-{MILLIS}ms.wav"));
     if !path.exists() {
         std::fs::write(&path, wav()).map_err(|e| format!("writing {}: {e}", path.display()))?;
     }

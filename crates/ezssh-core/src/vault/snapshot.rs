@@ -68,7 +68,9 @@ pub async fn take(pool: &SqlitePool, label: &str) -> Result<PathBuf> {
         if let Ok(meta) = std::fs::metadata(&target) {
             let mut p = meta.permissions();
             p.set_mode(0o600);
-            let _ = std::fs::set_permissions(&target, p);
+            if let Err(e) = std::fs::set_permissions(&target, p) {
+                tracing::warn!(path = %target.display(), error = %e, "snapshot: could not restrict permissions");
+            }
         }
     }
 
@@ -98,15 +100,19 @@ fn rotate(dir: &Path) -> std::io::Result<()> {
 
     // Drop by count cap.
     for (_, path) in entries.iter().skip(KEEP) {
-        let _ = std::fs::remove_file(path);
+        if let Err(e) = std::fs::remove_file(path) {
+            tracing::warn!(path = %path.display(), error = %e, "snapshot: could not remove an old snapshot");
+        }
     }
     // Drop by age cap — survives the count cap if KEEP itself was
     // raised; keeps the offline-cracking exposure window bounded.
     for (when, path) in entries.iter().take(KEEP) {
         if let Ok(age) = now.duration_since(*when)
-            && age > max_age {
-                let _ = std::fs::remove_file(path);
-            }
+            && age > max_age
+            && let Err(e) = std::fs::remove_file(path)
+        {
+            tracing::warn!(path = %path.display(), error = %e, "snapshot: could not remove an expired snapshot");
+        }
     }
     Ok(())
 }
