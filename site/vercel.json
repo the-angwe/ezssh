@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/:path*", "has": [{ "type": "host", "value": "angwe.xyz" }], "destination": "https://ezssh.angwe.xyz/:path*", "permanent": true },
+    { "source": "/:path*", "has": [{ "type": "host", "value": "www.angwe.xyz" }], "destination": "https://ezssh.angwe.xyz/:path*", "permanent": true },
+    { "source": "/og.html", "destination": "/", "permanent": false }
+  ],
+  "headers": [
+    { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }] }
+  ]
+}
