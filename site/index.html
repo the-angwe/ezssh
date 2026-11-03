@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>ezSsh</title>
+<meta name="description" content="ezSsh is a free, open-source SSH client: a MobaXterm-style session manager, an encrypted vault, a real terminal, an SFTP pane, WSL and local shells, port forwards and X11. One native Rust program for Windows, Linux and macOS.">
+<meta name="theme-color" content="#181A1E">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ezSsh, the free open-source SSH client">
+<meta property="og:description" content="Session manager, encrypted vault, real terminal, SFTP pane, WSL, port forwards and X11. One native Rust program, no webview.">
+<meta property="og:image" content="assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a quiet, tonal page built from the app's own "quiet layers" tokens; the hero is a
+   full-width working app window, every other section is a 1120px column of text and cards. */
+:root {
+  --bg: #181A1E;
+  --surface: #1F2126;
+  --surface2: #2A2D34;
+  --surface3: #343842;
+  --fg: #E6E8ED;
+  --fg2: #B4B9C4;
+  --muted: #8B919E;
+  --border: rgba(230, 232, 237, 0.08);
+  --border-strong: rgba(230, 232, 237, 0.16);
+  --accent: #6CA6F5;
+  --accent-soft: rgba(108, 166, 245, 0.14);
+  --on-accent: #0F1217;
+  --success: #4FB37E;
+  --warning: #E0B04A;
+  --danger: #EF6B6B;
+  --glow: rgba(108, 166, 245, 0.22);
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --display: "Schibsted Grotesk", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --body: "Instrument Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #F3F4F7; --surface: #FFFFFF; --surface2: #EEF0F4; --surface3: #E3E6EC;
+    --fg: #1A1D23; --fg2: #4B5261; --muted: #697080;
+    --border: rgba(26, 29, 35, 0.09); --border-strong: rgba(26, 29, 35, 0.18);
+    --accent: #1E6ED0; --accent-soft: rgba(30, 110, 208, 0.12); --on-accent: #FFFFFF;
+    --success: #1F8A50; --warning: #A86E12; --danger: #C23A42;
+    --glow: rgba(30, 110, 208, 0.16); --shadow: 0 24px 64px rgba(26, 29, 35, 0.22);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #F3F4F7; --surface: #FFFFFF; --surface2: #EEF0F4; --surface3: #E3E6EC;
+  --fg: #1A1D23; --fg2: #4B5261; --muted: #697080;
+  --border: rgba(26, 29, 35, 0.09); --border-strong: rgba(26, 29, 35, 0.18);
+  --accent: #1E6ED0; --accent-soft: rgba(30, 110, 208, 0.12); --on-accent: #FFFFFF;
+  --success: #1F8A50; --warning: #A86E12; --danger: #C23A42;
+  --glow: rgba(30, 110, 208, 0.16); --shadow: 0 24px 64px rgba(26, 29, 35, 0.22);
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+a { color: inherit; text-decoration: none; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.02em; }
+p { margin: 0; }
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.eyebrow {
+  font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--accent); display: inline-flex; align-items: center; gap: 8px;
+}
+.eyebrow::before { content: ">"; opacity: 0.7; }
+.lede { color: var(--fg2); font-size: 18px; max-width: 60ch; }
+.section { padding-block: 96px; }
+.section-head { display: grid; gap: 14px; max-width: 720px; margin-bottom: 48px; }
+.section-head h2 { font-size: clamp(30px, 4vw, 42px); font-weight: 600; line-height: 1.1; }
+.ico { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+code, kbd { font-family: var(--mono); font-size: 0.92em; }
+kbd { background: var(--surface2); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-size: 12px; color: var(--fg2); white-space: nowrap; }
+
+/* nav */
+.nav {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.nav .wrap { display: flex; align-items: center; gap: 28px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+.brand svg { width: 28px; height: 28px; border-radius: 7px; }
+.nav-links { display: flex; gap: 22px; margin-left: 8px; font-size: 14px; color: var(--fg2); font-weight: 500; }
+.nav-links a:hover { color: var(--fg); }
+.nav-end { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.theme-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border-strong); background: transparent; color: var(--fg2); display: grid; place-items: center; cursor: pointer; }
+.theme-btn:hover { background: var(--surface2); color: var(--fg); }
+.theme-btn .ico { width: 18px; height: 18px; }
+:root[data-theme="light"] .theme-btn .moon, .theme-btn .sun { display: none; }
+:root[data-theme="light"] .theme-btn .sun { display: block; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .theme-btn .moon { display: none; } :root:not([data-theme="dark"]) .theme-btn .sun { display: block; } }
+:root[data-theme="dark"] .theme-btn .sun { display: none; }
+:root[data-theme="dark"] .theme-btn .moon { display: block; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px;
+  border-radius: 8px; font-weight: 600; font-size: 15px; font-family: var(--body); cursor: pointer; border: 1px solid transparent; white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.btn .ico { width: 18px; height: 18px; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-secondary { background: var(--surface2); color: var(--fg); border-color: var(--border-strong); }
+.btn-secondary:hover { background: var(--surface3); }
+.btn-sm { height: 36px; padding: 0 14px; font-size: 14px; }
+
+/* hero */
+.hero { padding-block: 72px 0; position: relative; }
+.hero::before {
+  content: ""; position: absolute; inset: -200px 0 auto 0; height: 720px; pointer-events: none; z-index: -1;
+  background: radial-gradient(60% 60% at 30% 30%, var(--glow), transparent 70%);
+}
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); gap: 40px; align-items: end; }
+.hero h1 { font-size: clamp(40px, 6vw, 68px); font-weight: 700; line-height: 1.02; letter-spacing: -0.03em; margin-top: 20px; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero .lede { margin-top: 22px; font-size: clamp(17px, 1.6vw, 20px); }
+.cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; align-items: center; }
+.cta-note { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+.platforms { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 18px; font-size: 14px; color: var(--fg2); }
+.platforms a { display: inline-flex; align-items: center; gap: 7px; }
+.platforms a:hover { color: var(--fg); }
+.platforms .ico { width: 16px; height: 16px; }
+.facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.fact { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.fact b { display: block; font-family: var(--display); font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.fact span { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+/* app mockup */
+.shot { margin-top: 56px; position: relative; }
+.shot-frame { width: 100%; overflow: hidden; border-radius: 12px; border: 1px solid var(--border-strong); box-shadow: var(--shadow); background: #181A1E; }
+.app {
+  --m-bg: #181A1E; --m-surface: #1F2126; --m-surface2: #2A2D34; --m-surface3: #343842;
+  --m-fg: #E6E8ED; --m-fg2: #B4B9C4; --m-muted: #8B919E; --m-border: rgba(230,232,237,0.08);
+  --m-accent: #6CA6F5; --m-accent-soft: rgba(108,166,245,0.14); --m-success: #4FB37E; --m-warning: #E0B04A; --m-danger: #EF6B6B;
+  width: 1120px; height: 660px; background: var(--m-bg); color: var(--m-fg); font-family: var(--body); font-size: 13px; line-height: 1.4;
+  display: grid; grid-template-rows: 1fr 26px; grid-template-columns: 236px 1fr; transform-origin: top left; user-select: none;
+}
+.app .sidebar { background: var(--m-surface); display: flex; flex-direction: column; min-height: 0; }
+.app .side-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 6px; }
+.app .side-head > .ico { width: 16px; height: 16px; color: var(--m-muted); }
+.app .filter { flex: 1; min-width: 0; white-space: nowrap; height: 28px; border-radius: 6px; background: var(--m-surface2); display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--m-muted); font-size: 12px; }
+.app .filter kbd { margin-left: auto; background: var(--m-surface3); border: 0; color: var(--m-muted); font-size: 10px; padding: 1px 5px; }
+.app .tree { padding: 4px 6px; display: flex; flex-direction: column; gap: 1px; }
+.app .row { height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; color: var(--m-fg2); position: relative; }
+.app .row.folder { color: var(--m-fg); font-weight: 500; }
+.app .row .ico { width: 15px; height: 15px; color: var(--m-muted); }
+.app .row.sel { background: var(--m-accent-soft); color: var(--m-fg); }
+.app .row.sel .ico { color: var(--m-accent); }
+.app .row .badge { margin-left: auto; font-size: 11px; color: var(--m-muted); background: var(--m-surface2); border-radius: 999px; padding: 0 7px; line-height: 16px; }
+.app .row .live { position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 2px; background: var(--m-success); box-shadow: 0 0 8px var(--m-success); }
+.app .row.in { padding-left: 24px; }
+.app .side-foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 8px 10px; color: var(--m-muted); font-size: 12px; }
+.app .side-foot .ico { width: 16px; height: 16px; }
+.app .side-foot .unlocked { display: inline-flex; align-items: center; gap: 6px; color: var(--m-success); margin-right: auto; }
+.app .main { display: grid; grid-template-rows: 36px 1fr; min-height: 0; }
+.app .tabs { background: var(--m-surface); display: flex; align-items: flex-end; padding: 0 8px; gap: 2px; }
+.app .tab { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 6px 6px 0 0; color: var(--m-fg2); font-size: 12px; }
+.app .tab.on { background: var(--m-bg); color: var(--m-fg); }
+.app .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--m-success); }
+.app .dot.idle { background: var(--m-muted); }
+.app .tab .pane { width: 14px; height: 14px; color: var(--m-muted); margin-left: 2px; }
+.app .tab.on .pane { color: var(--m-accent); }
+.app .tabs .layout { margin-left: auto; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; color: var(--m-fg2); font-size: 12px; padding: 0 6px; }
+.app .tabs .layout .ico { width: 14px; height: 14px; color: var(--m-muted); }
+.app .work { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+.app .sftp { background: var(--m-surface); border-right: 1px solid var(--m-border); display: flex; flex-direction: column; min-height: 0; }
+.app .sftp-head { height: 36px; display: flex; align-items: center; gap: 4px; padding: 0 10px; font-size: 12px; color: var(--m-fg2); }
+.app .sftp-head .crumb { color: var(--m-fg2); } .app .sftp-head .crumb.on { color: var(--m-fg); font-weight: 500; }
+.app .sftp-head .sep { color: var(--m-muted); }
+.app .sftp-head .ico { width: 15px; height: 15px; color: var(--m-muted); margin-left: auto; }
+.app .cols { display: grid; grid-template-columns: 1fr 56px; padding: 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--m-muted); height: 24px; align-items: center; }
+.app .cols span:last-child { text-align: right; }
+.app .files { display: flex; flex-direction: column; gap: 1px; padding: 0 6px; }
+.app .file { display: grid; grid-template-columns: 16px 1fr 56px; gap: 8px; align-items: center; height: 26px; padding: 0 6px; border-radius: 6px; color: var(--m-fg2); font-size: 12px; }
+.app .file .ico { width: 14px; height: 14px; color: var(--m-muted); }
+.app .file .size { text-align: right; font-family: var(--mono); font-size: 11px; color: var(--m-muted); font-variant-numeric: tabular-nums; }
+.app .file.sel { background: var(--m-accent-soft); color: var(--m-fg); }
+.app .xfer { margin: auto 10px 10px; background: var(--m-surface2); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+.app .xfer .t { display: flex; justify-content: space-between; color: var(--m-fg2); }
+.app .xfer .t b { font-weight: 500; color: var(--m-fg); font-family: var(--mono); font-size: 11px; }
+.app .bar { height: 4px; border-radius: 999px; background: var(--m-surface3); margin-top: 8px; overflow: hidden; }
+.app .bar i { display: block; height: 100%; width: 64%; background: var(--m-accent); border-radius: 999px; }
+.app .term { background: var(--m-bg); padding: 12px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; color: #D8DCE4; overflow: hidden; white-space: pre; min-width: 0; }
+.app .term .p { color: #4FB37E; } .app .term .h { color: #6CA6F5; } .app .term .d { color: #8B919E; } .app .term .ok { color: #4FB37E; } .app .term .k { color: #E0B04A; } .app .term .s { color: #C7A9F3; } .app .term .b { color: #E6E8ED; font-weight: 700; }
+.app .term .cur { display: inline-block; width: 7px; height: 14px; background: #D8DCE4; vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.app .status { grid-column: 1 / -1; background: var(--m-surface); display: flex; align-items: center; gap: 18px; padding: 0 12px; font-size: 11px; color: var(--m-muted); }
+.app .status .chip { display: inline-flex; align-items: center; gap: 6px; }
+.app .status .chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--m-success); }
+.app .status .chip i.off { background: var(--m-muted); }
+.app .status .mono { font-family: var(--mono); color: var(--m-fg2); }
+.app .status .ver { margin-left: auto; }
+
+/* feature grid */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.card .ico { color: var(--accent); width: 24px; height: 24px; }
+.card h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.card p { color: var(--fg2); font-size: 14.5px; }
+.card.wide { grid-column: span 2; }
+
+/* two-column feature sections */
+.split { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 56px; align-items: center; }
+.split.flip > :first-child { order: 2; }
+.split h2 { font-size: clamp(28px, 3.4vw, 38px); font-weight: 600; line-height: 1.1; margin-top: 14px; }
+.split .lede { margin-top: 16px; font-size: 17px; }
+.checks { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 12px; }
+.checks li { display: flex; gap: 12px; align-items: flex-start; color: var(--fg2); font-size: 15px; }
+.checks li b { color: var(--fg); font-weight: 600; }
+.checks .ico { width: 18px; height: 18px; color: var(--success); margin-top: 3px; }
+
+.termcard { background: #181A1E; border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); font-family: var(--mono); font-size: 13px; line-height: 1.55; color: #D8DCE4; }
+.termcard .bar { height: 36px; background: #1F2126; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-family: var(--body); font-size: 12px; color: #B4B9C4; }
+.termcard .bar .dot { width: 7px; height: 7px; border-radius: 50%; background: #4FB37E; }
+.termcard .bar .r { margin-left: auto; color: #8B919E; font-family: var(--mono); font-size: 11px; }
+.termcard pre { margin: 0; padding: 16px 18px; overflow-x: auto; white-space: pre; }
+.termcard .p { color: #4FB37E; } .termcard .h { color: #6CA6F5; } .termcard .d { color: #8B919E; } .termcard .k { color: #E0B04A; } .termcard .s { color: #C7A9F3; } .termcard .r { color: #EF6B6B; } .termcard .b { color: #E6E8ED; font-weight: 700; } .termcard .u { text-decoration: underline; text-decoration-color: #6CA6F5; text-underline-offset: 3px; }
+.termcard .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; }
+.termcard .find { position: relative; }
+.termcard .find::after { content: "Find   Aa   .*   3 / 12"; position: absolute; top: 10px; right: 12px; background: #2A2D34; border: 1px solid rgba(230,232,237,0.16); border-radius: 6px; padding: 4px 10px; font-size: 11px; color: #B4B9C4; white-space: pre; }
+.termcard mark { background: rgba(224,176,74,0.35); color: inherit; border-radius: 2px; }
+
+/* vault diagram */
+.vault { display: grid; gap: 10px; }
+.vault .step { display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.vault .step .ico { width: 44px; height: 44px; padding: 11px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+.vault .step b { display: block; font-weight: 600; font-size: 15px; }
+.vault .step span { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+.vault .arrow { height: 18px; display: grid; place-items: center; color: var(--muted); margin: -4px 0; }
+.vault .arrow .ico { width: 16px; height: 16px; }
+
+/* view modes */
+.modes { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-top: 32px; }
+.mode { display: grid; gap: 8px; justify-items: center; font-size: 12px; color: var(--muted); }
+.mode .box { width: 100%; aspect-ratio: 4 / 3; max-width: 100%; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px; display: grid; gap: 3px; }
+.mode .box i { background: var(--surface3); border-radius: 3px; display: block; min-height: 0; }
+.mode .box i.on { background: var(--accent); opacity: 0.85; }
+.mode .m-tabs { grid-template-rows: 5px 1fr; }
+.mode .m-h { grid-template-columns: 1fr 1fr; }
+.mode .m-v { grid-template-rows: 1fr 1fr; }
+.mode .m-grid { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.mode .m-auto { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.mode .m-auto i:first-child { grid-row: span 2; }
+.mode .m-casc { position: relative; display: block; }
+.mode .m-casc i { position: absolute; width: 60%; height: 60%; }
+.mode .m-casc i:nth-child(1) { left: 6px; top: 6px; } .mode .m-casc i:nth-child(2) { left: 22%; top: 22%; } .mode .m-casc i:nth-child(3) { left: 38%; top: 38%; }
+
+/* screens */
+.screens { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.screens figure { margin: 0; min-width: 0; display: grid; gap: 12px; }
+.screens img { display: block; width: 100%; height: auto; max-width: 100%; border-radius: 12px; border: 1px solid var(--border-strong); box-shadow: var(--shadow); }
+.screens figcaption { font-size: 14px; color: var(--muted); max-width: 52ch; }
+@media (max-width: 960px) { .screens { grid-template-columns: 1fr; } }
+
+/* stack */
+.stack { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 32px; }
+.stack div { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.stack code { display: block; font-size: 13px; color: var(--fg); overflow-wrap: anywhere; }
+.stack span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+/* download */
+.dl { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 40px; align-items: start; }
+.dl h2 { font-size: clamp(28px, 3.4vw, 36px); font-weight: 600; line-height: 1.1; margin-top: 14px; }
+.dl .lede { margin-top: 14px; font-size: 16px; }
+.dl .cta-row { margin-top: 24px; }
+.dl-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dl-table th { text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 10px 10px; }
+.dl-table td { padding: 12px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+.dl-table td:first-child { font-weight: 600; white-space: nowrap; }
+.dl-table code { font-size: 12.5px; color: var(--fg2); display: block; }
+.dl-table a code { color: var(--accent); }
+.dl-table a:hover code { text-decoration: underline; }
+.dl-wrap { overflow-x: auto; min-width: 0; }
+.verify { margin-top: 20px; }
+.verify pre { margin: 10px 0 0; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 13px; overflow-x: auto; color: var(--fg2); }
+.verify .p { color: var(--success); }
+.note { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: var(--accent-soft); color: var(--fg2); font-size: 13.5px; }
+.note .ico { width: 18px; height: 18px; color: var(--accent); margin-top: 2px; }
+
+/* faq */
+.faq { display: grid; gap: 10px; max-width: 820px; }
+.faq details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0 20px; }
+.faq summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 12px; padding: 16px 0; font-weight: 600; font-size: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 18px; }
+.faq details[open] summary::after { content: "−"; }
+.faq details p { padding: 0 0 18px; color: var(--fg2); font-size: 15px; max-width: 70ch; }
+
+/* footer */
+.footer { border-top: 1px solid var(--border); padding-block: 40px; color: var(--muted); font-size: 14px; }
+.footer .wrap { display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: flex-start; }
+.footer .brand { color: var(--fg); }
+.footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.footer a:hover { color: var(--fg); }
+.footer .fine { flex-basis: 100%; font-size: 13px; max-width: 70ch; }
+
+@media (max-width: 960px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: repeat(4, 1fr); }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card.wide { grid-column: span 2; }
+  .split { grid-template-columns: 1fr; gap: 36px; }
+  .split.flip > :first-child { order: 0; }
+  .stack { grid-template-columns: repeat(3, 1fr); }
+  .dl { grid-template-columns: 1fr; padding: 28px; }
+  .modes { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+  .nav-links { display: none; }
+  .section { padding-block: 64px; }
+  .facts { grid-template-columns: repeat(2, 1fr); }
+  .grid { grid-template-columns: 1fr; }
+  .card.wide { grid-column: auto; }
+  .stack { grid-template-columns: 1fr 1fr; }
+  .dl { padding: 20px; }
+  .btn { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .app .term .cur { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="lg-tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#263246"/><stop offset="1" stop-color="#0E1218"/></linearGradient>
+    <linearGradient id="lg-chev" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#A9D0FF"/><stop offset="1" stop-color="#4E8FE6"/></linearGradient>
+    <clipPath id="cp-tile"><rect width="1024" height="1024" rx="230"/></clipPath>
+    <symbol id="logo" viewBox="0 0 1024 1024">
+      <g clip-path="url(#cp-tile)">
+        <rect width="1024" height="1024" fill="url(#lg-tile)"/>
+        <polyline points="-60,118 612,512 -60,906" fill="none" stroke="url(#lg-chev)" stroke-width="156" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="716" y="424" width="96" height="176" rx="24" fill="#4FB37E"/>
+      </g>
+    </symbol>
+    <symbol id="i-folder-tree" viewBox="0 0 24 24"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect width="7" height="18" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/></symbol>
+    <symbol id="i-sqterm" viewBox="0 0 24 24"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M4 11V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="M12 22V12"/><path d="m16 17 2 2 4-4"/><path d="M21 11.127V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.32-.753"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 8.997 5.148"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><path d="M12 20v2"/><path d="M12 2v2"/><path d="M17 20v2"/><path d="M17 2v2"/><path d="M2 12h2"/><path d="M2 17h2"/><path d="M2 7h2"/><path d="M20 12h2"/><path d="M20 17h2"/><path d="M20 7h2"/><path d="M7 20v2"/><path d="M7 2v2"/><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-panel-close" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.5 10.5 4.5v7H3z"/><path d="M11.5 4.3 21 3v8.5h-9.5z"/><path d="M3 12.5h7.5v7L3 18.5z"/><path d="M11.5 12.5H21V21l-9.5-1.3z"/></symbol>
+    <symbol id="i-linux" viewBox="0 0 24 24"><path d="M12 2c-2.8 0-4 2.3-4 5 0 1.6-.6 2.6-1.4 3.8C5.5 12.5 4 14.6 4 17c0 .9.3 1.6.8 2.1"/><path d="M12 2c2.8 0 4 2.3 4 5 0 1.6.6 2.6 1.4 3.8 1.1 1.7 2.6 3.8 2.6 6.2 0 .9-.3 1.6-.8 2.1"/><path d="M8 20.5c-1.5.5-3.4.3-3.4-1.1S6 17 7.2 17.4"/><path d="M16 20.5c1.5.5 3.4.3 3.4-1.1s-1.4-2.4-2.6-2"/><path d="M9.5 21c.8.7 4.2.7 5 0"/><circle cx="10.5" cy="8" r=".6"/><circle cx="13.5" cy="8" r=".6"/><path d="M11 10.2c.6.5 1.4.5 2 0"/></symbol>
+    <symbol id="i-apple" viewBox="0 0 24 24"><path d="M16.5 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.9-.8-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.2 1.2 9.6.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.4 0 1.9.8 3.1.8 1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.7-1-2.7-4.2z"/><path d="M14.4 5.8c.6-.8 1.1-1.9.9-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1.1.1 2.1-.5 2.8-1.3z"/></symbol>
+  </defs>
+</svg>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="ezSsh home"><svg><use href="#logo"/></svg>ezSsh</a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#terminal">Terminal</a>
+      <a href="#security">Security</a>
+      <a href="#native">Native</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/the-angwe/ezssh">GitHub</a>
+    </nav>
+    <div class="nav-end">
+      <button class="theme-btn" id="theme" type="button" aria-label="Toggle light and dark theme">
+        <svg class="ico moon"><use href="#i-moon"/></svg><svg class="ico sun"><use href="#i-sun"/></svg>
+      </button>
+      <a class="btn btn-primary btn-sm" href="#download"><svg class="ico"><use href="#i-download"/></svg>Download</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow">free · open source · GPLv3 · no account</span>
+        <h1>Every server, one window. <em>No webview.</em></h1>
+        <p class="lede">ezSsh is a free SSH client with a MobaXterm-style session manager, an encrypted vault, a real terminal, an SFTP pane docked on the active tab, WSL and local shells, port forwards and X11. One native Rust program for Windows, Linux and macOS.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" id="dl-main" href="https://github.com/the-angwe/ezssh/releases/latest"><svg class="ico"><use href="#i-download"/></svg><span id="dl-label">Download</span></a>
+          <a class="btn btn-secondary" href="https://github.com/the-angwe/ezssh"><svg class="ico"><use href="#i-github"/></svg>View on GitHub</a>
+          <span class="cta-note">2.0.0 pre-release · signed installers</span>
+        </div>
+        <div class="platforms">
+          <a href="#download"><svg class="ico"><use href="#i-windows"/></svg>Windows 10 / 11</a>
+          <a href="#download"><svg class="ico"><use href="#i-linux"/></svg>Linux x86_64 · aarch64</a>
+          <a href="#download"><svg class="ico"><use href="#i-apple"/></svg>macOS Apple silicon</a>
+        </div>
+      </div>
+      <div class="facts" aria-label="At a glance">
+        <div class="fact"><b>1</b><span>process: window, terminal, SSH</span></div>
+        <div class="fact"><b>0</b><span>telemetry, accounts, cloud sync</span></div>
+        <div class="fact"><b>17</b><span>terminal palettes, applied live</span></div>
+        <div class="fact"><b>6</b><span>view modes: tabs, tiles, cascade</span></div>
+      </div>
+    </div>
+
+    <div class="shot" id="shot" aria-label="The ezSsh window: sessions sidebar, tabs, SFTP pane and terminal">
+      <div class="shot-frame" id="shot-frame">
+        <div class="app" id="app">
+          <aside class="sidebar">
+            <div class="side-head"><div class="filter"><svg class="ico"><use href="#i-search"/></svg>Filter sessions<kbd>Ctrl K</kbd></div><svg class="ico"><use href="#i-plus"/></svg><svg class="ico"><use href="#i-panel-close"/></svg></div>
+            <div class="tree">
+              <div class="row folder"><svg class="ico"><use href="#i-folder"/></svg>Production<span class="badge">4</span></div>
+              <div class="row in sel"><span class="live"></span><svg class="ico"><use href="#i-server"/></svg>edge-01</div>
+              <div class="row in"><span class="live"></span><svg class="ico"><use href="#i-server"/></svg>db-primary</div>
+              <div class="row in"><svg class="ico"><use href="#i-server"/></svg>db-replica</div>
+              <div class="row in"><svg class="ico"><use href="#i-server"/></svg>backup-nas</div>
+              <div class="row folder"><svg class="ico"><use href="#i-folder"/></svg>Staging<span class="badge">2</span></div>
+              <div class="row in"><svg class="ico"><use href="#i-server"/></svg>stage-app</div>
+              <div class="row in"><svg class="ico"><use href="#i-server"/></svg>stage-db</div>
+              <div class="row folder"><svg class="ico"><use href="#i-folder"/></svg>Home lab<span class="badge">3</span></div>
+              <div class="row in"><svg class="ico"><use href="#i-server"/></svg>pi-gateway</div>
+              <div class="row in"><svg class="ico"><use href="#i-server"/></svg>nas</div>
+              <div class="row in"><svg class="ico"><use href="#i-monitor"/></svg>workstation (X11)</div>
+              <div class="row folder"><svg class="ico"><use href="#i-folder"/></svg>Local<span class="badge">2</span></div>
+              <div class="row in"><span class="live"></span><svg class="ico"><use href="#i-sqterm"/></svg>Ubuntu 24.04 (WSL)</div>
+              <div class="row in"><svg class="ico"><use href="#i-sqterm"/></svg>PowerShell</div>
+            </div>
+            <div class="side-foot"><span class="unlocked"><svg class="ico"><use href="#i-shield"/></svg>Unlocked</span><svg class="ico"><use href="#i-refresh"/></svg><svg class="ico"><use href="#i-lock"/></svg><svg class="ico"><use href="#i-sun"/></svg><svg class="ico"><use href="#i-settings"/></svg></div>
+          </aside>
+          <div class="main">
+            <div class="tabs">
+              <div class="tab on"><span class="dot"></span>edge-01<svg class="ico pane"><use href="#i-panel"/></svg></div>
+              <div class="tab"><span class="dot"></span>db-primary<svg class="ico pane"><use href="#i-panel"/></svg></div>
+              <div class="tab"><span class="dot"></span>Ubuntu 24.04<svg class="ico pane"><use href="#i-panel"/></svg></div>
+              <div class="tab"><span class="dot idle"></span>pi-gateway</div>
+              <div class="layout"><svg class="ico"><use href="#i-panel"/></svg>Layout<svg class="ico"><use href="#i-chevron-down"/></svg></div>
+            </div>
+            <div class="work">
+              <div class="sftp">
+                <div class="sftp-head"><span class="crumb">/</span><span class="sep">›</span><span class="crumb">srv</span><span class="sep">›</span><span class="crumb on">www</span><svg class="ico"><use href="#i-refresh"/></svg></div>
+                <div class="cols"><span>Name</span><span>Size</span></div>
+                <div class="files">
+                  <div class="file"><svg class="ico"><use href="#i-folder"/></svg><span>caddy</span><span class="size"></span></div>
+                  <div class="file"><svg class="ico"><use href="#i-folder"/></svg><span>releases</span><span class="size"></span></div>
+                  <div class="file"><svg class="ico"><use href="#i-folder"/></svg><span>shared</span><span class="size"></span></div>
+                  <div class="file sel"><svg class="ico"><use href="#i-file"/></svg><span>Caddyfile</span><span class="size">1.2 KB</span></div>
+                  <div class="file"><svg class="ico"><use href="#i-file"/></svg><span>deploy.sh</span><span class="size">3.8 KB</span></div>
+                  <div class="file"><svg class="ico"><use href="#i-file"/></svg><span>.env.production</span><span class="size">412 B</span></div>
+                  <div class="file"><svg class="ico"><use href="#i-file"/></svg><span>app-2.4.1.tar.xz</span><span class="size">18.6 MB</span></div>
+                </div>
+                <div class="xfer"><div class="t"><span>Uploading app-2.4.2.tar.xz</span><b>64 %</b></div><div class="bar"><i></i></div></div>
+              </div>
+              <div class="term"><span class="p">deploy@edge-01</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> systemctl status caddy --no-pager
+<span class="ok">●</span> <span class="b">caddy.service</span> - Caddy
+     Loaded: loaded (/lib/systemd/system/caddy.service; <span class="ok">enabled</span>)
+     Active: <span class="ok">active (running)</span> since Tue 2026-11-03 06:12:40 UTC; 9h ago
+   Main PID: 1182 (caddy)
+      Tasks: 9 (limit: 4598)
+     Memory: 38.4M (peak: 61.0M)
+        CPU: 1min 12.334s
+     CGroup: /system.slice/caddy.service
+             └─1182 /usr/bin/caddy run --config /etc/caddy/Caddyfile
+
+<span class="p">deploy@edge-01</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> tail -n 3 access.log | jq -c '{status, uri, ms}'
+<span class="d">{</span><span class="h">"status"</span><span class="d">:</span><span class="s">200</span><span class="d">,</span><span class="h">"uri"</span><span class="d">:</span><span class="k">"/"</span><span class="d">,</span><span class="h">"ms"</span><span class="d">:</span><span class="s">3</span><span class="d">}</span>
+<span class="d">{</span><span class="h">"status"</span><span class="d">:</span><span class="s">200</span><span class="d">,</span><span class="h">"uri"</span><span class="d">:</span><span class="k">"/api/health"</span><span class="d">,</span><span class="h">"ms"</span><span class="d">:</span><span class="s">1</span><span class="d">}</span>
+<span class="d">{</span><span class="h">"status"</span><span class="d">:</span><span class="s">304</span><span class="d">,</span><span class="h">"uri"</span><span class="d">:</span><span class="k">"/assets/app.js"</span><span class="d">,</span><span class="h">"ms"</span><span class="d">:</span><span class="s">0</span><span class="d">}</span>
+
+<span class="p">deploy@edge-01</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> ./deploy.sh 2.4.2
+<span class="d">[06:21:03]</span> <span class="ok">✓</span> unpacked app-2.4.2.tar.xz → releases/2.4.2
+<span class="d">[06:21:04]</span> <span class="ok">✓</span> migrations: 2 applied
+<span class="d">[06:21:05]</span> <span class="ok">✓</span> caddy reloaded, current → 2.4.2
+<span class="p">deploy@edge-01</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> <span class="cur"></span></div>
+            </div>
+          </div>
+          <div class="status">
+            <span class="chip"><i></i><span class="mono">deploy@edge-01</span></span>
+            <span class="chip"><span class="mono">sftp /srv/www</span></span>
+            <span class="chip"><i class="off"></i>X server off</span>
+            <span class="chip"><i></i>Up to date</span>
+            <span class="ver">v2.0.0-1</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">workspace</span>
+      <h2>Everything a MobaXterm user reaches for, in one native window.</h2>
+      <p class="lede">Sessions on the left, tabs across the top, the file pane docked on the active tab. The layout you already know, without the X server install, the Java and the trial nags.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <svg class="ico"><use href="#i-folder-tree"/></svg>
+        <h3>Sessions sidebar</h3>
+        <p>Folders in folders, drag-and-drop, coloured icons, session-count badges and a green rail on whatever is connected. <kbd>Ctrl K</kbd> filters as you type.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-panel"/></svg>
+        <h3>SFTP pane that follows the tab</h3>
+        <p>Opens on the same SSH connection, no second login. Breadcrumbs, multi-select, drop files and folders from your file manager, download whole trees, cancel mid-transfer.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-sqterm"/></svg>
+        <h3>WSL and local shells</h3>
+        <p>Tabs for any WSL distro under a ConPTY, plus cmd, PowerShell, pwsh or any binary. The file pane browses the distro through <code>\\wsl.localhost</code>.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-network"/></svg>
+        <h3>Port forwarding</h3>
+        <p>Local, remote and dynamic SOCKS5 tunnels. Save them to a session to start on connect, or add one to a live tab. A side pane shows each tunnel green, red or amber when the port is taken.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-monitor"/></svg>
+        <h3>X11 forwarding, bundled</h3>
+        <p>Tick <em>Forward X11</em> and remote GUI apps open as native Windows windows. VcXsrv ships inside the installer and the portable archive.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-import"/></svg>
+        <h3>Bring your sessions</h3>
+        <p>Import a <code>.mxtsessions</code> export or <code>MobaXterm.ini</code> with its folder tree; private keys go straight into the vault. An existing ezTerm database opens as is.</p>
+      </div>
+    </div>
+
+    <div class="modes" aria-label="Six view modes">
+      <div class="mode"><div class="box m-tabs"><i class="on"></i><i></i></div>Tabs</div>
+      <div class="mode"><div class="box m-h"><i class="on"></i><i></i></div>Tile horizontally</div>
+      <div class="mode"><div class="box m-v"><i class="on"></i><i></i></div>Tile vertically</div>
+      <div class="mode"><div class="box m-grid"><i class="on"></i><i></i><i></i><i></i></div>Grid</div>
+      <div class="mode"><div class="box m-auto"><i class="on"></i><i></i><i></i></div>Auto</div>
+      <div class="mode"><div class="box m-casc"><i></i><i></i><i class="on"></i></div>Cascade</div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="terminal">
+  <div class="wrap">
+    <div class="split">
+      <div>
+        <span class="eyebrow">terminal</span>
+        <h2>A real terminal, not a web page pretending to be one.</h2>
+        <p class="lede">The same <code>alacritty_terminal</code> model that powers Alacritty, painted by egui. Output goes from the SSH reader straight into the grid, with nothing in between to buffer, stall or drop frames.</p>
+        <ul class="checks">
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Truecolor and 256 colours.</b> The remote sees <code>xterm-256color</code>; themes, <code>ls</code> and <code>htop</code> look right.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Kitty keyboard protocol and mouse reporting.</b> Claude Code, neovim, tmux and htop get every key and click they ask for.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Find with regex,</b> clickable URLs and OSC 8 links, bracketed paste, <kbd>Ctrl</kbd>+wheel zoom from 8 to 48 pt.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>OSC 52 clipboard writes only.</b> Remote programs can copy to your clipboard; they can never read it.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>17 palettes applied live,</b> from Campbell and Solarized to Dracula, Nord, Gruvbox and the GNOME, GitHub and Google pairs.</span></li>
+        </ul>
+      </div>
+      <div class="termcard">
+        <div class="bar"><span class="dot"></span>db-primary<span class="r">xterm-256color · 132×40</span></div>
+        <pre class="find"><span class="p">ops@db-primary</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> git log --oneline --graph -n 5
+<span class="r">*</span> <span class="k">a3fcde6</span> <span class="d">(</span><span class="h">HEAD -> main</span><span class="d">,</span> <span class="r">origin/main</span><span class="d">)</span> ui facelift
+<span class="r">*</span> <span class="k">1f32adf</span> rework phase 8
+<span class="r">|</span><span class="h">\</span>
+<span class="r">|</span> <span class="h">*</span> <span class="k">839936d</span> dialogs on the native shell
+<span class="r">|</span><span class="h">/</span>
+<span class="r">*</span> <span class="k">6b0cce8</span> version
+
+<span class="p">ops@db-primary</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> journalctl -u postgresql -n 4 --no-pager
+Nov 03 14:02:11 postgres[912]: LOG:  <mark>checkpoint</mark> starting: time
+Nov 03 14:02:14 postgres[912]: LOG:  <mark>checkpoint</mark> complete: 1184 buffers
+Nov 03 14:07:11 postgres[912]: LOG:  <mark>checkpoint</mark> starting: time
+Nov 03 14:07:12 postgres[912]: LOG:  checkpoint complete: 302 buffers
+
+<span class="p">ops@db-primary</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> for i in $(seq 0 15); do printf "\e[48;2;%d;%d;245m  " $((108+i*8)) $((166+i*4)); done
+truecolor: <span class="swatch" style="background:#6CA6F5"></span><span class="swatch" style="background:#74AAF5"></span><span class="swatch" style="background:#7CAEF5"></span><span class="swatch" style="background:#84B2F5"></span><span class="swatch" style="background:#8CB6F5"></span><span class="swatch" style="background:#94BAF5"></span><span class="swatch" style="background:#9CBEF5"></span><span class="swatch" style="background:#A4C2F5"></span><span class="swatch" style="background:#ACC6F5"></span><span class="swatch" style="background:#B4CAF5"></span><span class="swatch" style="background:#BCCEF5"></span><span class="swatch" style="background:#C4D2F5"></span><span class="swatch" style="background:#CCD6F5"></span><span class="swatch" style="background:#D4DAF5"></span><span class="swatch" style="background:#DCDEF5"></span><span class="swatch" style="background:#E4E2F5"></span>
+<span class="p">ops@db-primary</span><span class="d">:</span><span class="h">~</span><span class="d">$</span> open <span class="u">https://github.com/the-angwe/ezssh</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="security">
+  <div class="wrap">
+    <div class="split flip">
+      <div>
+        <span class="eyebrow">security</span>
+        <h2>Your secrets stay in the vault. The vault stays on your disk.</h2>
+        <p class="lede">A master password unlocks the app. Everything it protects is encrypted at rest in a local SQLite file, decrypted only while in use and wiped from memory afterwards. There is no account and nothing is uploaded.</p>
+        <ul class="checks">
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Argon2id then ChaCha20-Poly1305</b> for every stored password, private key and passphrase.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Known hosts in the database,</b> trust on first use. A changed fingerprint is a hard failure that shows both keys.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Signed updates.</b> The updater installs only builds carrying the project's minisign signature, on a stable or pre-release channel.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Redacted logs.</b> Host, user and fingerprint are the only identifiers that reach a trace. Secrets never do.</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span><b>Idle auto-lock</b> re-locks the vault after a timer you set; a re-entered master password gates backups.</span></li>
+        </ul>
+      </div>
+      <div class="vault" aria-label="How the vault derives its key">
+        <div class="step"><svg class="ico"><use href="#i-key"/></svg><div><b>Master password</b><span>typed once per unlock, never stored</span></div></div>
+        <div class="arrow"><svg class="ico"><use href="#i-arrow-down"/></svg></div>
+        <div class="step"><svg class="ico"><use href="#i-cpu"/></svg><div><b>Argon2id</b><span>memory-hard KDF → 256-bit vault key</span></div></div>
+        <div class="arrow"><svg class="ico"><use href="#i-arrow-down"/></svg></div>
+        <div class="step"><svg class="ico"><use href="#i-lock"/></svg><div><b>ChaCha20-Poly1305</b><span>one (nonce, ciphertext) row per secret</span></div></div>
+        <div class="arrow"><svg class="ico"><use href="#i-arrow-down"/></svg></div>
+        <div class="step"><svg class="ico"><use href="#i-eye-off"/></svg><div><b>Zeroised after use</b><span>plaintext lives in RAM only while a connect runs</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="native">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">native</span>
+      <h2>One process. No Electron, no Tauri, no browser engine.</h2>
+      <p class="lede">The window is egui, the terminal is alacritty_terminal, the SSH stack is russh, and all of it links into one binary. Less to install, less to patch, and keystrokes that arrive without a JavaScript detour.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <svg class="ico"><use href="#i-cpu"/></svg>
+        <h3>Works in VMs and over RDP</h3>
+        <p>No usable GPU? Software rendering kicks in on its own. Force a renderer with <code>--renderer warp|glow</code> if you need to.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-package"/></svg>
+        <h3>Small dependency footprint</h3>
+        <p>Linux needs xkbcommon, fontconfig, the X11 or Wayland client libraries and Vulkan or EGL. No webkit2gtk. Windows and macOS need nothing extra.</p>
+      </div>
+      <div class="card">
+        <svg class="ico"><use href="#i-refresh"/></svg>
+        <h3>Updates itself, the way it was installed</h3>
+        <p>NSIS, MSI, AppImage, deb or .app: the updater detects which and replaces it in place. Portable copies just link to the release.</p>
+      </div>
+    </div>
+    <div class="screens">
+      <figure>
+        <img src="assets/screens/session-new.png" width="1280" height="800" alt="The New session dialog: SSH, WSL or Local shell type cards, name, folder, host, port and username fields" loading="lazy">
+        <figcaption>One dialog for SSH, WSL and local shells. Forwards and terminal settings live on the same session.</figcaption>
+      </figure>
+      <figure>
+        <img src="assets/screens/settings-appearance.png" width="1280" height="800" alt="Settings, Appearance page: dark or light chrome, tab label, terminal colour palette with a live preview, and two toasts" loading="lazy">
+        <figcaption>Settings save as you change them. The palette preview is the real terminal painter.</figcaption>
+      </figure>
+    </div>
+    <div class="stack" aria-label="What is inside">
+      <div><code>egui / eframe</code><span>window, widgets, painting</span></div>
+      <div><code>alacritty_terminal</code><span>grid, VT parser, selection</span></div>
+      <div><code>russh + russh-sftp</code><span>SSH, SFTP, forwards, X11</span></div>
+      <div><code>sqlx (SQLite)</code><span>sessions, vault, known hosts</span></div>
+      <div><code>tokio</code><span>every connection, off the UI thread</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="download">
+  <div class="wrap">
+    <div class="dl">
+      <div>
+        <span class="eyebrow">download</span>
+        <h2>Free, now and later.</h2>
+        <p class="lede">ezSsh is GPLv3. No trial, no licence key, no feature behind a paywall. Pick an installer, or the portable archive if you would rather not install anything.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" id="dl-second" href="https://github.com/the-angwe/ezssh/releases/latest"><svg class="ico"><use href="#i-download"/></svg><span id="dl-label2">Latest release</span></a>
+          <a class="btn btn-secondary" href="https://github.com/the-angwe/ezssh/releases">All releases</a>
+        </div>
+        <div class="verify">
+          <span class="eyebrow" style="font-size:11px">verify</span>
+          <pre><span class="p">$</span> sha256sum -c SHA256SUMS</pre>
+        </div>
+        <div class="note"><svg class="ico"><use href="#i-info"/></svg><span>Coming from ezTerm: ezSsh opens the same database and master password, but the first start upgrades it one way. Make a backup in ezTerm first if you may go back.</span></div>
+      </div>
+      <div class="dl-wrap">
+        <table class="dl-table">
+          <thead><tr><th>Platform</th><th>Installer</th><th>Portable</th></tr></thead>
+          <tbody>
+            <tr><td>Windows x64</td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_x64-setup.exe</code></a><code>per-user, no admin</code><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_x64_en-US.msi</code></a></td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>…windows-x64-portable.tar.xz</code></a><code>VcXsrv included</code></td></tr>
+            <tr><td>Linux x86_64</td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_x86_64.AppImage</code></a><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_amd64.deb</code></a></td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>…linux-amd64-portable.tar.xz</code></a></td></tr>
+            <tr><td>Linux aarch64</td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_aarch64.AppImage</code></a><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_arm64.deb</code></a></td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>…linux-aarch64-portable.tar.xz</code></a></td></tr>
+            <tr><td>macOS aarch64</td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>ezssh_&lt;v&gt;_aarch64.app.tar.gz</code></a><code>unsigned</code></td><td><a href="https://github.com/the-angwe/ezssh/releases/latest"><code>…macos-aarch64-portable.tar.xz</code></a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">questions</span>
+      <h2>Short answers.</h2>
+    </div>
+    <div class="faq">
+      <details open>
+        <summary>Does ezSsh send anything home?</summary>
+        <p>Only the update check, which fetches a signed <code>latest.json</code> from the GitHub release on the cadence you set in Settings. There is no telemetry, no crash reporter and no account.</p>
+      </details>
+      <details>
+        <summary>Can I keep using MobaXterm or ezTerm alongside it?</summary>
+        <p>MobaXterm, yes: import is read-only. ezTerm shares the database with ezSsh, and the first ezSsh start upgrades it so ezTerm no longer opens it. Back up first if you want the option to go back.</p>
+      </details>
+      <details>
+        <summary>Where are my passwords and keys stored?</summary>
+        <p>In <code>ezterm.sqlite</code> in your user data folder, encrypted with a key derived from your master password by Argon2id. The file is useless without the password. Backups are passphrase-wrapped bundles you can restore into any ezSsh install.</p>
+      </details>
+      <details>
+        <summary>Which platforms are first-class?</summary>
+        <p>Windows first: WSL tabs, local Windows shells and the bundled X server only apply there. Linux and macOS builds come from the same release pipeline and carry everything else. The macOS app is not signed or notarised yet.</p>
+      </details>
+      <details>
+        <summary>Is it really free?</summary>
+        <p>Yes. ezSsh is licensed under the GNU GPL version 3. The source, the issue tracker and the release pipeline are all public on GitHub, and contributions are welcome.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <a class="brand" href="#top"><svg><use href="#logo"/></svg>ezSsh</a>
+    <ul>
+      <li><a href="https://github.com/the-angwe/ezssh">GitHub</a></li>
+      <li><a href="https://github.com/the-angwe/ezssh/releases">Releases</a></li>
+      <li><a href="https://github.com/the-angwe/ezssh/issues">Issues</a></li>
+      <li><a href="https://github.com/the-angwe/ezssh/blob/main/CONTRIBUTING.md">Contributing</a></li>
+      <li><a href="https://github.com/the-angwe/ezssh/blob/main/SECURITY.md">Security policy</a></li>
+      <li><a href="https://github.com/the-angwe/ezssh/blob/main/LICENSE">GPLv3 licence</a></li>
+    </ul>
+    <p class="fine">ezSsh is a permanent fork of <a href="https://github.com/ZerosAndOnesLLC/ezTerm">ezTerm</a> by ZerosAndOnes, rebuilt natively from version 2.0. Icons by <a href="https://lucide.dev">Lucide</a> (ISC). VcXsrv is bundled on Windows under GPL v2. MobaXterm is a trademark of Mobatek. © <span id="year">2026</span> angwe.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  // theme: explicit choice wins, otherwise the system setting
+  try {
+    var saved = localStorage.getItem('ezssh-theme');
+    if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved);
+  } catch (e) { /* storage unavailable: follow the system setting */ }
+  var btn = document.getElementById('theme');
+  btn.addEventListener('click', function () {
+    var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var current = root.getAttribute('data-theme') || (systemDark ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('ezssh-theme', next); } catch (e) { /* ignore */ }
+  });
+
+  // download button: name the viewer's platform
+  var ua = navigator.userAgent || '';
+  var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+  var label = null;
+  if (/Win/i.test(plat) || /Windows/i.test(ua)) label = 'Download for Windows';
+  else if (/Mac/i.test(plat) && !/iPhone|iPad/.test(ua)) label = 'Download for macOS';
+  else if (/Linux/i.test(plat) && !/Android/i.test(ua)) label = 'Download for Linux';
+  if (label) {
+    document.getElementById('dl-label').textContent = label;
+    document.getElementById('dl-label2').textContent = label;
+  }
+
+  // scale the fixed-size app window to the column width
+  var app = document.getElementById('app');
+  var frame = document.getElementById('shot-frame');
+  var W = 1120, H = 660;
+  function fit() {
+    var w = frame.clientWidth;
+    var s = Math.min(1, w / W);
+    app.style.transform = 'scale(' + s + ')';
+    frame.style.height = Math.round(H * s) + 'px';
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  if ('ResizeObserver' in window) new ResizeObserver(fit).observe(frame);
+
+  document.getElementById('year').textContent = String(new Date().getFullYear());
+})();
+</script>
+</body>
+</html>

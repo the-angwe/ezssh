@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#263246"/>
+      <stop offset="1" stop-color="#0E1218"/>
+    </linearGradient>
+    <linearGradient id="chev" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A9D0FF"/>
+      <stop offset="1" stop-color="#4E8FE6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.62" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#6CA6F5" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#6CA6F5" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="clip"><rect width="1024" height="1024" rx="230"/></clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="1024" height="1024" fill="url(#tile)"/>
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+    <!-- oversized prompt chevron, arms leave the tile on the left -->
+    <polyline points="-60,118 612,512 -60,906" fill="none" stroke="url(#chev)" stroke-width="156" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)"/>
+    <!-- cursor block -->
+    <rect x="716" y="424" width="96" height="176" rx="24" fill="#4FB37E"/>
+    <!-- inner top highlight -->
+    <rect x="2" y="2" width="1020" height="1020" rx="228" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="4"/>
+  </g>
+</svg>
