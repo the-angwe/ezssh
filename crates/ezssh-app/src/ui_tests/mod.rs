@@ -47,15 +47,29 @@ pub(crate) fn start_with(updater: Option<ezssh_core::updater::Config>) -> Env {
         // only within 0.3 s, and kittest's default step is 0.25 s.
         .with_step_dt(1.0 / 60.0)
         .build_eframe(move |cc| {
-            cc.egui_ctx.add_font_provider(std::sync::Arc::new(egui_system_font_provider::SystemFontProvider::new()));
-            App::new(&cc.egui_ctx, Options { db_path: db_path.clone(), updater: updater.clone() }).expect("app starts")
+            cc.egui_ctx.add_font_provider(std::sync::Arc::new(
+                egui_system_font_provider::SystemFontProvider::new(),
+            ));
+            App::new(
+                &cc.egui_ctx,
+                Options {
+                    db_path: db_path.clone(),
+                    updater: updater.clone(),
+                },
+            )
+            .expect("app starts")
         });
     Env { _dir: dir, h }
 }
 
 /// Step frames until `cond` holds (async core calls finish on other
 /// threads), or fail after `secs`.
-pub(crate) fn wait(h: &mut Harness<'static, App>, secs: u64, what: &str, cond: impl Fn(&App) -> bool) {
+pub(crate) fn wait(
+    h: &mut Harness<'static, App>,
+    secs: u64,
+    what: &str,
+    cond: impl Fn(&App) -> bool,
+) {
     let until = Instant::now() + Duration::from_secs(secs);
     loop {
         h.step();
@@ -76,7 +90,8 @@ pub(crate) fn shot(h: &mut Harness<'static, App>, name: &str) {
     match h.render() {
         Ok(img) => {
             let path = std::path::Path::new(&dir).join(format!("app-{name}.png"));
-            img.save(&path).unwrap_or_else(|e| panic!("saving {}: {e}", path.display()));
+            img.save(&path)
+                .unwrap_or_else(|e| panic!("saving {}: {e}", path.display()));
             eprintln!("wrote {}", path.display());
         }
         Err(e) => panic!("render failed: {e}"),
@@ -85,7 +100,9 @@ pub(crate) fn shot(h: &mut Harness<'static, App>, name: &str) {
 
 pub(crate) fn type_into(h: &mut Harness<'static, App>, index: usize, text: &str) {
     let fields: Vec<_> = h.query_all_by_role(Role::PasswordInput).collect();
-    let field = fields.get(index).unwrap_or_else(|| panic!("password field {index} missing ({} found)", fields.len()));
+    let field = fields
+        .get(index)
+        .unwrap_or_else(|| panic!("password field {index} missing ({} found)", fields.len()));
     field.click();
     field.type_text(text);
     h.run_steps(2);
@@ -95,13 +112,18 @@ pub(crate) fn type_into(h: &mut Harness<'static, App>, index: usize, text: &str)
 pub(crate) fn unlock_fresh(env: &mut Env) {
     let h = &mut env.h;
     h.run_steps(3);
-    assert!(h.query_by_label("Set master password").is_some(), "first run shows vault creation");
+    assert!(
+        h.query_by_label("Set master password").is_some(),
+        "first run shows vault creation"
+    );
     shot(h, "first-run");
     type_into(h, 0, PASSWORD);
     type_into(h, 1, PASSWORD);
     h.get_by_label("Create vault").click();
     wait(h, 20, "main screen", |a| matches!(a.screen, Screen::Main));
-    wait(h, 20, "seeded local shells", |a| a.sidebar.sessions.iter().any(|s| s.session_kind == "local"));
+    wait(h, 20, "seeded local shells", |a| {
+        a.sidebar.sessions.iter().any(|s| s.session_kind == "local")
+    });
 }
 
 /// Everything in the tab's terminal, scrollback included.
@@ -128,7 +150,14 @@ pub(crate) fn sidebar_new(h: &mut Harness<'static, App>, label: &str) {
 }
 
 pub(crate) fn first_local(h: &Harness<'static, App>) -> String {
-    h.state().sidebar.sessions.iter().find(|s| s.session_kind == "local").expect("a local shell session").name.clone()
+    h.state()
+        .sidebar
+        .sessions
+        .iter()
+        .find(|s| s.session_kind == "local")
+        .expect("a local shell session")
+        .name
+        .clone()
 }
 
 pub(crate) fn open_local(h: &mut Harness<'static, App>) -> u64 {
@@ -142,13 +171,27 @@ pub(crate) fn open_local(h: &mut Harness<'static, App>) -> u64 {
     let rect = h.get_by_role_and_label(Role::TreeItem, &name).rect();
     for _ in 0..2 {
         h.event(Event::PointerMoved(rect.center()));
-        h.event(Event::PointerButton { pos: rect.center(), button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
-        h.event(Event::PointerButton { pos: rect.center(), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.event(Event::PointerButton {
+            pos: rect.center(),
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        h.event(Event::PointerButton {
+            pos: rect.center(),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
         h.step();
     }
     wait(h, 5, "tab opened", |a| a.tabs.tabs.len() == before + 1);
     let id = h.state().tabs.active.expect("new tab is active");
-    wait(h, 15, "local shell connected", move |a| a.tabs.get(id).is_some_and(|t| t.status == TabStatus::Connected));
+    wait(h, 15, "local shell connected", move |a| {
+        a.tabs
+            .get(id)
+            .is_some_and(|t| t.status == TabStatus::Connected)
+    });
     id
 }
 
@@ -157,14 +200,23 @@ fn first_run_unlock_open_tab_lock_and_unlock() {
     let mut env = start();
     unlock_fresh(&mut env);
     let h = &mut env.h;
-    assert!(h.query_by_role_and_label(Role::TreeItem, "Local Shells").is_some(), "seeded folder in the tree");
+    assert!(
+        h.query_by_role_and_label(Role::TreeItem, "Local Shells")
+            .is_some(),
+        "seeded folder in the tree"
+    );
     shot(h, "main-empty");
 
     let tab = open_local(h);
-    assert!(h.state().tabs.sidebar_collapsed, "opening a tab collapses the sidebar");
+    assert!(
+        h.state().tabs.sidebar_collapsed,
+        "opening a tab collapses the sidebar"
+    );
     assert!(h.query_by_role(Role::Tab).is_some());
     // The shell answers a command through the PTY path.
-    h.state().terms[&tab].term.write(b"echo ezssh-$((40+2))\r".to_vec());
+    h.state().terms[&tab]
+        .term
+        .write(b"echo ezssh-$((40+2))\r".to_vec());
     let until = Instant::now() + Duration::from_secs(10);
     while !screen_text(h, tab).contains("ezssh-42") {
         assert!(Instant::now() < until, "no command output");
@@ -176,12 +228,22 @@ fn first_run_unlock_open_tab_lock_and_unlock() {
     // Lock: the unlock screen covers the window, the tab stays connected.
     let conn = h.state().tabs.get(tab).and_then(|t| t.connection_id);
     h.get_by_label("Lock vault").click();
-    wait(h, 5, "unlock screen", |a| matches!(&a.screen, Screen::Unlock(u) if !u.first_run));
+    wait(
+        h,
+        5,
+        "unlock screen",
+        |a| matches!(&a.screen, Screen::Unlock(u) if !u.first_run),
+    );
     assert!(h.query_by_label("Unlock ezSsh").is_some());
     shot(h, "locked");
     type_into(h, 0, "wrong password");
     h.get_by_label("Unlock").click();
-    wait(h, 10, "bad password message", |a| matches!(&a.screen, Screen::Unlock(u) if u.error().is_some()));
+    wait(
+        h,
+        10,
+        "bad password message",
+        |a| matches!(&a.screen, Screen::Unlock(u) if u.error().is_some()),
+    );
     assert!(h.query_by_label("Incorrect master password").is_some());
     // Select the wrong text and type the right password over it.
     h.get_by_role(Role::PasswordInput).click();
@@ -193,7 +255,11 @@ fn first_run_unlock_open_tab_lock_and_unlock() {
     h.get_by_label("Unlock").click();
     wait(h, 10, "main again", |a| matches!(a.screen, Screen::Main));
     let still = h.state().tabs.get(tab).map(|t| (t.status, t.connection_id));
-    assert_eq!(still, Some((TabStatus::Connected, conn)), "the connection survived the lock");
+    assert_eq!(
+        still,
+        Some((TabStatus::Connected, conn)),
+        "the connection survived the lock"
+    );
 }
 
 #[test]
@@ -201,14 +267,20 @@ fn view_modes_cascade_and_minimize() {
     let mut env = start();
     unlock_fresh(&mut env);
     let h = &mut env.h;
-    let tabs: Vec<u64> = (0..3).map(|_| {
-        h.state_mut().tabs.sidebar_collapsed = false;
-        h.run_steps(2);
-        open_local(h)
-    }).collect();
+    let tabs: Vec<u64> = (0..3)
+        .map(|_| {
+            h.state_mut().tabs.sidebar_collapsed = false;
+            h.run_steps(2);
+            open_local(h)
+        })
+        .collect();
     assert_eq!(h.state().tabs.active, Some(tabs[2]));
 
-    for (label, mode) in [("Tile horizontal", ViewMode::TileH), ("Tile vertical", ViewMode::TileV), ("Auto-arrange", ViewMode::Auto)] {
+    for (label, mode) in [
+        ("Tile horizontal", ViewMode::TileH),
+        ("Tile vertical", ViewMode::TileV),
+        ("Auto-arrange", ViewMode::Auto),
+    ] {
         pick_layout(h, label);
         assert_eq!(h.state().tabs.view_mode, mode);
         shot(h, &format!("mode-{}", mode.id()));
@@ -228,10 +300,16 @@ fn view_modes_cascade_and_minimize() {
     let minimize: Vec<_> = h.query_all_by_label("Minimize").collect();
     assert_eq!(minimize.len(), 3, "one chrome per frame");
     let top = *h.state().tabs.z_order().last().unwrap();
-    let top_min = minimize.iter().max_by(|a, b| a.rect().top().total_cmp(&b.rect().top())).unwrap();
+    let top_min = minimize
+        .iter()
+        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .unwrap();
     top_min.click();
     h.run_steps(3);
-    assert!(h.state().tabs.is_minimized(top), "the bottom-most chrome belongs to the top frame (staircase)");
+    assert!(
+        h.state().tabs.is_minimized(top),
+        "the bottom-most chrome belongs to the top frame (staircase)"
+    );
     shot(h, "cascade-minimized");
     let name = h.state().tabs.get(top).unwrap().session.name.clone();
     h.get_by_label(&format!("Restore {name}")).click();
@@ -241,11 +319,18 @@ fn view_modes_cascade_and_minimize() {
     // Drag the top frame by its title bar.
     let before = h.state().tabs.cascade[&top];
     let maxes: Vec<_> = h.query_all_by_label("Maximize").map(|n| n.rect()).collect();
-    let bar = maxes.iter().max_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
+    let bar = maxes
+        .iter()
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
     let from = Pos2::new(bar.left() - 200.0, bar.center().y);
     drag(h, from, from + vec2(120.0, 80.0));
     let after = h.state().tabs.cascade[&top];
-    assert_eq!((after.x - before.x, after.y - before.y), (120.0, 80.0), "frame moved with the pointer");
+    assert_eq!(
+        (after.x - before.x, after.y - before.y),
+        (120.0, 80.0),
+        "frame moved with the pointer"
+    );
     shot(h, "cascade-dragged");
 
     // Ctrl+Shift+W cycles (cascade → auto) while no terminal has focus.
@@ -263,13 +348,23 @@ fn view_modes_cascade_and_minimize() {
 /// Press at `from`, move in steps to `to`, release.
 pub(crate) fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
     h.event(Event::PointerMoved(from));
-    h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
     h.step();
     for i in 1..=10 {
         h.event(Event::PointerMoved(from + (to - from) * (i as f32 / 10.0)));
         h.step();
     }
-    h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos: to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
     h.run_steps(3);
 }
 
@@ -279,15 +374,33 @@ fn sidebar_resize_persists() {
     unlock_fresh(&mut env);
     let h = &mut env.h;
     let strip = h.get_by_label("Resize sidebar").rect();
-    assert!((strip.right() - crate::layout::SIDEBAR_DEFAULT).abs() <= 1.0, "default width, got {}", strip.right());
+    assert!(
+        (strip.right() - crate::layout::SIDEBAR_DEFAULT).abs() <= 1.0,
+        "default width, got {}",
+        strip.right()
+    );
     drag(h, strip.center(), strip.center() + vec2(100.0, 0.0));
-    assert_eq!(h.state().layout.sidebar_width, crate::layout::SIDEBAR_DEFAULT + 100.0);
+    assert_eq!(
+        h.state().layout.sidebar_width,
+        crate::layout::SIDEBAR_DEFAULT + 100.0
+    );
     let path = crate::layout::path_for(&env._dir.path().join("ezterm.sqlite"));
-    assert_eq!(crate::layout::load(&path).sidebar_width, crate::layout::SIDEBAR_DEFAULT + 100.0, "saved on release");
+    assert_eq!(
+        crate::layout::load(&path).sidebar_width,
+        crate::layout::SIDEBAR_DEFAULT + 100.0,
+        "saved on release"
+    );
     // Never past the maximum.
     let strip = env.h.get_by_label("Resize sidebar").rect();
-    drag(&mut env.h, strip.center(), strip.center() + vec2(900.0, 0.0));
-    assert_eq!(env.h.state().layout.sidebar_width, crate::layout::SIDEBAR_MAX);
+    drag(
+        &mut env.h,
+        strip.center(),
+        strip.center() + vec2(900.0, 0.0),
+    );
+    assert_eq!(
+        env.h.state().layout.sidebar_width,
+        crate::layout::SIDEBAR_MAX
+    );
 }
 
 #[test]
@@ -297,18 +410,39 @@ fn folder_create_drag_drop_and_close_confirm() {
     let h = &mut env.h;
 
     sidebar_new(h, "New folder");
-    h.get_by_role_and_label(Role::TextInput, "Folder name").type_text("Servers");
+    h.get_by_role_and_label(Role::TextInput, "Folder name")
+        .type_text("Servers");
     h.get_by_label("Create").click();
-    wait(h, 10, "folder created", |a| a.sidebar.folders.iter().any(|f| f.name == "Servers"));
+    wait(h, 10, "folder created", |a| {
+        a.sidebar.folders.iter().any(|f| f.name == "Servers")
+    });
     h.run_steps(2);
-    let folder = h.state().sidebar.folders.iter().find(|f| f.name == "Servers").unwrap().id;
+    let folder = h
+        .state()
+        .sidebar
+        .folders
+        .iter()
+        .find(|f| f.name == "Servers")
+        .unwrap()
+        .id;
 
     // Drag the first local shell onto the folder row.
     let name = first_local(h);
-    let from = h.get_by_role_and_label(Role::TreeItem, &name).rect().center();
-    let to = h.get_by_role_and_label(Role::TreeItem, "Servers").rect().center();
+    let from = h
+        .get_by_role_and_label(Role::TreeItem, &name)
+        .rect()
+        .center();
+    let to = h
+        .get_by_role_and_label(Role::TreeItem, "Servers")
+        .rect()
+        .center();
     h.event(Event::PointerMoved(from));
-    h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
     h.step();
     for i in 1..=10 {
         let p = from + (to - from) * (i as f32 / 10.0);
@@ -316,18 +450,41 @@ fn folder_create_drag_drop_and_close_confirm() {
         h.step();
     }
     h.run_steps(2);
-    assert_eq!(h.state().sidebar.target_for_test(), Some(crate::views::sidebar::DropSlot::IntoFolder(folder)));
+    assert_eq!(
+        h.state().sidebar.target_for_test(),
+        Some(crate::views::sidebar::DropSlot::IntoFolder(folder))
+    );
     shot(h, "sidebar-drag");
-    h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos: to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
     let n = name.clone();
-    wait(h, 10, "session moved", move |a| a.sidebar.sessions.iter().any(|s| s.name == n && s.folder_id == Some(folder)));
+    wait(h, 10, "session moved", move |a| {
+        a.sidebar
+            .sessions
+            .iter()
+            .any(|s| s.name == n && s.folder_id == Some(folder))
+    });
 
     // Root context menu: every item is live now.
     let tree = h.get_by_role_and_label(Role::TreeItem, "Servers").rect();
     let below = Pos2::new(tree.center().x, 600.0);
     h.event(Event::PointerMoved(below));
-    h.event(Event::PointerButton { pos: below, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
-    h.event(Event::PointerButton { pos: below, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos: below,
+        button: PointerButton::Secondary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    h.event(Event::PointerButton {
+        pos: below,
+        button: PointerButton::Secondary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
     h.run_steps(3);
     assert!(!h.get_by_label("Backup…").accesskit_node().is_disabled());
     assert!(!h.get_by_label("Settings…").accesskit_node().is_disabled());
@@ -341,10 +498,18 @@ fn folder_create_drag_drop_and_close_confirm() {
     h.run_steps(3);
     // The tab's ✕ and the dialog's button share the label "Close tab";
     // the dialog's is the one below the strip.
-    assert!(h.query_by_label("This tab is connected. Closing it ends the session.").is_some(), "confirmation shown");
+    assert!(
+        h.query_by_label("This tab is connected. Closing it ends the session.")
+            .is_some(),
+        "confirmation shown"
+    );
     shot(h, "close-confirm");
     let buttons: Vec<_> = h.query_all_by_label("Close tab").collect();
-    buttons.iter().find(|n| n.rect().top() > 100.0).expect("dialog button").click();
+    buttons
+        .iter()
+        .find(|n| n.rect().top() > 100.0)
+        .expect("dialog button")
+        .click();
     h.run_steps(3);
     assert!(h.state().tabs.get(tab).is_none());
 }
@@ -360,12 +525,19 @@ fn settings_write_through_and_theme() {
     h.get_by_label("Terminal").click();
     h.run_steps(3);
     shot(h, "settings-terminal");
-    h.get_by_role_and_label(Role::Switch, "Copy on select").click();
+    h.get_by_role_and_label(Role::Switch, "Copy on select")
+        .click();
     h.run_steps(2);
     assert!(h.state().settings.bool("terminal.copyOnSelect"));
-    assert!(h.state().term_style.copy_on_select, "applied to the terminal style");
+    assert!(
+        h.state().term_style.copy_on_select,
+        "applied to the terminal style"
+    );
     wait(h, 10, "stored", |a| {
-        a.core.block_on(|st| async move { ezssh_core::api::settings::settings_get(&st, "terminal.copyOnSelect".into()).await })
+        a.core
+            .block_on(|st| async move {
+                ezssh_core::api::settings::settings_get(&st, "terminal.copyOnSelect".into()).await
+            })
             .ok()
             .flatten()
             .as_deref()
@@ -373,7 +545,10 @@ fn settings_write_through_and_theme() {
     });
 
     // Font family: the installed-font list, then Custom… with a text box.
-    let family = crate::font_presets::choices().iter().map(|(v, _)| v.clone()).find(|v| !v.is_empty());
+    let family = crate::font_presets::choices()
+        .iter()
+        .map(|(v, _)| v.clone())
+        .find(|v| !v.is_empty());
     if let Some(family) = family {
         font_combo(h, "(default)").click();
         h.run_steps(3);
@@ -383,18 +558,27 @@ fn settings_write_through_and_theme() {
         assert_eq!(h.state().settings.str("terminal.fontFamily"), family);
         font_combo(h, &family).click();
         h.run_steps(3);
-        h.get_by_role_and_label(Role::Button, "Custom…").scroll_to_me();
+        h.get_by_role_and_label(Role::Button, "Custom…")
+            .scroll_to_me();
         h.run_steps(3);
         h.get_by_role_and_label(Role::Button, "Custom…").click();
         h.run_steps(3);
-        assert_eq!(h.state().settings.str("terminal.fontFamily"), family, "Custom… keeps the value until typed");
+        assert_eq!(
+            h.state().settings.str("terminal.fontFamily"),
+            family,
+            "Custom… keeps the value until typed"
+        );
         let field = h.get_by_role_and_label(Role::TextInput, "Custom font family");
         field.click();
         h.run_steps(1);
         h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
-        h.get_by_role_and_label(Role::TextInput, "Custom font family").type_text("Iosevka Term");
+        h.get_by_role_and_label(Role::TextInput, "Custom font family")
+            .type_text("Iosevka Term");
         h.run_steps(3);
-        assert_eq!(h.state().settings.str("terminal.fontFamily"), "Iosevka Term");
+        assert_eq!(
+            h.state().settings.str("terminal.fontFamily"),
+            "Iosevka Term"
+        );
         shot(h, "settings-font-custom");
         h.key_press(egui::Key::Escape);
         h.run_steps(2);
@@ -408,7 +592,13 @@ fn settings_write_through_and_theme() {
     assert_eq!(h.state().theme, crate::style::Theme::Light);
     shot(h, "main-light");
     wait(h, 10, "theme stored", |a| {
-        a.core.block_on(|st| async move { ezssh_core::api::settings::settings_get(&st, "theme".into()).await }).ok().flatten().as_deref()
+        a.core
+            .block_on(|st| async move {
+                ezssh_core::api::settings::settings_get(&st, "theme".into()).await
+            })
+            .ok()
+            .flatten()
+            .as_deref()
             == Some("light")
     });
 }
@@ -435,7 +625,10 @@ fn idle_lock_host_key_and_paste_confirm() {
     });
     h.run_steps(3);
     assert!(h.query_by_label("Host key changed!").is_some());
-    assert!(h.query_by_label("SHA256:oldoldold").is_some() && h.query_by_label("SHA256:newnewnew").is_some());
+    assert!(
+        h.query_by_label("SHA256:oldoldold").is_some()
+            && h.query_by_label("SHA256:newnewnew").is_some()
+    );
     shot(h, "host-key-mismatch");
     h.get_by_label("Cancel").click();
     h.run_steps(3);
@@ -444,7 +637,11 @@ fn idle_lock_host_key_and_paste_confirm() {
 
     // Reconnect from the overlay card.
     h.get_by_label("Reconnect").click();
-    wait(h, 15, "reconnected", move |a| a.tabs.get(tab).is_some_and(|t| t.status == TabStatus::Connected));
+    wait(h, 15, "reconnected", move |a| {
+        a.tabs
+            .get(tab)
+            .is_some_and(|t| t.status == TabStatus::Connected)
+    });
 
     // Multi-line paste waits for a yes, then reaches the shell.
     h.state_mut().dialogs.paste = Some((tab, "echo one-$((1+1))\necho two-$((1+2))\n".into(), 2));
@@ -464,19 +661,40 @@ fn idle_lock_host_key_and_paste_confirm() {
     }
 
     // Idle auto-lock: one minute of silence with the setting at 1.
-    h.state_mut().settings.set("security.idleLockMinutes", crate::settings::Value::Int(1));
+    h.state_mut()
+        .settings
+        .set("security.idleLockMinutes", crate::settings::Value::Int(1));
     h.state_mut().last_input = Instant::now() - Duration::from_secs(61);
     h.run_steps(2);
-    assert!(matches!(h.state().screen, Screen::Unlock(_)), "locked after the idle limit");
-    assert!(h.state().tabs.get(tab).is_some_and(|t| t.status == TabStatus::Connected), "tab kept");
+    assert!(
+        matches!(h.state().screen, Screen::Unlock(_)),
+        "locked after the idle limit"
+    );
+    assert!(
+        h.state()
+            .tabs
+            .get(tab)
+            .is_some_and(|t| t.status == TabStatus::Connected),
+        "tab kept"
+    );
 }
 
 /// Right-click at `pos` (press and release).
 pub(crate) fn right_click(h: &mut Harness<'static, App>, pos: Pos2) {
     h.event(Event::PointerMoved(pos));
-    h.event(Event::PointerButton { pos, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos,
+        button: PointerButton::Secondary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
     h.step();
-    h.event(Event::PointerButton { pos, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
+    h.event(Event::PointerButton {
+        pos,
+        button: PointerButton::Secondary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
     h.run_steps(3);
 }
 
@@ -496,25 +714,49 @@ fn tab_header_right_click_opens_terminal_menu() {
     assert!(h.query_by_label("Select All").is_none(), "no menu yet");
 
     // Tab strip: the first (inactive) tab becomes active and shows its menu.
-    let first = h.query_all_by_role(Role::Tab).map(|n| n.rect()).min_by(|a, b| a.left().total_cmp(&b.left())).expect("a tab in the strip");
+    let first = h
+        .query_all_by_role(Role::Tab)
+        .map(|n| n.rect())
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+        .expect("a tab in the strip");
     right_click(h, first.center());
-    assert_eq!(h.state().tabs.active, Some(tabs[0]), "right-click activates the tab");
-    assert!(h.query_by_label("Select All").is_some(), "terminal menu open");
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[0]),
+        "right-click activates the tab"
+    );
+    assert!(
+        h.query_by_label("Select All").is_some(),
+        "terminal menu open"
+    );
     shot(h, "tab-header-menu");
     h.get_by_label("Select All").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Select All").is_none(), "menu closed after a pick");
-    assert!(h.state().terms[&tabs[0]].term.has_selection(), "the pick acted on that tab's terminal");
+    assert!(
+        h.query_by_label("Select All").is_none(),
+        "menu closed after a pick"
+    );
+    assert!(
+        h.state().terms[&tabs[0]].term.has_selection(),
+        "the pick acted on that tab's terminal"
+    );
     assert!(!h.state().terms[&tabs[1]].term.has_selection());
 
     // Cascade title bar.
     pick_layout(h, "Cascade");
     let top = *h.state().tabs.z_order().last().unwrap();
     let maxes: Vec<_> = h.query_all_by_label("Maximize").map(|n| n.rect()).collect();
-    let bar = maxes.iter().max_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
+    let bar = maxes
+        .iter()
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
     right_click(h, Pos2::new(bar.left() - 200.0, bar.center().y));
     assert_eq!(h.state().tabs.active, Some(top));
-    assert_eq!(h.query_all_by_label("Select All").count(), 1, "one menu: the frame under the title bar does not take the click");
+    assert_eq!(
+        h.query_all_by_label("Select All").count(),
+        1,
+        "one menu: the frame under the title bar does not take the click"
+    );
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert!(h.query_by_label("Select All").is_none(), "Escape closes");

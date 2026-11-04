@@ -35,7 +35,11 @@ pub enum Family {
 
 impl Family {
     pub fn of(session_kind: &str) -> Self {
-        if session_kind == "ssh" { Family::Ssh } else { Family::Local }
+        if session_kind == "ssh" {
+            Family::Ssh
+        } else {
+            Family::Local
+        }
     }
 }
 
@@ -56,7 +60,17 @@ pub struct TabPty {
 
 impl TabPty {
     fn new() -> Self {
-        Self { inner: Mutex::new(PtyInner { tx: None, size: WindowSize { num_lines: 24, num_cols: 80, cell_width: 8, cell_height: 16 } }) }
+        Self {
+            inner: Mutex::new(PtyInner {
+                tx: None,
+                size: WindowSize {
+                    num_lines: 24,
+                    num_cols: 80,
+                    cell_width: 8,
+                    cell_height: 16,
+                },
+            }),
+        }
     }
 
     fn with<R>(&self, f: impl FnOnce(&mut PtyInner) -> R) -> Option<R> {
@@ -79,7 +93,8 @@ impl TabPty {
 
     /// Grid size last reported by the terminal (cols, rows).
     pub fn size(&self) -> (u16, u16) {
-        self.with(|i| (i.size.num_cols, i.size.num_lines)).unwrap_or((80, 24))
+        self.with(|i| (i.size.num_cols, i.size.num_lines))
+            .unwrap_or((80, 24))
     }
 }
 
@@ -99,7 +114,9 @@ impl Pty for TabPty {
         self.with(|i| {
             i.size = size;
             if let Some(tx) = &i.tx
-                && tx.send(PtyMsg::Resize(size.num_cols, size.num_lines)).is_err()
+                && tx
+                    .send(PtyMsg::Resize(size.num_cols, size.num_lines))
+                    .is_err()
             {
                 tracing::debug!("conn.pty: writer gone, resize dropped");
             }
@@ -154,7 +171,11 @@ pub struct TermSlot {
 const FIRST_LAYOUT_WAIT: Duration = Duration::from_millis(300);
 
 impl TermSlot {
-    pub fn new(ctx: &egui::Context, options: ezssh_term::TermOptions, palette: ezssh_term::Palette) -> Self {
+    pub fn new(
+        ctx: &egui::Context,
+        options: ezssh_term::TermOptions,
+        palette: ezssh_term::Palette,
+    ) -> Self {
         let pty = Arc::new(TabPty::new());
         let (term, feeder) = Terminal::new(ctx, pty.clone(), options, palette);
         Self {
@@ -188,7 +209,12 @@ impl TermSlot {
 /// Sends queued input / resizes to the connection, in order, once its id
 /// is known. Ends when the tab detaches (sender dropped) or the connect
 /// failed (id sender dropped).
-async fn writer(state: Arc<AppState>, family: Family, mut rx: mpsc::UnboundedReceiver<PtyMsg>, id: oneshot::Receiver<u64>) {
+async fn writer(
+    state: Arc<AppState>,
+    family: Family,
+    mut rx: mpsc::UnboundedReceiver<PtyMsg>,
+    id: oneshot::Receiver<u64>,
+) {
     let Ok(id) = id.await else {
         tracing::debug!("conn.writer: connect did not complete, queued input dropped");
         return;
@@ -199,7 +225,9 @@ async fn writer(state: Arc<AppState>, family: Family, mut rx: mpsc::UnboundedRec
             (PtyMsg::Write(b), Family::Ssh) => api::ssh::ssh_write(&state, id, b).await,
             (PtyMsg::Write(b), Family::Local) => api::local::local_write(&state, id, b).await,
             (PtyMsg::Resize(c, r), Family::Ssh) => api::ssh::ssh_resize(&state, id, c, r).await,
-            (PtyMsg::Resize(c, r), Family::Local) => api::local::local_resize(&state, id, c, r).await,
+            (PtyMsg::Resize(c, r), Family::Local) => {
+                api::local::local_resize(&state, id, c, r).await
+            }
         };
         if let Err(e) = result {
             tracing::warn!(connection_id = id, "conn.writer: {e}");
@@ -226,9 +254,15 @@ fn is_auth_error(e: &AppError) -> bool {
         AppError::Validation(m) if m.to_lowercase().contains("credential") => true,
         other => {
             let m = other.to_string().to_lowercase();
-            ["authentication failed", "key parse", "could not read key", "no authentication methods", "no more authentication"]
-                .iter()
-                .any(|p| m.contains(p))
+            [
+                "authentication failed",
+                "key parse",
+                "could not read key",
+                "no authentication methods",
+                "no more authentication",
+            ]
+            .iter()
+            .any(|p| m.contains(p))
         }
     }
 }
@@ -236,10 +270,18 @@ fn is_auth_error(e: &AppError) -> bool {
 pub fn classify(e: &AppError, family: Family) -> ConnectFailure {
     match (e, family) {
         (AppError::HostKeyUntrusted { actual }, Family::Ssh) => {
-            ConnectFailure::HostKey(HostKeyPrompt { mismatch: false, fingerprint: actual.clone(), expected: None })
+            ConnectFailure::HostKey(HostKeyPrompt {
+                mismatch: false,
+                fingerprint: actual.clone(),
+                expected: None,
+            })
         }
         (AppError::HostKeyMismatch { expected, actual }, Family::Ssh) => {
-            ConnectFailure::HostKey(HostKeyPrompt { mismatch: true, fingerprint: actual.clone(), expected: Some(expected.clone()) })
+            ConnectFailure::HostKey(HostKeyPrompt {
+                mismatch: true,
+                fingerprint: actual.clone(),
+                expected: Some(expected.clone()),
+            })
         }
         (AppError::XServerMissing, Family::Ssh) => ConnectFailure::XServerMissing(e.to_string()),
         (e, Family::Ssh) if is_auth_error(e) => ConnectFailure::Auth(e.to_string()),
@@ -282,10 +324,22 @@ impl App {
             (0, _) | (_, 0) => slot.pty.size(),
             (c, r) => (c as u16, r as u16),
         };
-        let sink: ezssh_core::Output =
-            Box::new(FeedSink { feeder: slot.feeder.clone(), generation, current: slot.generation.clone() });
+        let sink: ezssh_core::Output = Box::new(FeedSink {
+            feeder: slot.feeder.clone(),
+            generation,
+            current: slot.generation.clone(),
+        });
         self.tabs.set_status(tab, TabStatus::Connecting, None);
-        tracing::info!(tab, session_id, ?family, cols, rows, trust_any, disable_x11, "conn: connect");
+        tracing::info!(
+            tab,
+            session_id,
+            ?family,
+            cols,
+            rows,
+            trust_any,
+            disable_x11,
+            "conn: connect"
+        );
 
         let state = self.core.state.clone();
         self.core.spawn(writer(state, family, rx, id_rx));
@@ -293,22 +347,46 @@ impl App {
             "connect",
             move |st| async move {
                 match family {
-                    Family::Ssh => api::ssh::ssh_connect(&st, session_id, cols, rows, trust_any, Some(disable_x11), sink)
+                    Family::Ssh => api::ssh::ssh_connect(
+                        &st,
+                        session_id,
+                        cols,
+                        rows,
+                        trust_any,
+                        Some(disable_x11),
+                        sink,
+                    )
+                    .await
+                    .map(|r| r.connection_id),
+                    Family::Local => api::local::local_connect(&st, session_id, cols, rows, sink)
                         .await
                         .map(|r| r.connection_id),
-                    Family::Local => api::local::local_connect(&st, session_id, cols, rows, sink).await.map(|r| r.connection_id),
                 }
             },
             move |app, result| app.connect_done(tab, generation, family, result, id_tx),
         );
     }
 
-    fn connect_done(&mut self, tab: TabId, generation: u64, family: Family, result: Result<u64, AppError>, id_tx: oneshot::Sender<u64>) {
-        let current = self.terms.get(&tab).map(|s| s.generation.load(Ordering::Acquire));
+    fn connect_done(
+        &mut self,
+        tab: TabId,
+        generation: u64,
+        family: Family,
+        result: Result<u64, AppError>,
+        id_tx: oneshot::Sender<u64>,
+    ) {
+        let current = self
+            .terms
+            .get(&tab)
+            .map(|s| s.generation.load(Ordering::Acquire));
         if current != Some(generation) {
             // Tab closed or reconnected meanwhile: this connection is orphaned.
             if let Ok(id) = result {
-                tracing::debug!(tab, connection_id = id, "conn: stale connect result, disconnecting");
+                tracing::debug!(
+                    tab,
+                    connection_id = id,
+                    "conn: stale connect result, disconnecting"
+                );
                 self.early_closed.remove(&id);
                 self.disconnect(family, id);
             }
@@ -318,7 +396,11 @@ impl App {
             Ok(id) => {
                 tracing::info!(tab, connection_id = id, "conn: connected");
                 if id_tx.send(id).is_err() {
-                    tracing::warn!(tab, connection_id = id, "conn: writer gone before connect finished");
+                    tracing::warn!(
+                        tab,
+                        connection_id = id,
+                        "conn: writer gone before connect finished"
+                    );
                 }
                 if let Some(t) = self.tabs.get_mut(tab) {
                     t.connection_id = Some(id);
@@ -334,7 +416,11 @@ impl App {
                 // a program that exits at once closed before this tab knew
                 // its connection id.
                 if let Some(event) = self.early_closed.remove(&id) {
-                    tracing::info!(tab, connection_id = id, "conn: replaying a close that arrived before the connect finished");
+                    tracing::info!(
+                        tab,
+                        connection_id = id,
+                        "conn: replaying a close that arrived before the connect finished"
+                    );
                     self.on_connection_event(event);
                 }
             }
@@ -354,21 +440,30 @@ impl App {
                         self.tabs.set_status(
                             tab,
                             TabStatus::Error,
-                            Some(format!("{msg}. Install VcXsrv or turn off X11 forwarding for this session.")),
+                            Some(format!(
+                                "{msg}. Install VcXsrv or turn off X11 forwarding for this session."
+                            )),
                         );
                         match self.dialogs.xserver.as_mut() {
                             Some(open) => open.add(tab),
-                            None => self.dialogs.xserver = Some(crate::views::xserver::XServerDialog::new(tab, msg)),
+                            None => {
+                                self.dialogs.xserver =
+                                    Some(crate::views::xserver::XServerDialog::new(tab, msg))
+                            }
                         }
                     }
                     ConnectFailure::Auth(msg) => {
-                        self.tabs.set_status(tab, TabStatus::Error, Some(msg.clone()));
+                        self.tabs
+                            .set_status(tab, TabStatus::Error, Some(msg.clone()));
                         let session = self.tabs.get(tab).map(|t| t.session.clone());
                         if let (Some(session), Some(slot)) = (session, self.terms.get_mut(&tab)) {
-                            slot.auth_fix = Some(crate::views::auth_fix::AuthFix::new(tab, session, msg));
+                            slot.auth_fix =
+                                Some(crate::views::auth_fix::AuthFix::new(tab, session, msg));
                         }
                     }
-                    ConnectFailure::Other(msg) => self.tabs.set_status(tab, TabStatus::Error, Some(msg)),
+                    ConnectFailure::Other(msg) => {
+                        self.tabs.set_status(tab, TabStatus::Error, Some(msg))
+                    }
                 }
             }
         }
@@ -394,8 +489,12 @@ impl App {
 
     fn disconnect(&self, family: Family, id: u64) {
         match family {
-            Family::Ssh => self.core.fire("ssh_disconnect", move |st| async move { api::ssh::ssh_disconnect(&st, id).await }),
-            Family::Local => self.core.fire("local_disconnect", move |st| async move { api::local::local_disconnect(&st, id).await }),
+            Family::Ssh => self.core.fire("ssh_disconnect", move |st| async move {
+                api::ssh::ssh_disconnect(&st, id).await
+            }),
+            Family::Local => self.core.fire("local_disconnect", move |st| async move {
+                api::local::local_disconnect(&st, id).await
+            }),
         }
     }
 
@@ -403,30 +502,51 @@ impl App {
     pub(crate) fn on_connection_event(&mut self, event: ezssh_core::Event) {
         use ezssh_core::Event;
         match event {
-            Event::Closed { connection_id, reason } => {
+            Event::Closed {
+                connection_id,
+                reason,
+            } => {
                 let Some(tab) = self.tabs.by_connection(connection_id) else {
-                    tracing::debug!(connection_id, ?reason, "conn: close for an unknown connection, kept for the connect continuation");
-                    self.early_closed.insert(connection_id, Event::Closed { connection_id, reason });
+                    tracing::debug!(
+                        connection_id,
+                        ?reason,
+                        "conn: close for an unknown connection, kept for the connect continuation"
+                    );
+                    self.early_closed.insert(
+                        connection_id,
+                        Event::Closed {
+                            connection_id,
+                            reason,
+                        },
+                    );
                     return;
                 };
                 tracing::info!(tab, connection_id, ?reason, "conn: closed");
                 self.teardown(tab, false);
                 let text = close_text(&reason);
-                let errored = self.tabs.get(tab).is_some_and(|t| t.status == TabStatus::Error);
+                let errored = self
+                    .tabs
+                    .get(tab)
+                    .is_some_and(|t| t.status == TabStatus::Error);
                 // An error already reported for this connection keeps its message.
                 if text.is_none() && errored {
                     return;
                 }
                 self.tabs.set_status(tab, TabStatus::Closed, text);
             }
-            Event::WriteFailed { connection_id, message } => {
+            Event::WriteFailed {
+                connection_id,
+                message,
+            } => {
                 if let Some(tab) = self.tabs.by_connection(connection_id) {
                     self.tabs.set_status(tab, TabStatus::Error, Some(message));
                 }
             }
             ev @ Event::ForwardStatus { .. } => crate::views::forwards::on_event(self, ev),
             Event::Transfer(p) => crate::views::sftp::on_event(self, p),
-            Event::UpdateProgress { downloaded, total } => crate::views::update::on_progress(self, downloaded, total),
+            Event::UpdateProgress { downloaded, total } => {
+                crate::views::update::on_progress(self, downloaded, total)
+            }
         }
     }
 }
@@ -439,23 +559,78 @@ mod tests {
     fn close_texts() {
         assert_eq!(close_text(&CloseReason::Exit(0)), None);
         assert_eq!(close_text(&CloseReason::Ended), None);
-        assert_eq!(close_text(&CloseReason::Exit(130)).as_deref(), Some("exit 130"));
-        assert_eq!(close_text(&CloseReason::Signal("KILL".into())).as_deref(), Some("killed by SIGKILL"));
+        assert_eq!(
+            close_text(&CloseReason::Exit(130)).as_deref(),
+            Some("exit 130")
+        );
+        assert_eq!(
+            close_text(&CloseReason::Signal("KILL".into())).as_deref(),
+            Some("killed by SIGKILL")
+        );
     }
 
     #[test]
     fn classify_routes_errors() {
-        let hk = classify(&AppError::HostKeyUntrusted { actual: "fp".into() }, Family::Ssh);
-        assert_eq!(hk, ConnectFailure::HostKey(HostKeyPrompt { mismatch: false, fingerprint: "fp".into(), expected: None }));
-        let mm = classify(&AppError::HostKeyMismatch { expected: "a".into(), actual: "b".into() }, Family::Ssh);
-        assert_eq!(mm, ConnectFailure::HostKey(HostKeyPrompt { mismatch: true, fingerprint: "b".into(), expected: Some("a".into()) }));
-        assert!(matches!(classify(&AppError::AuthFailed, Family::Ssh), ConnectFailure::Auth(_)));
-        assert!(matches!(classify(&AppError::Validation("missing credential".into()), Family::Ssh), ConnectFailure::Auth(_)));
-        assert!(matches!(classify(&AppError::Ssh("No more authentication methods".into()), Family::Ssh), ConnectFailure::Auth(_)));
-        assert!(matches!(classify(&AppError::XServerMissing, Family::Ssh), ConnectFailure::XServerMissing(_)));
-        assert!(matches!(classify(&AppError::Ssh("connect timeout".into()), Family::Ssh), ConnectFailure::Other(_)));
+        let hk = classify(
+            &AppError::HostKeyUntrusted {
+                actual: "fp".into(),
+            },
+            Family::Ssh,
+        );
+        assert_eq!(
+            hk,
+            ConnectFailure::HostKey(HostKeyPrompt {
+                mismatch: false,
+                fingerprint: "fp".into(),
+                expected: None
+            })
+        );
+        let mm = classify(
+            &AppError::HostKeyMismatch {
+                expected: "a".into(),
+                actual: "b".into(),
+            },
+            Family::Ssh,
+        );
+        assert_eq!(
+            mm,
+            ConnectFailure::HostKey(HostKeyPrompt {
+                mismatch: true,
+                fingerprint: "b".into(),
+                expected: Some("a".into())
+            })
+        );
+        assert!(matches!(
+            classify(&AppError::AuthFailed, Family::Ssh),
+            ConnectFailure::Auth(_)
+        ));
+        assert!(matches!(
+            classify(
+                &AppError::Validation("missing credential".into()),
+                Family::Ssh
+            ),
+            ConnectFailure::Auth(_)
+        ));
+        assert!(matches!(
+            classify(
+                &AppError::Ssh("No more authentication methods".into()),
+                Family::Ssh
+            ),
+            ConnectFailure::Auth(_)
+        ));
+        assert!(matches!(
+            classify(&AppError::XServerMissing, Family::Ssh),
+            ConnectFailure::XServerMissing(_)
+        ));
+        assert!(matches!(
+            classify(&AppError::Ssh("connect timeout".into()), Family::Ssh),
+            ConnectFailure::Other(_)
+        ));
         // Local kinds never get SSH-specific routing.
-        assert!(matches!(classify(&AppError::AuthFailed, Family::Local), ConnectFailure::Other(_)));
+        assert!(matches!(
+            classify(&AppError::AuthFailed, Family::Local),
+            ConnectFailure::Other(_)
+        ));
     }
 
     #[test]
@@ -465,7 +640,12 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         pty.attach(tx);
         pty.write(Cow::Borrowed(b"a"));
-        pty.resize(WindowSize { num_lines: 40, num_cols: 120, cell_width: 9, cell_height: 18 });
+        pty.resize(WindowSize {
+            num_lines: 40,
+            num_cols: 120,
+            cell_width: 9,
+            cell_height: 18,
+        });
         pty.write(Cow::Borrowed(b"b"));
         assert_eq!(pty.size(), (120, 40));
         let got: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok())
@@ -474,7 +654,11 @@ mod tests {
                 PtyMsg::Resize(c, r) => format!("{c}x{r}"),
             })
             .collect();
-        assert_eq!(got, ["a", "120x40", "b"], "in order, nothing from before attach");
+        assert_eq!(
+            got,
+            ["a", "120x40", "b"],
+            "in order, nothing from before attach"
+        );
         pty.detach();
         pty.write(Cow::Borrowed(b"c"));
         assert!(rx.try_recv().is_err());
@@ -483,9 +667,17 @@ mod tests {
     #[test]
     fn stale_generation_output_is_dropped() {
         let ctx = egui::Context::default();
-        let slot = TermSlot::new(&ctx, ezssh_term::TermOptions::default(), ezssh_term::Palette::default());
+        let slot = TermSlot::new(
+            &ctx,
+            ezssh_term::TermOptions::default(),
+            ezssh_term::Palette::default(),
+        );
         let current = slot.generation.clone();
-        let sink = FeedSink { feeder: slot.feeder.clone(), generation: 0, current: current.clone() };
+        let sink = FeedSink {
+            feeder: slot.feeder.clone(),
+            generation: 0,
+            current: current.clone(),
+        };
         assert!(sink.send(b"hello"));
         slot.detach();
         assert!(!sink.send(b"late"), "after detach the old sink is stale");

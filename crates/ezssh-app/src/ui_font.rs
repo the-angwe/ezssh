@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use egui::FontFamily;
 use egui::epaint::text::{FontData, FontInsert, FontPriority, InsertFontFamily};
 use fontique::{
-    Attributes, Collection, CollectionOptions, FontStyle, FontWeight, FontWidth, GenericFamily, QueryFamily,
-    QueryStatus, SourceCache, SourceCacheOptions,
+    Attributes, Collection, CollectionOptions, FontStyle, FontWeight, FontWidth, GenericFamily,
+    QueryFamily, QueryStatus, SourceCache, SourceCacheOptions,
 };
 
 /// egui family name for the semibold UI face.
@@ -19,7 +19,11 @@ static HAS_SEMIBOLD: AtomicBool = AtomicBool::new(false);
 /// Family for semibold UI text: the system's semibold face when one was
 /// registered, else the regular proportional family.
 pub fn semibold_family() -> FontFamily {
-    if HAS_SEMIBOLD.load(Ordering::Relaxed) { FontFamily::Name(SEMIBOLD.into()) } else { FontFamily::Proportional }
+    if HAS_SEMIBOLD.load(Ordering::Relaxed) {
+        FontFamily::Name(SEMIBOLD.into())
+    } else {
+        FontFamily::Proportional
+    }
 }
 
 /// Named families tried before the generic `system-ui` / `sans-serif`.
@@ -31,10 +35,19 @@ fn preferred() -> &'static [&'static str] {
     }
 }
 
-fn find(collection: &mut Collection, cache: &mut SourceCache, family: QueryFamily<'_>, weight: f32) -> Option<(FontData, bool)> {
+fn find(
+    collection: &mut Collection,
+    cache: &mut SourceCache,
+    family: QueryFamily<'_>,
+    weight: f32,
+) -> Option<(FontData, bool)> {
     let mut query = collection.query(cache);
     query.set_families([family]);
-    query.set_attributes(Attributes::new(FontWidth::NORMAL, FontStyle::Normal, FontWeight::new(weight)));
+    query.set_attributes(Attributes::new(
+        FontWidth::NORMAL,
+        FontStyle::Normal,
+        FontWeight::new(weight),
+    ));
     let mut found = None;
     query.matches_with(|font| {
         found = Some(font.clone());
@@ -50,7 +63,10 @@ fn find(collection: &mut Collection, cache: &mut SourceCache, family: QueryFamil
 /// priority) and its semibold face as [`SEMIBOLD`]. Returns the family
 /// name used, or `None` when only egui's bundled font is available.
 pub fn install(ctx: &egui::Context) -> Option<String> {
-    let mut collection = Collection::new(CollectionOptions { shared: false, system_fonts: true });
+    let mut collection = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts: true,
+    });
     let mut cache = SourceCache::new(SourceCacheOptions::default());
 
     let mut chosen: Option<(String, QueryFamily<'static>)> = None;
@@ -83,7 +99,10 @@ pub fn install(ctx: &egui::Context) -> Option<String> {
     ctx.add_font(FontInsert {
         name: format!("{name} (UI)"),
         data: regular.clone(),
-        families: vec![InsertFontFamily { family: FontFamily::Proportional, priority: FontPriority::Highest }],
+        families: vec![InsertFontFamily {
+            family: FontFamily::Proportional,
+            priority: FontPriority::Highest,
+        }],
     });
     match find(&mut collection, &mut cache, family, 600.0) {
         Some((semibold, false)) => {
@@ -92,12 +111,18 @@ pub fn install(ctx: &egui::Context) -> Option<String> {
             ctx.add_font(FontInsert {
                 name: format!("{name} Semibold (UI)"),
                 data: semibold,
-                families: vec![InsertFontFamily { family: FontFamily::Name(SEMIBOLD.into()), priority: FontPriority::Highest }],
+                families: vec![InsertFontFamily {
+                    family: FontFamily::Name(SEMIBOLD.into()),
+                    priority: FontPriority::Highest,
+                }],
             });
             ctx.add_font(FontInsert {
                 name: format!("{name} (UI semibold fallback)"),
                 data: regular,
-                families: vec![InsertFontFamily { family: FontFamily::Name(SEMIBOLD.into()), priority: FontPriority::Lowest }],
+                families: vec![InsertFontFamily {
+                    family: FontFamily::Name(SEMIBOLD.into()),
+                    priority: FontPriority::Lowest,
+                }],
             });
             HAS_SEMIBOLD.store(true, Ordering::Relaxed);
         }

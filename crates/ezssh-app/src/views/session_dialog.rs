@@ -10,17 +10,20 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use egui::text::LayoutJob;
-use egui::{Align, Color32, CursorIcon, FontId, Frame, Id, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind, TextFormat, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui::{
+    Align, Color32, CursorIcon, FontId, Frame, Id, Layout, Margin, Rect, RichText, Sense, Stroke,
+    StrokeKind, TextFormat, Ui, UiBuilder, Vec2, pos2, vec2,
+};
+use ezssh_core::Secret;
 use ezssh_core::api;
 use ezssh_core::db::sessions::{EnvPair, Session, SessionInput};
 use ezssh_core::local::shells::DetectedShell;
-use ezssh_core::Secret;
 use zeroize::Zeroizing;
 
 use super::cred_picker::CredPicker;
-use crate::form::labelled;
 use crate::app::App;
 use crate::font_presets;
+use crate::form::labelled;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::settings::Settings;
@@ -105,7 +108,11 @@ impl Draft {
             auth_type: s.auth_type.clone(),
             // A password session's credential is its own row, managed by
             // the core; only key sessions pick one.
-            credential_id: if s.auth_type == "password" { None } else { s.credential_id },
+            credential_id: if s.auth_type == "password" {
+                None
+            } else {
+                s.credential_id
+            },
             key_passphrase_credential_id: s.key_passphrase_credential_id,
             color: s.color.clone(),
             initial_command: s.initial_command.clone().unwrap_or_default(),
@@ -130,12 +137,23 @@ impl Draft {
     /// Header subtitle: `user@host:port` for SSH, the
     /// distro / program for WSL and local shells.
     fn summary(&self) -> String {
-        let or = |s: &str, d: &str| if s.is_empty() { d.to_string() } else { s.to_string() };
+        let or = |s: &str, d: &str| {
+            if s.is_empty() {
+                d.to_string()
+            } else {
+                s.to_string()
+            }
+        };
         match self.session_kind.as_str() {
             "wsl" if self.username.is_empty() => or(&self.host, "(default distro)"),
             "wsl" => format!("{}@{}", self.username, or(&self.host, "(default distro)")),
             "local" => or(&self.host, "(shell)"),
-            _ => format!("{}@{}:{}", or(&self.username, "user"), or(&self.host, "host"), if self.port == 0 { 22 } else { self.port }),
+            _ => format!(
+                "{}@{}:{}",
+                or(&self.username, "user"),
+                or(&self.host, "host"),
+                if self.port == 0 { 22 } else { self.port }
+            ),
         }
     }
 
@@ -150,12 +168,25 @@ impl Draft {
             host: self.host.clone(),
             port: self.port,
             username: self.username.clone(),
-            auth_type: if ssh { self.auth_type.clone() } else { "agent".into() },
+            auth_type: if ssh {
+                self.auth_type.clone()
+            } else {
+                "agent".into()
+            },
             // The core manages a password session's own row.
-            credential_id: if ssh && self.auth_type == "key" { self.credential_id } else { None },
-            key_passphrase_credential_id: if ssh && self.auth_type == "key" { self.key_passphrase_credential_id } else { None },
+            credential_id: if ssh && self.auth_type == "key" {
+                self.credential_id
+            } else {
+                None
+            },
+            key_passphrase_credential_id: if ssh && self.auth_type == "key" {
+                self.key_passphrase_credential_id
+            } else {
+                None
+            },
             color: self.color.clone(),
-            initial_command: (!self.initial_command.trim().is_empty()).then(|| self.initial_command.clone()),
+            initial_command: (!self.initial_command.trim().is_empty())
+                .then(|| self.initial_command.clone()),
             scrollback_lines: self.scrollback_lines,
             font_size: self.font_size,
             font_family: self.font_family.clone(),
@@ -163,12 +194,21 @@ impl Draft {
             compression: i64::from(self.compression),
             keepalive_secs: self.keepalive_secs,
             connect_timeout_secs: self.connect_timeout_secs,
-            env: self.env.iter().filter(|p| !p.key.trim().is_empty()).cloned().collect(),
+            env: self
+                .env
+                .iter()
+                .filter(|p| !p.key.trim().is_empty())
+                .cloned()
+                .collect(),
             session_kind: self.session_kind.clone(),
             // The checkbox is SSH-only; the core rejects it elsewhere.
             forward_x11: i64::from(ssh && self.forward_x11),
             starting_dir: Some(self.starting_dir.trim().to_string()).filter(|s| !s.is_empty()),
-            password: if pw_auth { password.filter(|p| !p.is_empty()) } else { None },
+            password: if pw_auth {
+                password.filter(|p| !p.is_empty())
+            } else {
+                None
+            },
         }
     }
 }
@@ -300,7 +340,8 @@ impl SessionDialog {
         if let Mode::New { folder } = &self.mode {
             self.draft = Draft::new_session(*folder, &app.settings);
         }
-        self.font_custom = !font_presets::is_preset(&self.draft.font_family) && !self.draft.font_family.is_empty();
+        self.font_custom =
+            !font_presets::is_preset(&self.draft.font_family) && !self.draft.font_family.is_empty();
         tracing::debug!(serial = self.serial, edit = ?self.edit_id(), "session_dialog: open");
         let serial = self.serial;
         app.core.call(
@@ -311,7 +352,8 @@ impl SessionDialog {
                     Ok(s) => s,
                     Err(e) => {
                         tracing::warn!("session_dialog: list_local_shells failed: {e}");
-                        app.toasts.danger("Could not list local shells", e.to_string());
+                        app.toasts
+                            .danger("Could not list local shells", e.to_string());
                         Vec::new()
                     }
                 };
@@ -331,12 +373,19 @@ impl SessionDialog {
                     };
                     match r {
                         Ok(env) => {
-                            tracing::debug!(session = id, n = env.len(), "session_dialog: env loaded");
+                            tracing::debug!(
+                                session = id,
+                                n = env.len(),
+                                "session_dialog: env loaded"
+                            );
                             d.draft.env = env;
                             d.env_loaded = true;
                         }
                         Err(e) => {
-                            tracing::warn!(session = id, "session_dialog: session_env_get failed: {e}");
+                            tracing::warn!(
+                                session = id,
+                                "session_dialog: session_env_get failed: {e}"
+                            );
                             d.err = Some(format!("Could not load environment variables: {e}"));
                         }
                     }
@@ -352,8 +401,20 @@ impl SessionDialog {
         }
         tracing::debug!(from = %d.session_kind, to = next, "session_dialog: kind");
         // Reset kind-specific fields so stale values don't leak across kinds.
-        d.host = if next == "local" { self.shells.as_ref().and_then(|s| s.first()).map(|s| s.program.clone()).unwrap_or_default() } else { String::new() };
-        d.port = if next == "ssh" { if d.port == 0 { 22 } else { d.port } } else { 0 };
+        d.host = if next == "local" {
+            self.shells
+                .as_ref()
+                .and_then(|s| s.first())
+                .map(|s| s.program.clone())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        d.port = if next == "ssh" {
+            if d.port == 0 { 22 } else { d.port }
+        } else {
+            0
+        };
         d.username.clear();
         if next != "ssh" {
             d.auth_type = "agent".into();
@@ -385,12 +446,14 @@ impl SessionDialog {
         }
         if !self.env_loaded {
             tracing::debug!("session_dialog: save refused, env vars not loaded");
-            self.err = Some("Environment variables are still loading; try again in a moment.".into());
+            self.err =
+                Some("Environment variables are still loading; try again in a moment.".into());
             return;
         }
         self.err = None;
         self.busy = true;
-        let password = (!self.password.is_empty()).then(|| Secret::new(String::clone(&self.password)));
+        let password =
+            (!self.password.is_empty()).then(|| Secret::new(String::clone(&self.password)));
         let input = d.to_input(password);
         let edit_id = self.edit_id();
         let serial = self.serial;
@@ -411,7 +474,11 @@ impl SessionDialog {
             },
             move |app, r| match r {
                 Ok(s) => {
-                    tracing::info!(session = s.id, edit = edit_id.is_some(), "session_dialog: saved");
+                    tracing::info!(
+                        session = s.id,
+                        edit = edit_id.is_some(),
+                        "session_dialog: saved"
+                    );
                     if edit_id.is_some() {
                         app.apply_session_terminal(&s);
                     }
@@ -419,7 +486,14 @@ impl SessionDialog {
                         app.dialogs.session = None;
                     }
                     app.sidebar.reload(&app.core);
-                    app.toasts.success(if edit_id.is_some() { "Session saved" } else { "Session created" }, None);
+                    app.toasts.success(
+                        if edit_id.is_some() {
+                            "Session saved"
+                        } else {
+                            "Session created"
+                        },
+                        None,
+                    );
                 }
                 Err(e) => {
                     tracing::warn!(edit = ?edit_id, "session_dialog: save failed: {e}");
@@ -478,96 +552,155 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut close = false;
     let mut save = false;
     let id = Id::unique("session-dialog");
-    let resp = egui::Modal::new(id).backdrop_color(Color32::from_black_alpha(128)).frame(widgets::dialog_frame(t)).show(ctx, |ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
-        let header = Rect::from_min_size(rect.min, vec2(w, HEADER_H));
-        let footer = Rect::from_min_max(pos2(rect.left(), rect.bottom() - FOOTER_H), rect.max);
-        let err_rect = Rect::from_min_max(pos2(rect.left(), footer.top() - if dlg.err.is_some() { ERR_H } else { 0.0 }), pos2(rect.right(), footer.top()));
-        let body = Rect::from_min_max(pos2(rect.left(), header.bottom()), pos2(rect.right(), err_rect.top()));
-        let nav = Rect::from_min_max(body.min, pos2(body.left() + NAV_W, body.bottom()));
-        let content = Rect::from_min_max(pos2(nav.right(), body.top()), body.max);
+    let resp = egui::Modal::new(id)
+        .backdrop_color(Color32::from_black_alpha(128))
+        .frame(widgets::dialog_frame(t))
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+            let header = Rect::from_min_size(rect.min, vec2(w, HEADER_H));
+            let footer = Rect::from_min_max(pos2(rect.left(), rect.bottom() - FOOTER_H), rect.max);
+            let err_rect = Rect::from_min_max(
+                pos2(
+                    rect.left(),
+                    footer.top() - if dlg.err.is_some() { ERR_H } else { 0.0 },
+                ),
+                pos2(rect.right(), footer.top()),
+            );
+            let body = Rect::from_min_max(
+                pos2(rect.left(), header.bottom()),
+                pos2(rect.right(), err_rect.top()),
+            );
+            let nav = Rect::from_min_max(body.min, pos2(body.left() + NAV_W, body.bottom()));
+            let content = Rect::from_min_max(pos2(nav.right(), body.top()), body.max);
 
-        // Header: the kind's icon on a tile in the session colour, the
-        // name and the live summary.
-        let accent = dlg.draft.color.as_deref().and_then(parse_hex).unwrap_or(t.accent);
-        let kind_icon = match dlg.draft.session_kind.as_str() {
-            "wsl" => Icon::SquareTerminal,
-            "local" => Icon::MonitorDot,
-            _ => Icon::Server,
-        };
-        let title = if dlg.draft.name.trim().is_empty() {
-            if dlg.edit_id().is_some() { "Edit session".to_string() } else { "New session".to_string() }
-        } else {
-            dlg.draft.name.clone()
-        };
-        let summary = dlg.draft.summary();
-        if widgets::dialog_header(ui, id, header, Some(kind_icon), accent, &title, Some(&summary), true, dlg.busy) {
-            close = true;
-        }
-        // Side rail.
-        ui.painter().vline(nav.right() - 0.5, nav.y_range(), Stroke::new(1.0, t.border));
-        at(ui, nav.shrink2(vec2(8.0, 12.0)), |ui| {
-            let mut panes = vec![
-                (Pane::General, "General", Icon::Sliders),
-                (Pane::Terminal, "Terminal", Icon::Terminal),
-                (Pane::Advanced, "Advanced", Icon::Cog),
-            ];
-            if dlg.draft.is_ssh() {
-                panes.push((Pane::Forwards, "Forwards", Icon::Network));
-            }
-            widgets::nav_rail(ui, NAV_W - 16.0, &panes, &mut dlg.pane);
-        });
-        // Content.
-        at(ui, content, |ui| {
-            egui::ScrollArea::vertical().id_salt(("session-dialog-pane", dlg.serial, dlg.pane as u8)).auto_shrink(false).show(ui, |ui| {
-                Frame::new().inner_margin(Margin { left: PAD as i8, right: PAD as i8, top: 20, bottom: PAD as i8 }).show(ui, |ui| {
-                    ui.set_width(content.width() - 2.0 * PAD);
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    match dlg.pane {
-                        Pane::General => general(&mut dlg, app, ui),
-                        Pane::Terminal => terminal(&mut dlg, ui),
-                        Pane::Advanced => advanced(&mut dlg, ui),
-                        Pane::Forwards => crate::views::forwards::session_tab(app, ui, dlg.edit_id()),
-                    }
-                });
-            });
-        });
-        if let Some(e) = &dlg.err {
-            ui.painter().rect_filled(err_rect, 0.0, alpha(t.danger, 0.1));
-            ui.painter().hline(err_rect.x_range(), err_rect.top() + 0.5, Stroke::new(1.0, alpha(t.danger, 0.4)));
-            at(ui, err_rect.shrink2(vec2(PAD, 0.0)), |ui| {
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    Icon::AlertCircle.show(ui, 14.0, t.danger);
-                    ui.label(RichText::new(e).font(font(size::SM)).color(t.danger));
-                });
-            });
-        }
-        // Footer: keyboard hints on the left, the buttons on the right.
-        widgets::dialog_footer(ui, footer, PAD, |ui| {
-            let label = if dlg.edit_id().is_some() { "Save changes" } else { "Create session" };
-            if widgets::Button::primary(label).enabled(!dlg.busy).show(ui).clicked() {
-                save = true;
-            }
-            if widgets::Button::secondary("Cancel").show(ui).clicked() {
+            // Header: the kind's icon on a tile in the session colour, the
+            // name and the live summary.
+            let accent = dlg
+                .draft
+                .color
+                .as_deref()
+                .and_then(parse_hex)
+                .unwrap_or(t.accent);
+            let kind_icon = match dlg.draft.session_kind.as_str() {
+                "wsl" => Icon::SquareTerminal,
+                "local" => Icon::MonitorDot,
+                _ => Icon::Server,
+            };
+            let title = if dlg.draft.name.trim().is_empty() {
+                if dlg.edit_id().is_some() {
+                    "Edit session".to_string()
+                } else {
+                    "New session".to_string()
+                }
+            } else {
+                dlg.draft.name.clone()
+            };
+            let summary = dlg.draft.summary();
+            if widgets::dialog_header(
+                ui,
+                id,
+                header,
+                Some(kind_icon),
+                accent,
+                &title,
+                Some(&summary),
+                true,
+                dlg.busy,
+            ) {
                 close = true;
             }
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let muted = |ui: &mut Ui, s: &str| ui.label(RichText::new(s).font(font(size::XS)).color(t.muted));
-                form::kbd(ui, "Esc");
-                muted(ui, "close");
-                ui.add_space(8.0);
-                form::kbd(ui, "Ctrl");
-                muted(ui, "+");
-                form::kbd(ui, "Enter");
-                muted(ui, "save");
+            // Side rail.
+            ui.painter()
+                .vline(nav.right() - 0.5, nav.y_range(), Stroke::new(1.0, t.border));
+            at(ui, nav.shrink2(vec2(8.0, 12.0)), |ui| {
+                let mut panes = vec![
+                    (Pane::General, "General", Icon::Sliders),
+                    (Pane::Terminal, "Terminal", Icon::Terminal),
+                    (Pane::Advanced, "Advanced", Icon::Cog),
+                ];
+                if dlg.draft.is_ssh() {
+                    panes.push((Pane::Forwards, "Forwards", Icon::Network));
+                }
+                widgets::nav_rail(ui, NAV_W - 16.0, &panes, &mut dlg.pane);
             });
+            // Content.
+            at(ui, content, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt(("session-dialog-pane", dlg.serial, dlg.pane as u8))
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        Frame::new()
+                            .inner_margin(Margin {
+                                left: PAD as i8,
+                                right: PAD as i8,
+                                top: 20,
+                                bottom: PAD as i8,
+                            })
+                            .show(ui, |ui| {
+                                ui.set_width(content.width() - 2.0 * PAD);
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                match dlg.pane {
+                                    Pane::General => general(&mut dlg, app, ui),
+                                    Pane::Terminal => terminal(&mut dlg, ui),
+                                    Pane::Advanced => advanced(&mut dlg, ui),
+                                    Pane::Forwards => {
+                                        crate::views::forwards::session_tab(app, ui, dlg.edit_id())
+                                    }
+                                }
+                            });
+                    });
+            });
+            if let Some(e) = &dlg.err {
+                ui.painter()
+                    .rect_filled(err_rect, 0.0, alpha(t.danger, 0.1));
+                ui.painter().hline(
+                    err_rect.x_range(),
+                    err_rect.top() + 0.5,
+                    Stroke::new(1.0, alpha(t.danger, 0.4)),
+                );
+                at(ui, err_rect.shrink2(vec2(PAD, 0.0)), |ui| {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        Icon::AlertCircle.show(ui, 14.0, t.danger);
+                        ui.label(RichText::new(e).font(font(size::SM)).color(t.danger));
+                    });
+                });
+            }
+            // Footer: keyboard hints on the left, the buttons on the right.
+            widgets::dialog_footer(ui, footer, PAD, |ui| {
+                let label = if dlg.edit_id().is_some() {
+                    "Save changes"
+                } else {
+                    "Create session"
+                };
+                if widgets::Button::primary(label)
+                    .enabled(!dlg.busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    save = true;
+                }
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                    close = true;
+                }
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let muted = |ui: &mut Ui, s: &str| {
+                        ui.label(RichText::new(s).font(font(size::XS)).color(t.muted))
+                    };
+                    form::kbd(ui, "Esc");
+                    muted(ui, "close");
+                    ui.add_space(8.0);
+                    form::kbd(ui, "Ctrl");
+                    muted(ui, "+");
+                    form::kbd(ui, "Enter");
+                    muted(ui, "save");
+                });
+            });
+            if !manager_open && form::ctrl_enter(ui) {
+                save = true;
+            }
         });
-        if !manager_open && form::ctrl_enter(ui) {
-            save = true;
-        }
-    });
     if resp.should_close() {
         close = true;
     }
@@ -589,7 +722,11 @@ fn at<R>(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 // ---------------------------------------------------------------- panes
 
-const KINDS: [(&str, Icon, &str); 3] = [("ssh", Icon::Network, "SSH"), ("wsl", Icon::SquareTerminal, "WSL"), ("local", Icon::MonitorDot, "Local Shell")];
+const KINDS: [(&str, Icon, &str); 3] = [
+    ("ssh", Icon::Network, "SSH"),
+    ("wsl", Icon::SquareTerminal, "WSL"),
+    ("local", Icon::MonitorDot, "Local Shell"),
+];
 
 const AUTHS: [(&str, Icon, &str, &str); 3] = [
     ("password", Icon::Key, "Password", "Saved with this session"),
@@ -602,7 +739,10 @@ pub(crate) fn agent_hint(ui: &mut Ui) {
     rich_hint(
         ui,
         &[
-            ("Uses your OS SSH agent (Pageant / OpenSSH Agent service). On Windows the agent service is disabled by default — if you see ", false),
+            (
+                "Uses your OS SSH agent (Pageant / OpenSSH Agent service). On Windows the agent service is disabled by default — if you see ",
+                false,
+            ),
             ("Agent failure", true),
             (", switch to Password or Private Key.", false),
         ],
@@ -643,8 +783,19 @@ fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
         });
         form::field(ui, "Folder", None, |ui| {
             let mut options: Vec<(Option<i64>, String)> = vec![(None, "(root)".into())];
-            options.extend(app.sidebar.folders.iter().map(|f| (Some(f.id), f.name.clone())));
-            form::select(ui, Id::unique(("session-dialog", "folder")), &mut dlg.draft.folder_id, &options, None);
+            options.extend(
+                app.sidebar
+                    .folders
+                    .iter()
+                    .map(|f| (Some(f.id), f.name.clone())),
+            );
+            form::select(
+                ui,
+                Id::unique(("session-dialog", "folder")),
+                &mut dlg.draft.folder_id,
+                &options,
+                None,
+            );
         });
         match kind.as_str() {
             "ssh" => {
@@ -654,27 +805,54 @@ fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
                     ui.vertical(|ui| {
                         ui.set_width(host_w);
                         form::field(ui, "Host", None, |ui| {
-                            let r = form::input(ui, &mut dlg.draft.host, InputOpts::new("example.com or 10.0.0.1").icon(Icon::Server));
+                            let r = form::input(
+                                ui,
+                                &mut dlg.draft.host,
+                                InputOpts::new("example.com or 10.0.0.1").icon(Icon::Server),
+                            );
                             labelled(ui, &r, "Host");
                         });
                     });
                     ui.vertical(|ui| {
                         ui.set_width(110.0);
-                        form::field(ui, "Port", None, |ui| number_field(ui, "Port", &mut dlg.draft.port, 110.0));
+                        form::field(ui, "Port", None, |ui| {
+                            number_field(ui, "Port", &mut dlg.draft.port, 110.0)
+                        });
                     });
                 });
                 form::field(ui, "Username", None, |ui| {
-                    let r = form::input(ui, &mut dlg.draft.username, InputOpts::new("root").icon(Icon::User));
+                    let r = form::input(
+                        ui,
+                        &mut dlg.draft.username,
+                        InputOpts::new("root").icon(Icon::User),
+                    );
                     labelled(ui, &r, "Username");
                 });
             }
             "wsl" => {
-                form::field(ui, "Distro", Some("Leave blank to launch the default distro. Type exactly as shown by `wsl -l --quiet`."), |ui| {
-                    let r = form::input(ui, &mut dlg.draft.host, InputOpts::new("Ubuntu-24.04").icon(Icon::SquareTerminal).mono());
-                    labelled(ui, &r, "Distro");
-                });
+                form::field(
+                    ui,
+                    "Distro",
+                    Some(
+                        "Leave blank to launch the default distro. Type exactly as shown by `wsl -l --quiet`.",
+                    ),
+                    |ui| {
+                        let r = form::input(
+                            ui,
+                            &mut dlg.draft.host,
+                            InputOpts::new("Ubuntu-24.04")
+                                .icon(Icon::SquareTerminal)
+                                .mono(),
+                        );
+                        labelled(ui, &r, "Distro");
+                    },
+                );
                 form::field(ui, "WSL user (optional)", None, |ui| {
-                    let r = form::input(ui, &mut dlg.draft.username, InputOpts::new("(distro default)").icon(Icon::User).mono());
+                    let r = form::input(
+                        ui,
+                        &mut dlg.draft.username,
+                        InputOpts::new("(distro default)").icon(Icon::User).mono(),
+                    );
                     labelled(ui, &r, "WSL user (optional)");
                 });
             }
@@ -694,15 +872,23 @@ fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
                 "password" => {
                     let stored = dlg.password_stored();
                     form::field(ui, "Password", None, |ui| {
-                        let hint = if stored { "Saved — leave blank to keep" } else { "Password" };
-                        let r = form::secret(ui, &mut dlg.password, hint, &mut dlg.show_password, None);
+                        let hint = if stored {
+                            "Saved — leave blank to keep"
+                        } else {
+                            "Password"
+                        };
+                        let r =
+                            form::secret(ui, &mut dlg.password, hint, &mut dlg.show_password, None);
                         labelled(ui, &r, "Password");
                     });
                 }
                 "key" => {
-                    form::field(ui, "Private key", None, |ui| dlg.key_picker.show(app, ui, &mut dlg.draft.credential_id));
+                    form::field(ui, "Private key", None, |ui| {
+                        dlg.key_picker.show(app, ui, &mut dlg.draft.credential_id)
+                    });
                     form::field(ui, "Key passphrase (optional)", None, |ui| {
-                        dlg.pass_picker.show(app, ui, &mut dlg.draft.key_passphrase_credential_id);
+                        dlg.pass_picker
+                            .show(app, ui, &mut dlg.draft.key_passphrase_credential_id);
                     });
                 }
                 _ => agent_hint(ui),
@@ -711,7 +897,9 @@ fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
     }
 
     form::section(ui, "Appearance", |ui| {
-        form::field(ui, "Tab color", None, |ui| swatches(ui, &mut dlg.draft.color));
+        form::field(ui, "Tab color", None, |ui| {
+            swatches(ui, &mut dlg.draft.color)
+        });
     });
 }
 
@@ -726,10 +914,23 @@ fn local_fields(dlg: &mut SessionDialog, ui: &mut Ui, windows: bool) {
     let shells = dlg.shells.as_deref().unwrap_or_default();
     let detected = shells.iter().any(|s| s.program == dlg.draft.host);
     form::field(ui, "Shell", Some(hint), |ui| {
-        let mut options: Vec<(String, String)> = shells.iter().map(|s| (s.program.clone(), s.display_name.clone())).collect();
+        let mut options: Vec<(String, String)> = shells
+            .iter()
+            .map(|s| (s.program.clone(), s.display_name.clone()))
+            .collect();
         options.push((CUSTOM.into(), "Custom path…".into()));
-        let mut choice = if detected { dlg.draft.host.clone() } else { CUSTOM.to_string() };
-        if form::select(ui, Id::unique(("session-dialog", "shell")), &mut choice, &options, None) {
+        let mut choice = if detected {
+            dlg.draft.host.clone()
+        } else {
+            CUSTOM.to_string()
+        };
+        if form::select(
+            ui,
+            Id::unique(("session-dialog", "shell")),
+            &mut choice,
+            &options,
+            None,
+        ) {
             tracing::debug!(shell = %choice, "session_dialog: shell picked");
             if choice != CUSTOM {
                 dlg.draft.host = choice;
@@ -740,14 +941,26 @@ fn local_fields(dlg: &mut SessionDialog, ui: &mut Ui, windows: bool) {
             }
         }
         if !shells.iter().any(|s| s.program == dlg.draft.host) {
-            let ph = if windows { "C:\\Program Files\\Git\\bin\\bash.exe" } else { "/usr/local/bin/fish" };
+            let ph = if windows {
+                "C:\\Program Files\\Git\\bin\\bash.exe"
+            } else {
+                "/usr/local/bin/fish"
+            };
             let r = form::input(ui, &mut dlg.draft.host, InputOpts::new(ph).mono());
             labelled(ui, &r, "Custom shell path");
         }
     });
     form::field(ui, "Starting directory (optional)", None, |ui| {
-        let ph = if windows { "C:\\Users\\you\\projects" } else { "/home/you/projects" };
-        let r = form::input(ui, &mut dlg.draft.username, InputOpts::new(ph).icon(Icon::FolderOpen).mono());
+        let ph = if windows {
+            "C:\\Users\\you\\projects"
+        } else {
+            "/home/you/projects"
+        };
+        let r = form::input(
+            ui,
+            &mut dlg.draft.username,
+            InputOpts::new(ph).icon(Icon::FolderOpen).mono(),
+        );
         labelled(ui, &r, "Starting directory (optional)");
     });
 }
@@ -761,29 +974,61 @@ fn terminal(dlg: &mut SessionDialog, ui: &mut Ui) {
             _ => "Ignored for local shells — the Host field is used as cwd.",
         };
         form::field(ui, "Starting directory (optional)", Some(hint), |ui| {
-            let ph = if d.session_kind == "wsl" { "~/projects" } else { "/var/log" };
-            let r = form::input(ui, &mut d.starting_dir, InputOpts::new(ph).icon(Icon::FolderOpen).mono());
+            let ph = if d.session_kind == "wsl" {
+                "~/projects"
+            } else {
+                "/var/log"
+            };
+            let r = form::input(
+                ui,
+                &mut d.starting_dir,
+                InputOpts::new(ph).icon(Icon::FolderOpen).mono(),
+            );
             labelled(ui, &r, "Starting directory (optional)");
         });
-        form::field(ui, "Initial command (optional)", Some("Runs once after the shell opens, as if you typed it."), |ui| {
-            let r = form::input(ui, &mut d.initial_command, InputOpts::new("tmux attach -t main || tmux new -s main").mono());
-            labelled(ui, &r, "Initial command (optional)");
-        });
+        form::field(
+            ui,
+            "Initial command (optional)",
+            Some("Runs once after the shell opens, as if you typed it."),
+            |ui| {
+                let r = form::input(
+                    ui,
+                    &mut d.initial_command,
+                    InputOpts::new("tmux attach -t main || tmux new -s main").mono(),
+                );
+                labelled(ui, &r, "Initial command (optional)");
+            },
+        );
     });
 
     form::section(ui, "Display", |ui| {
         two_columns(
             ui,
-            |ui, w| form::field(ui, "Scrollback lines", Some("0 disables scrollback."), |ui| number_field(ui, "Scrollback lines", &mut d.scrollback_lines, w)),
-            |ui, w| form::field(ui, "Font size", None, |ui| number_field(ui, "Font size", &mut d.font_size, w)),
+            |ui, w| {
+                form::field(
+                    ui,
+                    "Scrollback lines",
+                    Some("0 disables scrollback."),
+                    |ui| number_field(ui, "Scrollback lines", &mut d.scrollback_lines, w),
+                )
+            },
+            |ui, w| {
+                form::field(ui, "Font size", None, |ui| {
+                    number_field(ui, "Font size", &mut d.font_size, w)
+                })
+            },
         );
         form::field(
             ui,
             "Font family",
-            Some("(default) uses the bundled monospace font. The list shows the monospace families installed on this computer."),
+            Some(
+                "(default) uses the bundled monospace font. The list shows the monospace families installed on this computer.",
+            ),
             |ui| font_family_picker(ui, &mut d.font_family, &mut dlg.font_custom),
         );
-        form::field(ui, "Cursor style", None, |ui| cursor_style(ui, &mut d.cursor_style));
+        form::field(ui, "Cursor style", None, |ui| {
+            cursor_style(ui, &mut d.cursor_style)
+        });
     });
 
     form::section(ui, "Environment variables", |ui| {
@@ -792,7 +1037,10 @@ fn terminal(dlg: &mut SessionDialog, ui: &mut Ui) {
             &[
                 ("Sent via SSH ", false),
                 ("env", true),
-                (" requests on connect. Most servers reject unlisted names via ", false),
+                (
+                    " requests on connect. Most servers reject unlisted names via ",
+                    false,
+                ),
                 ("AcceptEnv", true),
                 ("; ", false),
                 ("LANG", true),
@@ -810,8 +1058,24 @@ fn advanced(dlg: &mut SessionDialog, ui: &mut Ui) {
     form::section(ui, "Connection", |ui| {
         two_columns(
             ui,
-            |ui, w| form::field(ui, "Connect timeout (seconds)", None, |ui| number_field(ui, "Connect timeout (seconds)", &mut d.connect_timeout_secs, w)),
-            |ui, w| form::field(ui, "Keepalive (seconds)", Some("0 disables SSH keepalives."), |ui| number_field(ui, "Keepalive (seconds)", &mut d.keepalive_secs, w)),
+            |ui, w| {
+                form::field(ui, "Connect timeout (seconds)", None, |ui| {
+                    number_field(
+                        ui,
+                        "Connect timeout (seconds)",
+                        &mut d.connect_timeout_secs,
+                        w,
+                    )
+                })
+            },
+            |ui, w| {
+                form::field(
+                    ui,
+                    "Keepalive (seconds)",
+                    Some("0 disables SSH keepalives."),
+                    |ui| number_field(ui, "Keepalive (seconds)", &mut d.keepalive_secs, w),
+                )
+            },
         );
     });
     form::section(ui, "Transport", |ui| {
@@ -819,12 +1083,19 @@ fn advanced(dlg: &mut SessionDialog, ui: &mut Ui) {
             ui,
             &mut d.compression,
             "Enable SSH compression (zlib)",
-            Some("Helps on slow links. Negligible or negative effect on LANs; leave off unless you know the link is constrained."),
+            Some(
+                "Helps on slow links. Negligible or negative effect on LANs; leave off unless you know the link is constrained.",
+            ),
         );
     });
     if d.is_ssh() {
         form::section(ui, "X11 forwarding", |ui| {
-            form::checkbox(ui, &mut d.forward_x11, "Forward X11 (display remote GUI apps locally)", None);
+            form::checkbox(
+                ui,
+                &mut d.forward_x11,
+                "Forward X11 (display remote GUI apps locally)",
+                None,
+            );
             ui.horizontal(|ui| {
                 ui.add_space(ui.spacing().icon_width + ui.spacing().icon_spacing);
                 ui.vertical(|ui| {
@@ -850,7 +1121,11 @@ fn advanced(dlg: &mut SessionDialog, ui: &mut Ui) {
 
 /// Two equal columns 12 px apart (`grid grid-cols-2 gap-3`); each gets its
 /// width.
-pub(crate) fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: impl FnOnce(&mut Ui, f32)) {
+pub(crate) fn two_columns(
+    ui: &mut Ui,
+    left: impl FnOnce(&mut Ui, f32),
+    right: impl FnOnce(&mut Ui, f32),
+) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
         let w = (ui.available_width() - 12.0) / 2.0;
@@ -869,7 +1144,10 @@ pub(crate) fn two_columns(ui: &mut Ui, left: impl FnOnce(&mut Ui, f32), right: i
 /// step; unclamped: out-of-range values are reported by [`validate`].
 pub(crate) fn number_field(ui: &mut Ui, label: &str, value: &mut i64, width: f32) {
     let draft_id = Id::unique(("session-dialog-number", label));
-    let mut draft: String = ui.ctx().data(|d| d.get_temp(draft_id)).unwrap_or_else(|| value.to_string());
+    let mut draft: String = ui
+        .ctx()
+        .data(|d| d.get_temp(draft_id))
+        .unwrap_or_else(|| value.to_string());
     let out = form::number(ui, &mut draft, label, width);
     let resp = out.resp;
     if out.step != 0 {
@@ -888,7 +1166,9 @@ pub(crate) fn number_field(ui: &mut Ui, label: &str, value: &mut i64, width: f32
     if resp.lost_focus() || save_chord {
         match draft.trim().parse::<i64>() {
             Ok(n) => *value = n,
-            Err(_) => tracing::debug!(field = label, input = %draft, "session_dialog: not a number, kept {value}"),
+            Err(_) => {
+                tracing::debug!(field = label, input = %draft, "session_dialog: not a number, kept {value}")
+            }
         }
     }
     ui.ctx().data_mut(|d| d.remove::<String>(draft_id));
@@ -899,8 +1179,20 @@ fn rich_hint(ui: &mut Ui, parts: &[(&str, bool)]) {
     let t = tokens(ui.ctx());
     let mut job = LayoutJob::default();
     for (text, mono) in parts {
-        let font_id = if *mono { FontId::monospace(size::SM) } else { font(size::SM) };
-        job.append(text, 0.0, TextFormat { font_id, color: t.muted, ..Default::default() });
+        let font_id = if *mono {
+            FontId::monospace(size::SM)
+        } else {
+            font(size::SM)
+        };
+        job.append(
+            text,
+            0.0,
+            TextFormat {
+                font_id,
+                color: t.muted,
+                ..Default::default()
+            },
+        );
     }
     job.wrap.max_width = ui.available_width();
     ui.add(egui::Label::new(job).wrap());
@@ -937,13 +1229,27 @@ pub(crate) fn swatches(ui: &mut Ui, color: &mut Option<String>) {
             let fill = value.and_then(parse_hex).unwrap_or(SLATE);
             ui.painter().rect_filled(rect, radius::MD, fill);
             if selected {
-                ui.painter().rect_stroke(rect.expand(3.0), radius::MD + 3.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+                ui.painter().rect_stroke(
+                    rect.expand(3.0),
+                    radius::MD + 3.0,
+                    Stroke::new(2.0, t.accent),
+                    StrokeKind::Inside,
+                );
             } else if resp.hovered() {
-                ui.painter().rect_stroke(rect.expand(3.0), radius::MD + 3.0, Stroke::new(2.0, t.border_strong), StrokeKind::Inside);
+                ui.painter().rect_stroke(
+                    rect.expand(3.0),
+                    radius::MD + 3.0,
+                    Stroke::new(2.0, t.border_strong),
+                    StrokeKind::Inside,
+                );
             }
             widgets::focus_ring(ui, &resp, rect);
             widgets::a11y_selected(&resp, egui::Role::Button, selected, label);
-            if resp.on_hover_text(label).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+            if resp
+                .on_hover_text(label)
+                .on_hover_cursor(CursorIcon::PointingHand)
+                .clicked()
+            {
                 *color = value.map(str::to_string);
             }
         }
@@ -955,8 +1261,18 @@ pub(crate) fn swatches(ui: &mut Ui, color: &mut Option<String>) {
 pub(crate) fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut bool) {
     const CUSTOM_FONT: &str = font_presets::CUSTOM_FONT;
     let options = font_presets::choices_with_custom();
-    let mut choice = if *custom { CUSTOM_FONT.to_string() } else { value.clone() };
-    if form::select(ui, Id::unique(("session-dialog", "font-family")), &mut choice, options, None) {
+    let mut choice = if *custom {
+        CUSTOM_FONT.to_string()
+    } else {
+        value.clone()
+    };
+    if form::select(
+        ui,
+        Id::unique(("session-dialog", "font-family")),
+        &mut choice,
+        options,
+        None,
+    ) {
         tracing::debug!(font = %choice, "session_dialog: font family picked");
         if choice == CUSTOM_FONT {
             *custom = true;
@@ -971,11 +1287,18 @@ pub(crate) fn font_family_picker(ui: &mut Ui, value: &mut String, custom: &mut b
     }
 }
 
-const CURSORS: [(&str, &str, Icon); 3] = [("block", "Block", Icon::Square), ("bar", "Bar", Icon::Type), ("underline", "Underline", Icon::Minus)];
+const CURSORS: [(&str, &str, Icon); 3] = [
+    ("block", "Block", Icon::Square),
+    ("bar", "Bar", Icon::Type),
+    ("underline", "Underline", Icon::Minus),
+];
 
 /// Segmented Block / Bar / Underline buttons.
 pub(crate) fn cursor_style(ui: &mut Ui, value: &mut String) {
-    let items: Vec<Segment<'_, &str>> = CURSORS.iter().map(|(v, label, icon)| Segment::text(*v, label).with_icon(*icon)).collect();
+    let items: Vec<Segment<'_, &str>> = CURSORS
+        .iter()
+        .map(|(v, label, icon)| Segment::text(*v, label).with_icon(*icon))
+        .collect();
     let mut chosen = value.as_str();
     if widgets::segmented(ui, Id::unique("session-dialog-cursor"), &mut chosen, &items) {
         *value = chosen.to_string();
@@ -987,7 +1310,12 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         if env.is_empty() {
-            ui.label(RichText::new("No variables.").font(font(size::SM)).color(t.muted).italics());
+            ui.label(
+                RichText::new("No variables.")
+                    .font(font(size::SM))
+                    .color(t.muted)
+                    .italics(),
+            );
         }
         let mut remove = None;
         for (i, p) in env.iter_mut().enumerate() {
@@ -996,10 +1324,26 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
                 let r = form::input(ui, &mut p.key, InputOpts::new("NAME").mono().width(180.0));
                 labelled(ui, &r, &format!("env name {}", i + 1));
                 let value_w = ui.available_width() - 28.0 - 8.0;
-                let r = form::input(ui, &mut p.value, InputOpts::new("value").mono().width(value_w));
+                let r = form::input(
+                    ui,
+                    &mut p.value,
+                    InputOpts::new("value").mono().width(value_w),
+                );
                 labelled(ui, &r, &format!("env value {}", i + 1));
-                let what = if p.key.is_empty() { (i + 1).to_string() } else { p.key.clone() };
-                if widgets::Button::icon_only(Icon::Trash, &format!("remove env {what}"), widgets::Variant::Ghost).small().show(ui).clicked() {
+                let what = if p.key.is_empty() {
+                    (i + 1).to_string()
+                } else {
+                    p.key.clone()
+                };
+                if widgets::Button::icon_only(
+                    Icon::Trash,
+                    &format!("remove env {what}"),
+                    widgets::Variant::Ghost,
+                )
+                .small()
+                .show(ui)
+                .clicked()
+                {
                     remove = Some(i);
                 }
             });
@@ -1007,8 +1351,16 @@ fn env_editor(ui: &mut Ui, env: &mut Vec<EnvPair>) {
         if let Some(i) = remove {
             env.remove(i);
         }
-        if widgets::Button::ghost("Add variable").icon(Icon::Plus).small().show(ui).clicked() {
-            env.push(EnvPair { key: String::new(), value: String::new() });
+        if widgets::Button::ghost("Add variable")
+            .icon(Icon::Plus)
+            .small()
+            .show(ui)
+            .clicked()
+        {
+            env.push(EnvPair {
+                key: String::new(),
+                value: String::new(),
+            });
         }
     });
 }
@@ -1028,8 +1380,24 @@ mod tests {
     #[test]
     fn defaults_come_from_settings() {
         let d = Draft::new_session(Some(3), &Settings::default());
-        assert_eq!((d.folder_id, d.port, d.auth_type.as_str(), d.session_kind.as_str()), (Some(3), 22, "agent", "ssh"));
-        assert_eq!((d.scrollback_lines, d.font_size, d.keepalive_secs, d.connect_timeout_secs), (5000, 13, 60, 15));
+        assert_eq!(
+            (
+                d.folder_id,
+                d.port,
+                d.auth_type.as_str(),
+                d.session_kind.as_str()
+            ),
+            (Some(3), 22, "agent", "ssh")
+        );
+        assert_eq!(
+            (
+                d.scrollback_lines,
+                d.font_size,
+                d.keepalive_secs,
+                d.connect_timeout_secs
+            ),
+            (5000, 13, 60, 15)
+        );
         assert_eq!(d.cursor_style, "block");
     }
 
@@ -1045,16 +1413,31 @@ mod tests {
         assert_eq!(validate(&d, false, false), Some("Host is required"));
         let mut d = ok.clone();
         d.port = 70000;
-        assert_eq!(validate(&d, false, false), Some("Port must be between 1 and 65535"));
+        assert_eq!(
+            validate(&d, false, false),
+            Some("Port must be between 1 and 65535")
+        );
         let mut d = ok.clone();
         d.auth_type = "key".into();
-        assert_eq!(validate(&d, false, false), Some("Credential is required for this auth type"));
+        assert_eq!(
+            validate(&d, false, false),
+            Some("Credential is required for this auth type")
+        );
         let mut d = ok.clone();
         d.font_size = 7;
-        assert_eq!(validate(&d, false, false), Some("Font size must be between 8 and 48"));
+        assert_eq!(
+            validate(&d, false, false),
+            Some("Font size must be between 8 and 48")
+        );
         let mut d = ok.clone();
-        d.env.push(EnvPair { key: "A=B".into(), value: String::new() });
-        assert_eq!(validate(&d, false, false), Some("Env var name cannot contain \"=\" or NUL"));
+        d.env.push(EnvPair {
+            key: "A=B".into(),
+            value: String::new(),
+        });
+        assert_eq!(
+            validate(&d, false, false),
+            Some("Env var name cannot contain \"=\" or NUL")
+        );
         // WSL ignores host / username / port.
         let mut d = ok;
         d.session_kind = "wsl".into();
@@ -1069,7 +1452,11 @@ mod tests {
         d.auth_type = "password".into();
         assert_eq!(validate(&d, false, false), Some("Password is required"));
         assert_eq!(validate(&d, true, false), None);
-        assert_eq!(validate(&d, false, true), None, "edit: blank keeps the stored one");
+        assert_eq!(
+            validate(&d, false, true),
+            None,
+            "edit: blank keeps the stored one"
+        );
     }
 
     #[test]
@@ -1079,11 +1466,23 @@ mod tests {
         d.credential_id = Some(9);
         d.initial_command = "   ".into();
         d.starting_dir = " /var/log ".into();
-        d.env = vec![EnvPair { key: " ".into(), value: "x".into() }, EnvPair { key: "LANG".into(), value: "C".into() }];
+        d.env = vec![
+            EnvPair {
+                key: " ".into(),
+                value: "x".into(),
+            },
+            EnvPair {
+                key: "LANG".into(),
+                value: "C".into(),
+            },
+        ];
         let i = d.to_input(Some(Secret::new("hunter2".into())));
         assert_eq!(i.password.as_ref().map(|p| p.expose()), Some("hunter2"));
         assert_eq!(i.credential_id, None, "the core manages the password row");
-        assert_eq!((i.initial_command, i.starting_dir.as_deref()), (None, Some("/var/log")));
+        assert_eq!(
+            (i.initial_command, i.starting_dir.as_deref()),
+            (None, Some("/var/log"))
+        );
         assert_eq!(i.env.len(), 1);
 
         d.auth_type = "key".into();
@@ -1095,7 +1494,10 @@ mod tests {
         d.session_kind = "local".into();
         d.forward_x11 = true;
         let i = d.to_input(None);
-        assert_eq!((i.auth_type.as_str(), i.credential_id, i.forward_x11), ("agent", None, 0));
+        assert_eq!(
+            (i.auth_type.as_str(), i.credential_id, i.forward_x11),
+            ("agent", None, 0)
+        );
     }
 
     #[test]
@@ -1143,7 +1545,10 @@ mod tests {
         d.session_kind = "local".into();
         d.host = "/bin/zsh".into();
         assert_eq!(d.summary(), "/bin/zsh");
-        assert_eq!(parse_hex("#60a5fa"), Some(Color32::from_rgb(0x60, 0xa5, 0xfa)));
+        assert_eq!(
+            parse_hex("#60a5fa"),
+            Some(Color32::from_rgb(0x60, 0xa5, 0xfa))
+        );
         assert_eq!(parse_hex("blue"), None);
     }
 }

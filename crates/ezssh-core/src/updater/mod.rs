@@ -136,13 +136,23 @@ pub fn detect() -> Install {
 /// [`detect`] on given inputs (testable).
 pub fn detect_from(exe: &Path, appimage: Option<PathBuf>, args: Vec<OsString>) -> Install {
     let dir = exe.parent().unwrap_or(Path::new("."));
-    let simple = |kind| Install { kind, target: exe.to_path_buf(), exe: exe.to_path_buf(), args: args.clone() };
+    let simple = |kind| Install {
+        kind,
+        target: exe.to_path_buf(),
+        exe: exe.to_path_buf(),
+        args: args.clone(),
+    };
     if dir.join(PORTABLE_MARKER).is_file() {
         return simple(InstallKind::Portable);
     }
     if cfg!(target_os = "linux") {
         if let Some(img) = appimage.filter(|p| p.is_file()) {
-            return Install { kind: InstallKind::AppImage, target: img.clone(), exe: img, args };
+            return Install {
+                kind: InstallKind::AppImage,
+                target: img.clone(),
+                exe: img,
+                args,
+            };
         }
         if exe.starts_with("/usr") && Path::new("/var/lib/dpkg/info/ezssh.list").is_file() {
             return simple(InstallKind::Deb);
@@ -151,12 +161,16 @@ pub fn detect_from(exe: &Path, appimage: Option<PathBuf>, args: Vec<OsString>) -
     }
     if cfg!(target_os = "macos") {
         // .../ezSsh.app/Contents/MacOS/ezssh
-        let bundle = dir
-            .parent()
-            .and_then(Path::parent)
-            .filter(|b| dir.ends_with("Contents/MacOS") && b.extension().is_some_and(|e| e == "app"));
+        let bundle = dir.parent().and_then(Path::parent).filter(|b| {
+            dir.ends_with("Contents/MacOS") && b.extension().is_some_and(|e| e == "app")
+        });
         return match bundle {
-            Some(b) => Install { kind: InstallKind::App, target: b.to_path_buf(), exe: exe.to_path_buf(), args },
+            Some(b) => Install {
+                kind: InstallKind::App,
+                target: b.to_path_buf(),
+                exe: exe.to_path_buf(),
+                args,
+            },
             None => simple(InstallKind::Unpackaged),
         };
     }
@@ -165,8 +179,14 @@ pub fn detect_from(exe: &Path, appimage: Option<PathBuf>, args: Vec<OsString>) -
             return simple(InstallKind::Nsis);
         }
         // Cargo output directories are not installs.
-        let in_target = dir.components().any(|c| c.as_os_str().eq_ignore_ascii_case("target"));
-        return simple(if in_target { InstallKind::Unpackaged } else { InstallKind::Msi });
+        let in_target = dir
+            .components()
+            .any(|c| c.as_os_str().eq_ignore_ascii_case("target"));
+        return simple(if in_target {
+            InstallKind::Unpackaged
+        } else {
+            InstallKind::Msi
+        });
     }
     simple(InstallKind::Unpackaged)
 }
@@ -195,7 +215,9 @@ impl Config {
     pub fn new(install: Install, manifest_override: Option<String>) -> Self {
         let current = Version::parse(env!("CARGO_PKG_VERSION")).expect("crate version is semver");
         Self {
-            repo: option_env!("EZSSH_UPDATE_REPO").unwrap_or(DEFAULT_REPO).to_string(),
+            repo: option_env!("EZSSH_UPDATE_REPO")
+                .unwrap_or(DEFAULT_REPO)
+                .to_string(),
             pubkey: PUBKEY.trim().to_string(),
             current,
             install,
@@ -216,7 +238,9 @@ impl Config {
                 // that kind may fall back to it.
                 let default = matches!(
                     (self.os, self.install.kind),
-                    ("windows", InstallKind::Nsis) | ("linux", InstallKind::AppImage) | ("darwin", InstallKind::App)
+                    ("windows", InstallKind::Nsis)
+                        | ("linux", InstallKind::AppImage)
+                        | ("darwin", InstallKind::App)
                 );
                 if default {
                     v.push(format!("{}-{}", self.os, self.arch));
@@ -312,27 +336,42 @@ fn client(cfg: &Config) -> Result<reqwest::Client> {
 /// Look for a newer release on the stable or the pre-release channel.
 pub async fn check(cfg: &Config, pre_release: bool) -> Result<Option<Update>> {
     if cfg.pubkey.is_empty() {
-        return Err(err("this build has no update key, so it cannot verify updates; download new versions from the releases page"));
+        return Err(err(
+            "this build has no update key, so it cannot verify updates; download new versions from the releases page",
+        ));
     }
     let http = client(cfg)?;
     let url = match &cfg.manifest_override {
         Some(u) => u.clone(),
         None if pre_release => prerelease_manifest_url(&http, &cfg.repo).await?,
-        None => format!("https://github.com/{}/releases/latest/download/latest.json", cfg.repo),
+        None => format!(
+            "https://github.com/{}/releases/latest/download/latest.json",
+            cfg.repo
+        ),
     };
     tracing::info!(%url, pre_release, "updater: checking");
-    let resp = http.get(&url).timeout(Duration::from_secs(30)).send().await.map_err(|e| err(format!("{url}: {e}")))?;
+    let resp = http
+        .get(&url)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| err(format!("{url}: {e}")))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(err(format!("no release with an update manifest is published yet ({url})")));
+        return Err(err(format!(
+            "no release with an update manifest is published yet ({url})"
+        )));
     }
-    let resp = resp.error_for_status().map_err(|e| err(format!("{url}: {e}")))?;
+    let resp = resp
+        .error_for_status()
+        .map_err(|e| err(format!("{url}: {e}")))?;
     let body = resp.bytes().await.map_err(|e| err(format!("{url}: {e}")))?;
     evaluate(cfg, &body, pre_release)
 }
 
 /// Decide what a manifest offers this copy.
 pub fn evaluate(cfg: &Config, manifest: &[u8], pre_release: bool) -> Result<Option<Update>> {
-    let m: Manifest = serde_json::from_slice(manifest).map_err(|e| err(format!("bad latest.json: {e}")))?;
+    let m: Manifest =
+        serde_json::from_slice(manifest).map_err(|e| err(format!("bad latest.json: {e}")))?;
     let version = Version::parse(m.version.trim().trim_start_matches('v'))
         .map_err(|e| err(format!("bad version {:?} in latest.json: {e}", m.version)))?;
     tracing::debug!(%version, current = %cfg.current, "updater: manifest read");
@@ -350,10 +389,15 @@ pub fn evaluate(cfg: &Config, manifest: &[u8], pre_release: bool) -> Result<Opti
                 }
             }
             if found.is_none() && cfg.install.kind.self_updates() {
-                tracing::warn!(?targets, "updater: the release has no installer for this copy");
+                tracing::warn!(
+                    ?targets,
+                    "updater: the release has no installer for this copy"
+                );
             }
         }
-        (None, Some(u), Some(s)) if !targets.is_empty() => found = Some((String::new(), u.clone(), s.clone())),
+        (None, Some(u), Some(s)) if !targets.is_empty() => {
+            found = Some((String::new(), u.clone(), s.clone()))
+        }
         (None, _, _) => {}
     }
     let v = version.to_string();
@@ -402,7 +446,8 @@ async fn prerelease_manifest_url(http: &reqwest::Client, repo: &str) -> Result<S
         .bytes()
         .await
         .map_err(|e| err(format!("github releases: {e}")))?;
-    let releases: Vec<Release> = serde_json::from_slice(&body).map_err(|e| err(format!("github releases: {e}")))?;
+    let releases: Vec<Release> =
+        serde_json::from_slice(&body).map_err(|e| err(format!("github releases: {e}")))?;
     releases
         .into_iter()
         .filter(|r| !r.draft)
@@ -434,12 +479,16 @@ pub async fn download(
     // another key, or in the legacy (not prehashed) mode.
     check_signed_version(sig.trusted_comment(), &update.version)?;
     let mut verifier = pk.verify_stream(&sig).map_err(|e| match e {
-        minisign_verify::Error::UnexpectedKeyId => err("the installer was signed with another key than this build trusts"),
+        minisign_verify::Error::UnexpectedKeyId => {
+            err("the installer was signed with another key than this build trusts")
+        }
         e => err(format!("signature: {e}")),
     })?;
 
     let name = file_name_from_url(url);
-    tokio::fs::create_dir_all(dir).await.map_err(|e| err(format!("creating {}: {e}", dir.display())))?;
+    tokio::fs::create_dir_all(dir)
+        .await
+        .map_err(|e| err(format!("creating {}: {e}", dir.display())))?;
     let path = dir.join(&name);
     let http = client(cfg)?;
     tracing::info!(%url, path = %path.display(), "updater: downloading");
@@ -451,9 +500,14 @@ pub async fn download(
         .map_err(|e| err(format!("download: {e}")))?;
     let total = resp.content_length();
     if total.is_some_and(|t| t > MAX_DOWNLOAD) {
-        return Err(err(format!("installer too large ({} bytes)", total.unwrap_or(0))));
+        return Err(err(format!(
+            "installer too large ({} bytes)",
+            total.unwrap_or(0)
+        )));
     }
-    let mut file = tokio::fs::File::create(&path).await.map_err(|e| err(format!("creating {}: {e}", path.display())))?;
+    let mut file = tokio::fs::File::create(&path)
+        .await
+        .map_err(|e| err(format!("creating {}: {e}", path.display())))?;
     let result = async {
         let mut done = 0u64;
         progress(0, total);
@@ -468,7 +522,9 @@ pub async fn download(
                 return Err(err("installer too large"));
             }
             verifier.update(&chunk);
-            file.write_all(&chunk).await.map_err(|e| err(format!("writing {}: {e}", path.display())))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| err(format!("writing {}: {e}", path.display())))?;
             progress(done, total);
         }
         if let Some(t) = total
@@ -481,8 +537,12 @@ pub async fn download(
         if total.is_none() {
             progress(done, Some(done));
         }
-        file.flush().await.map_err(|e| err(format!("writing {}: {e}", path.display())))?;
-        file.sync_all().await.map_err(|e| err(format!("writing {}: {e}", path.display())))?;
+        file.flush()
+            .await
+            .map_err(|e| err(format!("writing {}: {e}", path.display())))?;
+        file.sync_all()
+            .await
+            .map_err(|e| err(format!("writing {}: {e}", path.display())))?;
         verifier.finalize().map_err(|e| {
             tracing::warn!(%url, "updater: signature check failed: {e}");
             err("the installer's signature does not verify; not installing")
@@ -502,13 +562,17 @@ pub async fn download(
 }
 
 fn public_key(line: &str) -> Result<minisign_verify::PublicKey> {
-    let text = B64.decode(line.trim()).map_err(|e| err(format!("update key: {e}")))?;
+    let text = B64
+        .decode(line.trim())
+        .map_err(|e| err(format!("update key: {e}")))?;
     let text = String::from_utf8(text).map_err(|_| err("update key is not text"))?;
     minisign_verify::PublicKey::decode(&text).map_err(|e| err(format!("update key: {e}")))
 }
 
 fn decode_signature(line: &str) -> Result<minisign_verify::Signature> {
-    let text = B64.decode(line.trim()).map_err(|e| err(format!("signature: {e}")))?;
+    let text = B64
+        .decode(line.trim())
+        .map_err(|e| err(format!("signature: {e}")))?;
     let text = String::from_utf8(text).map_err(|_| err("signature is not text"))?;
     minisign_verify::Signature::decode(&text).map_err(|e| err(format!("signature: {e}")))
 }
@@ -521,26 +585,47 @@ fn check_signed_version(trusted_comment: &str, announced: &str) -> Result<()> {
         .split('\t')
         .find_map(|f| f.strip_prefix("version:"))
         .ok_or_else(|| err("the signature does not name a version; not installing"))?;
-    let same = match (Version::parse(signed.trim_start_matches('v')), Version::parse(announced)) {
+    let same = match (
+        Version::parse(signed.trim_start_matches('v')),
+        Version::parse(announced),
+    ) {
         (Ok(a), Ok(b)) => a == b,
         _ => signed == announced,
     };
     if same {
         Ok(())
     } else {
-        Err(err(format!("the installer was signed for {signed}, the release says {announced}; not installing")))
+        Err(err(format!(
+            "the installer was signed for {signed}, the release says {announced}; not installing"
+        )))
     }
 }
 
 /// A safe local file name from the URL's last segment.
 fn file_name_from_url(url: &str) -> String {
-    let last = url.split(['?', '#']).next().unwrap_or("").rsplit('/').next().unwrap_or("");
+    let last = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .rsplit('/')
+        .next()
+        .unwrap_or("");
     let clean: String = last
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let clean = clean.trim_start_matches('.').to_string();
-    if clean.is_empty() { "ezssh-update".into() } else { clean }
+    if clean.is_empty() {
+        "ezssh-update".into()
+    } else {
+        clean
+    }
 }
 
 /// A fresh folder for one download under the system temp directory.

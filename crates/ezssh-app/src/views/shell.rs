@@ -9,8 +9,8 @@ use crate::icons::Icon;
 use crate::layout::{FORWARDS_PANE_W, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, TERMINAL_MIN_W};
 use crate::style::{STATUS_BAR_H, tokens};
 use crate::views::{
-    appearance, backup, credentials, dialogs, forwards, import, mdi, restore, session_dialog, settings, sftp, sidebar, statusbar, sync, tabstrip,
-    update, vault_dialogs, xserver,
+    appearance, backup, credentials, dialogs, forwards, import, mdi, restore, session_dialog,
+    settings, sftp, sidebar, statusbar, sync, tabstrip, update, vault_dialogs, xserver,
 };
 use crate::widgets;
 
@@ -26,7 +26,12 @@ pub fn quit_confirm(app: &mut App, ctx: &egui::Context) {
     let answer = dialogs::confirm(
         ctx,
         Id::unique("confirm-quit"),
-        dialogs::Confirm { title: "Quit ezSsh?", body: "Connected sessions will be closed.", confirm_text: "Quit", danger: true },
+        dialogs::Confirm {
+            title: "Quit ezSsh?",
+            body: "Connected sessions will be closed.",
+            confirm_text: "Quit",
+            danger: true,
+        },
     );
     match answer {
         Some(true) => app.quit(),
@@ -39,52 +44,100 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let t = tokens(ui.ctx());
     let ctx = ui.ctx().clone();
 
-    egui::Panel::bottom("status-bar").exact_size(STATUS_BAR_H).show_separator_line(false).resizable(false).frame(Frame::NONE.fill(t.surface)).show(ui, |ui| {
-        let r = ui.max_rect();
-        // The one place chrome meets the terminal's palette from below.
-        ui.painter().hline(r.x_range(), r.top() + 0.5, Stroke::new(1.0, t.border));
-        statusbar::show(app, ui);
-    });
+    egui::Panel::bottom("status-bar")
+        .exact_size(STATUS_BAR_H)
+        .show_separator_line(false)
+        .resizable(false)
+        .frame(Frame::NONE.fill(t.surface))
+        .show(ui, |ui| {
+            let r = ui.max_rect();
+            // The one place chrome meets the terminal's palette from below.
+            ui.painter()
+                .hline(r.x_range(), r.top() + 0.5, Stroke::new(1.0, t.border));
+            statusbar::show(app, ui);
+        });
 
     if app.tabs.sidebar_collapsed {
-        egui::Panel::left("sidebar-rail").exact_size(RAIL_W).show_separator_line(false).resizable(false).frame(Frame::NONE.fill(t.surface)).show(ui, |ui| {
-            let r = ui.max_rect();
-            ui.painter().vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, t.border));
-            let mut top = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(4.0, 8.0))).layout(egui::Layout::top_down(egui::Align::Center)));
-            if widgets::icon_btn(&mut top, Icon::PanelLeftOpen, false, "Show sessions sidebar").on_hover_text("Show sessions (Ctrl+B)").clicked() {
-                app.tabs.sidebar_collapsed = false;
-            }
-            // The app actions stay reachable with the sidebar away.
-            let mut bottom = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(4.0, 8.0))).layout(egui::Layout::bottom_up(egui::Align::Center)));
-            bottom.spacing_mut().item_spacing.y = 2.0;
-            sidebar::app_actions(app, &mut bottom);
-        });
+        egui::Panel::left("sidebar-rail")
+            .exact_size(RAIL_W)
+            .show_separator_line(false)
+            .resizable(false)
+            .frame(Frame::NONE.fill(t.surface))
+            .show(ui, |ui| {
+                let r = ui.max_rect();
+                ui.painter()
+                    .vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, t.border));
+                let mut top = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(r.shrink2(vec2(4.0, 8.0)))
+                        .layout(egui::Layout::top_down(egui::Align::Center)),
+                );
+                if widgets::icon_btn(
+                    &mut top,
+                    Icon::PanelLeftOpen,
+                    false,
+                    "Show sessions sidebar",
+                )
+                .on_hover_text("Show sessions (Ctrl+B)")
+                .clicked()
+                {
+                    app.tabs.sidebar_collapsed = false;
+                }
+                // The app actions stay reachable with the sidebar away.
+                let mut bottom = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(r.shrink2(vec2(4.0, 8.0)))
+                        .layout(egui::Layout::bottom_up(egui::Align::Center)),
+                );
+                bottom.spacing_mut().item_spacing.y = 2.0;
+                sidebar::app_actions(app, &mut bottom);
+            });
     } else {
         let width = app.layout.sidebar_width;
-        egui::Panel::left("sidebar").exact_size(width).show_separator_line(false).resizable(false).frame(Frame::NONE.fill(t.surface)).show(ui, |ui| {
-            let pane = ui.max_rect();
-            ui.painter().vline(pane.right() - 0.5, pane.y_range(), Stroke::new(1.0, t.border));
-            sidebar::show(app, ui);
-            // The sidebar must leave a usable terminal plus the active
-            // tab's docked panes.
-            let reserve = TERMINAL_MIN_W
-                + app.tabs.active_tab().map_or(0.0, |tab| {
-                    (if tab.sftp_open && tab.has_file_pane() { app.layout.sftp_pane_width } else { 0.0 })
-                        + (if tab.forwards_open && tab.is_ssh() { FORWARDS_PANE_W } else { 0.0 })
-                });
-            let max = SIDEBAR_MAX.min(ctx.content_rect().width() - pane.left() - reserve);
-            let out = widgets::resize_strip(
-                ui,
-                Id::unique("sidebar-resize"),
-                pane,
-                &mut app.layout.sidebar_width,
-                widgets::Bounds { min: SIDEBAR_MIN, max, default: SIDEBAR_DEFAULT },
-                "Resize sidebar",
-            );
-            if out.ended {
-                app.save_layout();
-            }
-        });
+        egui::Panel::left("sidebar")
+            .exact_size(width)
+            .show_separator_line(false)
+            .resizable(false)
+            .frame(Frame::NONE.fill(t.surface))
+            .show(ui, |ui| {
+                let pane = ui.max_rect();
+                ui.painter().vline(
+                    pane.right() - 0.5,
+                    pane.y_range(),
+                    Stroke::new(1.0, t.border),
+                );
+                sidebar::show(app, ui);
+                // The sidebar must leave a usable terminal plus the active
+                // tab's docked panes.
+                let reserve = TERMINAL_MIN_W
+                    + app.tabs.active_tab().map_or(0.0, |tab| {
+                        (if tab.sftp_open && tab.has_file_pane() {
+                            app.layout.sftp_pane_width
+                        } else {
+                            0.0
+                        }) + (if tab.forwards_open && tab.is_ssh() {
+                            FORWARDS_PANE_W
+                        } else {
+                            0.0
+                        })
+                    });
+                let max = SIDEBAR_MAX.min(ctx.content_rect().width() - pane.left() - reserve);
+                let out = widgets::resize_strip(
+                    ui,
+                    Id::unique("sidebar-resize"),
+                    pane,
+                    &mut app.layout.sidebar_width,
+                    widgets::Bounds {
+                        min: SIDEBAR_MIN,
+                        max,
+                        default: SIDEBAR_DEFAULT,
+                    },
+                    "Resize sidebar",
+                );
+                if out.ended {
+                    app.save_layout();
+                }
+            });
     }
 
     egui::CentralPanel::no_frame().show(ui, |ui| {
@@ -105,7 +158,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
     if let Some(id) = app.tabs.pending_close {
-        let name = app.tabs.get(id).map(|t| t.session.name.clone()).unwrap_or_default();
+        let name = app
+            .tabs
+            .get(id)
+            .map(|t| t.session.name.clone())
+            .unwrap_or_default();
         let answer = dialogs::confirm(
             ctx,
             Id::unique("confirm-close-tab"),
@@ -133,7 +190,9 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
             Id::unique("confirm-paste"),
             dialogs::Confirm {
                 title: "Paste multiple lines?",
-                body: &format!("The clipboard holds {lines} lines. Each one will run as you paste it."),
+                body: &format!(
+                    "The clipboard holds {lines} lines. Each one will run as you paste it."
+                ),
                 confirm_text: "Paste",
                 danger: true,
             },
@@ -168,19 +227,32 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
         .tabs
         .active
         .filter(|id| app.terms.get(id).is_some_and(|s| s.host_key.is_some()))
-        .or_else(|| app.tabs.tabs.iter().map(|t| t.id).find(|id| app.terms.get(id).is_some_and(|s| s.host_key.is_some())));
+        .or_else(|| {
+            app.tabs
+                .tabs
+                .iter()
+                .map(|t| t.id)
+                .find(|id| app.terms.get(id).is_some_and(|s| s.host_key.is_some()))
+        });
     if let Some(tab) = prompt_tab
         && let (Some(t), Some(slot)) = (app.tabs.get(tab), app.terms.get(&tab))
         && let Some(prompt) = &slot.host_key
     {
-        let answer = dialogs::host_key(ctx, Id::unique(("host-key", tab)), &t.session.host, t.session.port, prompt);
+        let answer = dialogs::host_key(
+            ctx,
+            Id::unique(("host-key", tab)),
+            &t.session.host,
+            t.session.port,
+            prompt,
+        );
         match answer {
             Some(true) => app.connect_tab(tab, true, false),
             Some(false) => {
                 if let Some(slot) = app.terms.get_mut(&tab) {
                     slot.host_key = None;
                 }
-                app.tabs.set_status(tab, crate::tabs::TabStatus::Closed, None);
+                app.tabs
+                    .set_status(tab, crate::tabs::TabStatus::Closed, None);
             }
             None => {}
         }

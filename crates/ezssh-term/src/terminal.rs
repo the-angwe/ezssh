@@ -75,7 +75,12 @@ pub struct TermOptions {
 
 impl Default for TermOptions {
     fn default() -> Self {
-        Self { scrollback: 10_000, osc52_write: true, cursor: CursorKind::Block, cursor_blink: true }
+        Self {
+            scrollback: 10_000,
+            osc52_write: true,
+            cursor: CursorKind::Block,
+            cursor_blink: true,
+        }
     }
 }
 
@@ -86,7 +91,10 @@ impl TermOptions {
             kitty_keyboard: true,
             // OSC 52 is handled by `hook.rs`; alacritty's own path stays off.
             osc52: Osc52::Disabled,
-            default_cursor_style: CursorStyle { shape: self.cursor.shape(), blinking: self.cursor_blink },
+            default_cursor_style: CursorStyle {
+                shape: self.cursor.shape(),
+                blinking: self.cursor_blink,
+            },
             ..Config::default()
         }
     }
@@ -148,7 +156,9 @@ impl EventListener for Listener {
     fn send_event(&self, event: Event) {
         let inner = &self.0;
         match event {
-            Event::Wakeup | Event::MouseCursorDirty | Event::CursorBlinkingChange => inner.ctx.request_repaint(),
+            Event::Wakeup | Event::MouseCursorDirty | Event::CursorBlinkingChange => {
+                inner.ctx.request_repaint()
+            }
             Event::PtyWrite(text) => {
                 tracing::trace!(len = text.len(), "term.listener: pty write (query answer)");
                 inner.pty.write(Cow::Owned(text.into_bytes()));
@@ -156,7 +166,9 @@ impl EventListener for Listener {
             Event::ColorRequest(index, format) => {
                 // `hook.rs` answers colour queries itself; this only runs if
                 // alacritty asks from another path.
-                inner.pty.write(Cow::Owned(format(self.palette_color(index)).into_bytes()));
+                inner
+                    .pty
+                    .write(Cow::Owned(format(self.palette_color(index)).into_bytes()));
             }
             Event::TextAreaSizeRequest(format) => {
                 let size = match inner.size.lock() {
@@ -170,7 +182,11 @@ impl EventListener for Listener {
             }
             Event::ClipboardStore(ty, text) => {
                 // OSC 52 goes through `hook.rs`; alacritty's path is disabled.
-                tracing::warn!(?ty, len = text.len(), "term.osc52: unexpected store from alacritty, dropped");
+                tracing::warn!(
+                    ?ty,
+                    len = text.len(),
+                    "term.osc52: unexpected store from alacritty, dropped"
+                );
             }
             Event::ClipboardLoad(ty, _) => {
                 tracing::debug!(?ty, "term.osc52: clipboard read refused");
@@ -227,15 +243,25 @@ impl Feeder {
             let mut parser = match self.0.parser.lock() {
                 Ok(p) => p,
                 Err(e) => {
-                    tracing::error!("term.feed: parser poisoned, dropping {} bytes: {e}", bytes.len());
+                    tracing::error!(
+                        "term.feed: parser poisoned, dropping {} bytes: {e}",
+                        bytes.len()
+                    );
                     return;
                 }
             };
             let mut term = self.0.term.lock();
-            let mut hooked = Hooked { term: &mut term, listener: &self.0.listener };
+            let mut hooked = Hooked {
+                term: &mut term,
+                listener: &self.0.listener,
+            };
             // A synchronized update (DECSET 2026) that outlived its timeout
             // is flushed before new bytes, so output never stalls behind it.
-            if parser.sync_timeout().sync_timeout().is_some_and(|d| Instant::now() >= d) {
+            if parser
+                .sync_timeout()
+                .sync_timeout()
+                .is_some_and(|d| Instant::now() >= d)
+            {
                 tracing::debug!("term.feed: synchronized update timed out, flushing");
                 parser.stop_sync(&mut hooked);
             }
@@ -244,7 +270,6 @@ impl Feeder {
         self.0.feed_gen.fetch_add(1, Ordering::Release);
         self.0.ctx.request_repaint();
     }
-
 }
 
 pub struct Terminal {
@@ -259,13 +284,26 @@ pub struct Terminal {
 impl Terminal {
     /// Create a terminal writing to `pty`. Returns the feeder the byte
     /// source pushes output into.
-    pub fn new(ctx: &egui::Context, pty: Arc<dyn Pty>, options: TermOptions, palette: Palette) -> (Terminal, Feeder) {
-        let size = GridSize { columns: 80, lines: 24 };
+    pub fn new(
+        ctx: &egui::Context,
+        pty: Arc<dyn Pty>,
+        options: TermOptions,
+        palette: Palette,
+    ) -> (Terminal, Feeder) {
+        let size = GridSize {
+            columns: 80,
+            lines: 24,
+        };
         let listener = Listener(Arc::new(ListenerInner {
             ctx: ctx.clone(),
             pty: pty.clone(),
             palette: Mutex::new(palette),
-            size: Mutex::new(WindowSize { num_lines: 24, num_cols: 80, cell_width: 8, cell_height: 16 }),
+            size: Mutex::new(WindowSize {
+                num_lines: 24,
+                num_cols: 80,
+                cell_width: 8,
+                cell_height: 16,
+            }),
             events: Mutex::new(Vec::new()),
             osc52_write: AtomicBool::new(options.osc52_write),
         }));
@@ -279,7 +317,17 @@ impl Terminal {
         });
         let feeder = Feeder(shared.clone());
         let view = crate::view::ViewState::default();
-        (Terminal { shared, listener, pty, options, title: None, view }, feeder)
+        (
+            Terminal {
+                shared,
+                listener,
+                pty,
+                options,
+                title: None,
+                view,
+            },
+            feeder,
+        )
     }
 
     pub fn write(&self, bytes: impl Into<Cow<'static, [u8]>>) {
@@ -336,7 +384,11 @@ impl Terminal {
         if self.options.scrollback == lines {
             return;
         }
-        tracing::debug!(from = self.options.scrollback, to = lines, "term: scrollback");
+        tracing::debug!(
+            from = self.options.scrollback,
+            to = lines,
+            "term: scrollback"
+        );
         self.options.scrollback = lines;
         let config = self.options.config();
         self.lock().set_options(config);
@@ -368,7 +420,10 @@ impl Terminal {
     }
 
     pub fn has_selection(&self) -> bool {
-        self.lock().selection.as_ref().is_some_and(|s| !s.is_empty())
+        self.lock()
+            .selection
+            .as_ref()
+            .is_some_and(|s| !s.is_empty())
     }
 
     /// Select the whole buffer, scrollback included.
@@ -438,8 +493,17 @@ impl Terminal {
             cell_width: cell_px.0,
             cell_height: cell_px.1,
         };
-        tracing::debug!(cols, rows, cell_w = cell_px.0, cell_h = cell_px.1, "term.resize");
-        self.lock().resize(GridSize { columns: cols, lines: rows });
+        tracing::debug!(
+            cols,
+            rows,
+            cell_w = cell_px.0,
+            cell_h = cell_px.1,
+            "term.resize"
+        );
+        self.lock().resize(GridSize {
+            columns: cols,
+            lines: rows,
+        });
         match self.listener.0.size.lock() {
             Ok(mut s) => *s = size,
             Err(e) => tracing::error!("term: size poisoned: {e}"),
@@ -459,7 +523,10 @@ impl Terminal {
         if now >= deadline {
             tracing::debug!("term: synchronized update timed out on the UI side, flushing");
             let mut term = self.shared.term.lock();
-            parser.stop_sync(&mut Hooked { term: &mut term, listener: &self.shared.listener });
+            parser.stop_sync(&mut Hooked {
+                term: &mut term,
+                listener: &self.shared.listener,
+            });
             None
         } else {
             Some(deadline - now)
@@ -510,7 +577,12 @@ mod tests {
     fn setup() -> (Terminal, Feeder, Arc<Sink>) {
         let ctx = egui::Context::default();
         let sink = Arc::new(Sink::default());
-        let (t, f) = Terminal::new(&ctx, sink.clone(), TermOptions::default(), Palette::default());
+        let (t, f) = Terminal::new(
+            &ctx,
+            sink.clone(),
+            TermOptions::default(),
+            Palette::default(),
+        );
         (t, f, sink)
     }
 
@@ -527,7 +599,10 @@ mod tests {
         let (mut t, f, _) = setup();
         // "hi\0there" base64
         f.feed(b"\x1b]52;c;aGkAdGhlcmU=\x07");
-        assert_eq!(t.take_events(), vec![UiEvent::ClipboardStore("hithere".into())]);
+        assert_eq!(
+            t.take_events(),
+            vec![UiEvent::ClipboardStore("hithere".into())]
+        );
     }
 
     #[test]
@@ -542,7 +617,10 @@ mod tests {
     fn osc52_disabled_by_option_and_live_toggle() {
         let ctx = egui::Context::default();
         let sink = Arc::new(Sink::default());
-        let opts = TermOptions { osc52_write: false, ..Default::default() };
+        let opts = TermOptions {
+            osc52_write: false,
+            ..Default::default()
+        };
         let (mut t, f) = Terminal::new(&ctx, sink, opts, Palette::default());
         f.feed(b"\x1b]52;c;aGk=\x07");
         assert!(t.take_events().is_empty());
@@ -578,7 +656,10 @@ mod tests {
         // Set the background, then ask for it and for palette entry 1.
         f.feed(b"\x1b]11;rgb:01/02/03\x07\x1b]11;?\x07\x1b]4;1;?\x1b\\");
         let out = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
-        assert_eq!(out, "\x1b]11;rgb:0101/0202/0303\x07\x1b]4;1;rgb:f8f8/7171/7171\x1b\\");
+        assert_eq!(
+            out,
+            "\x1b]11;rgb:0101/0202/0303\x07\x1b]4;1;rgb:f8f8/7171/7171\x1b\\"
+        );
     }
 
     #[test]
@@ -588,7 +669,10 @@ mod tests {
         let (_t, f, sink) = setup();
         f.feed(b"\x1b]10;?\x07\x1b[c");
         let out = sink.0.lock().unwrap().clone();
-        let colour = out.windows(4).position(|w| w == b"]10;").expect("colour answer");
+        let colour = out
+            .windows(4)
+            .position(|w| w == b"]10;")
+            .expect("colour answer");
         let da = out.windows(3).position(|w| w == b"[?6").expect("DA answer");
         assert!(colour < da, "{:?}", String::from_utf8_lossy(&out));
     }
@@ -608,7 +692,11 @@ mod tests {
         for i in 0..30 {
             f.feed(format!("more {i}\r\n").as_bytes());
         }
-        assert_eq!(t.lock().grid().history_size(), 35, "grows again up to the new limit");
+        assert_eq!(
+            t.lock().grid().history_size(),
+            35,
+            "grows again up to the new limit"
+        );
     }
 
     #[test]
@@ -627,7 +715,10 @@ mod tests {
         // The prompt line is now the first line.
         assert_eq!(tt.grid().cursor.point.line.0, 0);
         assert_eq!(tt.grid().cursor.point.column.0, 2);
-        let first = tt.bounds_to_string(Point::new(alacritty_terminal::index::Line(0), Column(0)), Point::new(alacritty_terminal::index::Line(0), Column(19)));
+        let first = tt.bounds_to_string(
+            Point::new(alacritty_terminal::index::Line(0), Column(0)),
+            Point::new(alacritty_terminal::index::Line(0), Column(19)),
+        );
         assert_eq!(first.trim_end(), "$");
     }
 
@@ -637,13 +728,19 @@ mod tests {
         t.paste("a\r\nb\n");
         f.feed(b"\x1b[?2004h");
         t.paste("c\nd");
-        assert_eq!(sink.0.lock().unwrap().as_slice(), b"a\rb\r\x1b[200~c\rd\x1b[201~");
+        assert_eq!(
+            sink.0.lock().unwrap().as_slice(),
+            b"a\rb\r\x1b[200~c\rd\x1b[201~"
+        );
     }
 
     #[test]
     fn paste_normalises_newlines_and_guards_the_bracket() {
         assert_eq!(paste_bytes("a\r\nb\nc", false), b"a\rb\rc".to_vec());
-        assert_eq!(paste_bytes("x\x1b[201~y", true), b"\x1b[200~xy\x1b[201~".to_vec());
+        assert_eq!(
+            paste_bytes("x\x1b[201~y", true),
+            b"\x1b[200~xy\x1b[201~".to_vec()
+        );
     }
 
     #[test]
@@ -658,7 +755,11 @@ mod tests {
     #[test]
     fn cursor_option_sets_the_default_style() {
         let ctx = egui::Context::default();
-        let opts = TermOptions { cursor: CursorKind::Bar, cursor_blink: false, ..Default::default() };
+        let opts = TermOptions {
+            cursor: CursorKind::Bar,
+            cursor_blink: false,
+            ..Default::default()
+        };
         let (mut t, _f) = Terminal::new(&ctx, Arc::new(Sink::default()), opts, Palette::default());
         assert_eq!(t.lock().cursor_style().shape, CursorShape::Beam);
         assert!(!t.lock().cursor_style().blinking);
@@ -683,7 +784,10 @@ mod tests {
         f.feed(b"\x1b]11;?\x07");
         let out = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
         // ezterm-dark background #121214.
-        assert!(out.contains("rgb:1212/1212/1414"), "unexpected answer {out:?}");
+        assert!(
+            out.contains("rgb:1212/1212/1414"),
+            "unexpected answer {out:?}"
+        );
     }
 
     #[test]
@@ -691,6 +795,9 @@ mod tests {
         let (t, f, _) = setup();
         f.feed(b"\x1b[>1u");
         let mode = *t.lock().mode();
-        assert_eq!(crate::keys::Modes::from_term(mode).kitty, crate::keys::KITTY_DISAMBIGUATE);
+        assert_eq!(
+            crate::keys::Modes::from_term(mode).kitty,
+            crate::keys::KITTY_DISAMBIGUATE
+        );
     }
 }

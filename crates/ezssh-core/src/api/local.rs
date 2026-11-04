@@ -1,4 +1,3 @@
-
 use crate::api::require_unlocked;
 use crate::error::{AppError, Result};
 use crate::local;
@@ -23,11 +22,7 @@ pub async fn local_connect(
     })
 }
 
-pub async fn local_write(
-    state: &AppState,
-    connection_id: u64,
-    bytes: Vec<u8>,
-) -> Result<()> {
+pub async fn local_write(state: &AppState, connection_id: u64, bytes: Vec<u8>) -> Result<()> {
     state.local.write(connection_id, bytes).await;
     Ok(())
 }
@@ -50,7 +45,6 @@ pub async fn local_disconnect(state: &AppState, connection_id: u64) -> Result<()
     state.local.close(connection_id).await;
     Ok(())
 }
-
 
 /// Serializes concurrent autodetect calls: two seeds running at once
 /// would both take the "find WSL folder → create if missing" path and
@@ -111,9 +105,9 @@ pub async fn wsl_autodetect_seed(state: &AppState) -> Result<usize> {
     let existing = crate::db::sessions::list(&state.db).await?;
     let mut created = 0usize;
     for distro in &distros {
-        let already = existing.iter().any(|s| {
-            s.folder_id == Some(folder.id) && s.name == distro.as_str()
-        });
+        let already = existing
+            .iter()
+            .any(|s| s.folder_id == Some(folder.id) && s.name == distro.as_str());
         if already {
             continue;
         }
@@ -201,9 +195,9 @@ pub async fn local_shells_autodetect_seed(state: &AppState) -> Result<usize> {
     let existing = crate::db::sessions::list(&state.db).await?;
     let mut created = 0usize;
     for shell in &shells {
-        let already = existing.iter().any(|s| {
-            s.folder_id == Some(folder.id) && s.name == shell.display_name
-        });
+        let already = existing
+            .iter()
+            .any(|s| s.folder_id == Some(folder.id) && s.name == shell.display_name);
         if already {
             continue;
         }
@@ -310,7 +304,11 @@ fn detect_wsl_distros_blocking() -> Vec<String> {
         .filter(|l| !l.is_empty())
         .filter(|l| !is_internal_distro(l))
         .collect();
-    tracing::debug!("wsl autodetect: detected {} distros: {:?}", distros.len(), distros);
+    tracing::debug!(
+        "wsl autodetect: detected {} distros: {:?}",
+        distros.len(),
+        distros
+    );
     distros
 }
 
@@ -319,12 +317,12 @@ fn decode_wsl_output(bytes: &[u8]) -> String {
     // u16 code units and then into a String via char::decode_utf16.
     if bytes.len() >= 2 && bytes.len().is_multiple_of(2) {
         let u16s: Vec<u16> = bytes
-            .as_chunks::<2>().0.iter()
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
-        return char::decode_utf16(u16s)
-            .filter_map(|r| r.ok())
-            .collect();
+        return char::decode_utf16(u16s).filter_map(|r| r.ok()).collect();
     }
     String::from_utf8_lossy(bytes).into_owned()
 }

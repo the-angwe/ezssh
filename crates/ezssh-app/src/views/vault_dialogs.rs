@@ -7,7 +7,10 @@
 //! never while a call runs or while a one-time result is shown.
 
 use egui::text::LayoutJob;
-use egui::{Align, Color32, CornerRadius, FontId, Frame, Id, Layout, Margin, Response, RichText, TextFormat, Ui, vec2};
+use egui::{
+    Align, Color32, CornerRadius, FontId, Frame, Id, Layout, Margin, Response, RichText,
+    TextFormat, Ui, vec2,
+};
 use ezssh_core::{AppError, api};
 use zeroize::Zeroizing;
 
@@ -35,9 +38,22 @@ pub(crate) fn para(ui: &mut Ui, text: &str, color: Color32) -> Response {
 pub(crate) fn para_with_code(ui: &mut Ui, before: &str, code: &str, after: &str) -> Response {
     let t = tokens(ui.ctx());
     let mut job = LayoutJob::default();
-    let plain = TextFormat { font_id: font(size::BASE), color: t.muted, ..TextFormat::default() };
+    let plain = TextFormat {
+        font_id: font(size::BASE),
+        color: t.muted,
+        ..TextFormat::default()
+    };
     job.append(before, 0.0, plain.clone());
-    job.append(code, 0.0, TextFormat { font_id: FontId::monospace(size::SM), color: t.fg, background: t.surface2, ..TextFormat::default() });
+    job.append(
+        code,
+        0.0,
+        TextFormat {
+            font_id: FontId::monospace(size::SM),
+            color: t.fg,
+            background: t.surface2,
+            ..TextFormat::default()
+        },
+    );
     job.append(after, 0.0, plain);
     job.wrap.max_width = ui.available_width();
     ui.add(egui::Label::new(job).wrap())
@@ -45,7 +61,14 @@ pub(crate) fn para_with_code(ui: &mut Ui, before: &str, code: &str, after: &str)
 
 /// A labelled password field: the label above, the field below; `eye`
 /// adds the show / hide toggle inside it.
-fn password_field(ui: &mut Ui, label: &str, value: &mut String, shown: bool, eye: Option<&mut bool>, enabled: bool) -> Response {
+fn password_field(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut String,
+    shown: bool,
+    eye: Option<&mut bool>,
+    enabled: bool,
+) -> Response {
     form::field(ui, label, None, |ui| {
         let resp = match eye {
             Some(eye) => {
@@ -66,14 +89,25 @@ fn password_field(ui: &mut Ui, label: &str, value: &mut String, shown: bool, eye
 
 /// A plain input with an accessible name (the recovery code / DELETE
 /// boxes), optionally mono and centred.
-fn text_field(ui: &mut Ui, value: &mut String, hint: &str, name: &str, mono_size: Option<f32>, center: bool) -> Response {
+fn text_field(
+    ui: &mut Ui,
+    value: &mut String,
+    hint: &str,
+    name: &str,
+    mono_size: Option<f32>,
+    center: bool,
+) -> Response {
     let t = tokens(ui.ctx());
     let font_id = mono_size.map_or_else(|| font(size::BASE), FontId::monospace);
     let edit = egui::TextEdit::singleline(value)
         .hint_text(RichText::new(hint).color(alpha(t.muted, 0.8)))
         .desired_width(ui.available_width())
         .font(font_id)
-        .align(if center { egui::Align2::CENTER_CENTER } else { egui::Align2::LEFT_CENTER })
+        .align(if center {
+            egui::Align2::CENTER_CENTER
+        } else {
+            egui::Align2::LEFT_CENTER
+        })
         .margin(Margin::symmetric(10, 7))
         .min_size(vec2(0.0, CONTROL_H))
         .background_color(t.surface2);
@@ -268,7 +302,10 @@ fn submit_change_password(app: &mut App) {
         None
     };
     if let Some(msg) = refusal {
-        tracing::debug!(reason = msg, "vault: change password refused before the call");
+        tracing::debug!(
+            reason = msg,
+            "vault: change password refused before the call"
+        );
         dlg.error = Some(msg.to_string());
         return;
     }
@@ -387,14 +424,23 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
             "vault_recovery_status",
             |st| async move { api::vault::vault_recovery_status(&st).await },
             |app, r| {
-                let Some(dlg) = app.dialogs.recovery_code.as_mut().filter(|d| matches!(d.phase, Phase::Probing)) else {
+                let Some(dlg) = app
+                    .dialogs
+                    .recovery_code
+                    .as_mut()
+                    .filter(|d| matches!(d.phase, Phase::Probing))
+                else {
                     tracing::debug!("vault: recovery status arrived after the dialog moved on");
                     return;
                 };
                 dlg.phase = match r {
                     Ok(s) => {
                         tracing::debug!(provisioned = s.provisioned, "vault: recovery status");
-                        if s.provisioned { Phase::Replace } else { Phase::Fresh }
+                        if s.provisioned {
+                            Phase::Replace
+                        } else {
+                            Phase::Fresh
+                        }
                     }
                     Err(e) => {
                         tracing::warn!("vault: recovery status failed: {e}");
@@ -547,7 +593,8 @@ fn submit_recovery_code(app: &mut App) {
         return;
     }
     if replacing && !dlg.understand {
-        dlg.error = Some("Confirm you understand the existing recovery code will stop working".into());
+        dlg.error =
+            Some("Confirm you understand the existing recovery code will stop working".into());
         return;
     }
     dlg.phase = Phase::Verifying { replacing };
@@ -618,7 +665,10 @@ enum UnlockAction {
 /// The unlock screen's dialogs (called from `unlock::show`).
 pub(crate) fn unlock_dialogs(app: &mut App, ctx: &egui::Context) {
     let action = match &mut app.screen {
-        Screen::Unlock(state) => state.recovery.as_mut().and_then(|d| recovery_unlock_frame(ctx, d)),
+        Screen::Unlock(state) => state
+            .recovery
+            .as_mut()
+            .and_then(|d| recovery_unlock_frame(ctx, d)),
         Screen::Main => return,
     };
     match action {

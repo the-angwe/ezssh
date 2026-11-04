@@ -107,7 +107,9 @@ icons! {
 
 impl Icon {
     pub fn image(self, size: f32, color: Color32) -> Image<'static> {
-        Image::new(self.source()).fit_to_exact_size(Vec2::splat(size)).tint(color)
+        Image::new(self.source())
+            .fit_to_exact_size(Vec2::splat(size))
+            .tint(color)
     }
 
     /// Paint centred in `rect` (no interaction).
@@ -134,9 +136,15 @@ mod tests {
             let ImageSource::Bytes { uri, bytes } = icon.source() else {
                 panic!("{icon:?}: not embedded bytes");
             };
-            assert!(uri.ends_with(".svg"), "{icon:?}: {uri} must end in .svg for the SVG loader");
+            assert!(
+                uri.ends_with(".svg"),
+                "{icon:?}: {uri} must end in .svg for the SVG loader"
+            );
             let text = std::str::from_utf8(&bytes).expect("utf-8");
-            assert!(text.starts_with("<svg") && text.contains("stroke=\"#ffffff\""), "{icon:?}");
+            assert!(
+                text.starts_with("<svg") && text.contains("stroke=\"#ffffff\""),
+                "{icon:?}"
+            );
         }
     }
 }

@@ -50,11 +50,17 @@ pub async fn serve(files: HashMap<String, Vec<u8>>) -> std::io::Result<String> {
                 let resp = match files.get(&key) {
                     Some(body) => {
                         let len = body.len() + usize::from(short);
-                        let mut r = format!("HTTP/1.1 200 OK\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n").into_bytes();
+                        let mut r = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n"
+                        )
+                        .into_bytes();
                         r.extend_from_slice(body);
                         r
                     }
-                    None => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                    None => {
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                            .to_vec()
+                    }
                 };
                 if let Err(e) = sock.write_all(&resp).await {
                     tracing::debug!("testsrv http: write: {e}");

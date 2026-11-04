@@ -17,9 +17,9 @@ pub mod settings;
 pub mod style;
 pub mod tabs;
 mod toasts;
+mod ui_font;
 #[cfg(test)]
 mod ui_tests;
-mod ui_font;
 mod views;
 mod widgets;
 

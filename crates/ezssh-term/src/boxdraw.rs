@@ -66,12 +66,22 @@ pub fn stroke_px(cell_w: f32, pixels_per_point: f32) -> i32 {
 impl PxCell {
     fn new(cell: Rect, ppp: f32, light: i32) -> Self {
         let p = |v: f32| (v * ppp).round() as i32;
-        PxCell { x0: p(cell.min.x), y0: p(cell.min.y), x1: p(cell.max.x), y1: p(cell.max.y), ppp, light: light.max(1) }
+        PxCell {
+            x0: p(cell.min.x),
+            y0: p(cell.min.y),
+            x1: p(cell.max.x),
+            y1: p(cell.max.y),
+            ppp,
+            light: light.max(1),
+        }
     }
 
     fn rect(&self, x0: i32, y0: i32, x1: i32, y1: i32) -> Rect {
         let f = |v: i32| v as f32 / self.ppp;
-        Rect::from_min_max(pos2(f(x0.min(x1)), f(y0.min(y1))), pos2(f(x0.max(x1)), f(y0.max(y1))))
+        Rect::from_min_max(
+            pos2(f(x0.min(x1)), f(y0.min(y1))),
+            pos2(f(x0.max(x1)), f(y0.max(y1))),
+        )
     }
 
     fn as_rect(&self) -> Rect {
@@ -131,7 +141,8 @@ fn lines(mesh: &mut Mesh, c: PxCell, arms: [u8; 4], color: Color32) {
     let [up, right, down, left] = arms;
     let any_double_v = up == 3 || down == 3;
     let any_double_h = left == 3 || right == 3;
-    let mut fill = |x0: i32, y0: i32, x1: i32, y1: i32| mesh.add_colored_rect(c.rect(x0, y0, x1, y1), color);
+    let mut fill =
+        |x0: i32, y0: i32, x1: i32, y1: i32| mesh.add_colored_rect(c.rect(x0, y0, x1, y1), color);
     // A stroke of thickness `t` centred on pixel boundary `at`.
     let span = |at: i32, t: i32| (at - t / 2, at - t / 2 + t);
 
@@ -157,7 +168,11 @@ fn lines(mesh: &mut Mesh, c: PxCell, arms: [u8; 4], color: Color32) {
             }
         } else {
             let (y0, y1) = span(cy, width(w));
-            let ext = if any_double_v { d + light / 2 + 1 } else { (width(up.max(down)) + 1) / 2 };
+            let ext = if any_double_v {
+                d + light / 2 + 1
+            } else {
+                (width(up.max(down)) + 1) / 2
+            };
             fill(edge, y0, cx - dir * ext, y1);
         }
     }
@@ -179,7 +194,11 @@ fn lines(mesh: &mut Mesh, c: PxCell, arms: [u8; 4], color: Color32) {
             }
         } else {
             let (x0, x1) = span(cx, width(w));
-            let ext = if any_double_h { d + light / 2 + 1 } else { (width(left.max(right)) + 1) / 2 };
+            let ext = if any_double_h {
+                d + light / 2 + 1
+            } else {
+                (width(left.max(right)) + 1) / 2
+            };
             fill(x0, edge, x1, cy - dir * ext);
         }
     }
@@ -207,7 +226,10 @@ fn rounded(painter: &Painter, c: PxCell, cp: u32, color: Color32) {
     for i in 0..=STEPS {
         // From the vertical arm round to the horizontal arm.
         let t = i as f32 / STEPS as f32 * std::f32::consts::FRAC_PI_2;
-        pts.push(pos2(arc_center.x - hx * radius * t.cos(), arc_center.y - vy * radius * t.sin()));
+        pts.push(pos2(
+            arc_center.x - hx * radius * t.cos(),
+            arc_center.y - vy * radius * t.sin(),
+        ));
     }
     pts.push(pos2(h_edge, cy));
     painter.add(Shape::line(pts, Stroke::new(light, color)));
@@ -286,10 +308,24 @@ fn powerline(painter: &Painter, c: PxCell, cp: u32, color: Color32) {
     let (l, rt, t, b) = (r.min.x, r.max.x, r.min.y, r.max.y);
     let mid = r.center().y;
     match cp {
-        0xE0B0 => painter.add(Shape::convex_polygon(vec![pos2(l, t), pos2(rt, mid), pos2(l, b)], color, Stroke::NONE)),
-        0xE0B2 => painter.add(Shape::convex_polygon(vec![pos2(rt, t), pos2(rt, b), pos2(l, mid)], color, Stroke::NONE)),
-        0xE0B1 => painter.add(Shape::line(vec![pos2(l, t), pos2(rt, mid), pos2(l, b)], stroke)),
-        _ => painter.add(Shape::line(vec![pos2(rt, t), pos2(l, mid), pos2(rt, b)], stroke)),
+        0xE0B0 => painter.add(Shape::convex_polygon(
+            vec![pos2(l, t), pos2(rt, mid), pos2(l, b)],
+            color,
+            Stroke::NONE,
+        )),
+        0xE0B2 => painter.add(Shape::convex_polygon(
+            vec![pos2(rt, t), pos2(rt, b), pos2(l, mid)],
+            color,
+            Stroke::NONE,
+        )),
+        0xE0B1 => painter.add(Shape::line(
+            vec![pos2(l, t), pos2(rt, mid), pos2(l, b)],
+            stroke,
+        )),
+        _ => painter.add(Shape::line(
+            vec![pos2(rt, t), pos2(l, mid), pos2(rt, b)],
+            stroke,
+        )),
     };
 }
 
@@ -302,14 +338,28 @@ mod tests {
         let ctx = egui::Context::default();
         let painter = Painter::new(ctx, egui::LayerId::background(), Rect::EVERYTHING);
         let mut mesh = Mesh::default();
-        assert!(draw(&mut mesh, &painter, Rect::from_min_size(Pos2::ZERO, egui::vec2(w, h)), c, Color32::WHITE, ppp, stroke_px(w, ppp)));
+        assert!(draw(
+            &mut mesh,
+            &painter,
+            Rect::from_min_size(Pos2::ZERO, egui::vec2(w, h)),
+            c,
+            Color32::WHITE,
+            ppp,
+            stroke_px(w, ppp)
+        ));
         let (pw, ph) = ((w * ppp).round() as usize, (h * ppp).round() as usize);
         let mut grid = vec![vec![false; pw]; ph];
         for quad in mesh.vertices.chunks(4) {
             let xs = quad.iter().map(|v| v.pos.x * ppp);
             let ys = quad.iter().map(|v| v.pos.y * ppp);
-            let (x0, x1) = (xs.clone().fold(f32::MAX, f32::min), xs.fold(f32::MIN, f32::max));
-            let (y0, y1) = (ys.clone().fold(f32::MAX, f32::min), ys.fold(f32::MIN, f32::max));
+            let (x0, x1) = (
+                xs.clone().fold(f32::MAX, f32::min),
+                xs.fold(f32::MIN, f32::max),
+            );
+            let (y0, y1) = (
+                ys.clone().fold(f32::MAX, f32::min),
+                ys.fold(f32::MIN, f32::max),
+            );
             assert_eq!(x0, x0.round(), "rect edge off the pixel grid");
             assert_eq!(y0, y0.round(), "rect edge off the pixel grid");
             for row in grid.iter_mut().take(y1 as usize).skip(y0 as usize) {
@@ -326,7 +376,11 @@ mod tests {
         // A fractional cell width at a fractional scale, like 12 pt at 1.5×.
         let g = coverage('─', 7.2, 16.0, 1.5);
         let lit_rows: Vec<usize> = (0..g.len()).filter(|&y| g[y].iter().any(|&p| p)).collect();
-        assert_eq!(lit_rows.len(), 1, "one device-pixel row for a light line at this size");
+        assert_eq!(
+            lit_rows.len(),
+            1,
+            "one device-pixel row for a light line at this size"
+        );
         assert!(g[lit_rows[0]].iter().all(|&p| p), "line has a gap");
     }
 
@@ -352,19 +406,37 @@ mod tests {
         for col in 0..12 {
             let mut mesh = Mesh::default();
             let x = 3.3 + col as f32 * 11.55;
-            draw(&mut mesh, &painter, Rect::from_min_size(egui::pos2(x, 0.0), egui::vec2(11.55, 20.0)), '─', Color32::WHITE, 1.0, stroke_px(11.55, 1.0));
+            draw(
+                &mut mesh,
+                &painter,
+                Rect::from_min_size(egui::pos2(x, 0.0), egui::vec2(11.55, 20.0)),
+                '─',
+                Color32::WHITE,
+                1.0,
+                stroke_px(11.55, 1.0),
+            );
             let ys: Vec<f32> = mesh.vertices.iter().map(|v| v.pos.y).collect();
-            let h = ys.iter().cloned().fold(f32::MIN, f32::max) - ys.iter().cloned().fold(f32::MAX, f32::min);
+            let h = ys.iter().cloned().fold(f32::MIN, f32::max)
+                - ys.iter().cloned().fold(f32::MAX, f32::min);
             heights.insert(h as i32);
         }
-        assert_eq!(heights.len(), 1, "stroke heights differ between cells: {heights:?}");
+        assert_eq!(
+            heights.len(),
+            1,
+            "stroke heights differ between cells: {heights:?}"
+        );
     }
 
     #[test]
     fn cross_joins_without_holes() {
         let g = coverage('┼', 9.0, 18.0, 1.0);
-        let cy = g.iter().position(|r| r.iter().all(|&p| p)).expect("full row");
-        let cx = (0..g[0].len()).find(|&x| g.iter().all(|r| r[x])).expect("full column");
+        let cy = g
+            .iter()
+            .position(|r| r.iter().all(|&p| p))
+            .expect("full row");
+        let cx = (0..g[0].len())
+            .find(|&x| g.iter().all(|r| r[x]))
+            .expect("full column");
         assert!(g[cy][cx]);
     }
 

@@ -1,4 +1,3 @@
-
 use crate::api::require_unlocked;
 use crate::db::folders::{self, Folder};
 use crate::error::Result;
@@ -55,11 +54,7 @@ pub async fn folder_move(
 /// Renumber sibling folders under `parent_id` in the supplied order.
 /// Used by the intra-folder DnD reorder path when the dragged row is a
 /// folder landing among its siblings.
-pub async fn folder_reorder(
-    state: &AppState,
-    parent_id: Option<i64>,
-    ids: Vec<i64>,
-) -> Result<()> {
+pub async fn folder_reorder(state: &AppState, parent_id: Option<i64>, ids: Vec<i64>) -> Result<()> {
     require_unlocked(state).await?;
     folders::reorder(&state.db, parent_id, &ids).await?;
     state.sync.trigger();

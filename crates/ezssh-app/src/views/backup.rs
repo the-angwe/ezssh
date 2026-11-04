@@ -177,7 +177,10 @@ fn save(app: &mut App, dlg: &mut BackupDialog) {
         Pick::Save {
             title: "Save encrypted ezSsh backup",
             file_name: format!("ezssh-backup-{}.json", today_utc()),
-            filters: vec![Filter { name: "ezSsh backup", extensions: &["json"] }],
+            filters: vec![Filter {
+                name: "ezSsh backup",
+                extensions: &["json"],
+            }],
         },
         |app, path| {
             let Some(mut d) = app.dialogs.backup.take() else {
@@ -224,7 +227,11 @@ fn create(app: &mut App, dlg: &mut BackupDialog, path: PathBuf) {
 fn summary_text(s: &BackupSummary) -> String {
     let parts = [
         count(s.sessions, "session", "sessions"),
-        count(s.credentials, "credential (keys and session passwords)", "credentials (keys and session passwords)"),
+        count(
+            s.credentials,
+            "credential (keys and session passwords)",
+            "credentials (keys and session passwords)",
+        ),
         count(s.folders, "folder", "folders"),
         count(s.known_hosts, "known host", "known hosts"),
     ];
@@ -253,7 +260,12 @@ pub(crate) fn count(n: usize, one: &str, many: &str) -> Option<String> {
 
 /// The non-empty parts joined with ", ", or `empty`.
 pub(crate) fn join_or(parts: &[Option<String>], empty: &str) -> String {
-    let s = parts.iter().flatten().cloned().collect::<Vec<_>>().join(", ");
+    let s = parts
+        .iter()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
     if s.is_empty() { empty.to_string() } else { s }
 }
 
@@ -314,7 +326,15 @@ pub(crate) fn rich(ui: &mut Ui, parts: &[(Span, &str)]) -> Response {
             Span::Strong => (font_semibold(size::SM), t.fg),
             Span::Mono => (egui::FontId::monospace(size::SM), t.muted),
         };
-        job.append(text, 0.0, egui::TextFormat { font_id, color, ..Default::default() });
+        job.append(
+            text,
+            0.0,
+            egui::TextFormat {
+                font_id,
+                color,
+                ..Default::default()
+            },
+        );
     }
     ui.add(egui::Label::new(job).wrap())
 }
@@ -329,7 +349,11 @@ pub(crate) fn local_time_in<Tz: chrono::TimeZone>(s: &str, tz: &Tz, seconds: boo
 where
     Tz::Offset: std::fmt::Display,
 {
-    let fmt = if seconds { "%Y-%m-%d %H:%M:%S" } else { "%Y-%m-%d %H:%M" };
+    let fmt = if seconds {
+        "%Y-%m-%d %H:%M:%S"
+    } else {
+        "%Y-%m-%d %H:%M"
+    };
     match chrono::DateTime::parse_from_rfc3339(s) {
         Ok(t) => t.with_timezone(tz).format(fmt).to_string(),
         Err(e) => {
@@ -362,12 +386,15 @@ pub(crate) fn success_line(ui: &mut Ui, msg: &str) {
 /// its own AccessKit label.
 pub(crate) fn link(ui: &mut Ui, text: &str, a11y_label: &str) -> Response {
     let t = tokens(ui.ctx());
-    let g = ui.painter().layout_no_wrap(text.to_string(), font(size::SM), t.accent);
+    let g = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font(size::SM), t.accent);
     let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
     let hovered = resp.hovered();
     ui.painter().galley(rect.min, g, t.accent);
     if hovered {
-        ui.painter().hline(rect.x_range(), rect.bottom(), Stroke::new(1.0, t.accent));
+        ui.painter()
+            .hline(rect.x_range(), rect.bottom(), Stroke::new(1.0, t.accent));
     }
     widgets::focus_ring(ui, &resp, rect);
     widgets::a11y(&resp, egui::Role::Button, a11y_label);
@@ -386,10 +413,22 @@ mod tests {
 
     #[test]
     fn passphrase_rules_and_summary() {
-        assert_eq!(check_passphrase("short", "short"), Err("Passphrase must be at least 8 characters"));
-        assert_eq!(check_passphrase("long enough", "long enougH"), Err("Passphrases do not match"));
+        assert_eq!(
+            check_passphrase("short", "short"),
+            Err("Passphrase must be at least 8 characters")
+        );
+        assert_eq!(
+            check_passphrase("long enough", "long enougH"),
+            Err("Passphrases do not match")
+        );
         assert_eq!(check_passphrase("long enough", "long enough"), Ok(()));
-        let s = BackupSummary { folders: 1, sessions: 2, credentials: 0, known_hosts: 0, settings: 9 };
+        let s = BackupSummary {
+            folders: 1,
+            sessions: 2,
+            credentials: 0,
+            known_hosts: 0,
+            settings: 9,
+        };
         assert_eq!(summary_text(&s), "2 sessions, 1 folder");
         assert_eq!(summary_text(&BackupSummary::default()), "empty backup");
     }

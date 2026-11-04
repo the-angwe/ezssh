@@ -5,7 +5,10 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use egui::{Color32, CornerRadius, CursorIcon, Frame, Id, Margin, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use egui::{
+    Color32, CornerRadius, CursorIcon, Frame, Id, Margin, Pos2, Rect, RichText, Sense, Stroke,
+    StrokeKind, Ui, vec2,
+};
 use ezssh_core::api;
 use ezssh_core::api::import::{MobaImportPreview, MobaImportResult};
 use ezssh_core::import::mobaxterm::ParsedMobaSession;
@@ -40,13 +43,21 @@ impl Strategy {
 }
 
 const STRATEGIES: [(Strategy, &str, &str); 3] = [
-    (Strategy::Skip, "Skip", "Leave the existing session untouched."),
+    (
+        Strategy::Skip,
+        "Skip",
+        "Leave the existing session untouched.",
+    ),
     (
         Strategy::Overwrite,
         "Overwrite",
         "Refresh host / port / username / auth. Attached credentials are kept when the auth type matches, cleared when it changes. Terminal settings stay.",
     ),
-    (Strategy::Rename, "Rename", "Import as a new session named \"<name> (imported)\"."),
+    (
+        Strategy::Rename,
+        "Rename",
+        "Import as a new session named \"<name> (imported)\".",
+    ),
 ];
 
 #[derive(Default)]
@@ -65,7 +76,10 @@ pub struct ImportDialog {
 
 impl ImportDialog {
     pub fn from_path(path: PathBuf) -> Self {
-        Self { path: Some(path), ..Self::default() }
+        Self {
+            path: Some(path),
+            ..Self::default()
+        }
     }
 }
 
@@ -98,22 +112,36 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let busy = dlg.busy;
     let mut act = None;
     let out = Dialog::data(Id::unique("import-dialog"), 620.0)
-        .header(Icon::Upload, t.accent, "Import from MobaXterm", Some(&path_text))
+        .header(
+            Icon::Upload,
+            t.accent,
+            "Import from MobaXterm",
+            Some(&path_text),
+        )
         .footer(DialogFooter::Strip)
         .busy(busy)
         .show(ctx, |ui, part| match part {
-        DialogPart::Body => body(ui, &mut dlg),
-        DialogPart::Footer => {
-            let can = dlg.preview.as_ref().is_some_and(|p| !p.sessions.is_empty()) && !busy;
-            let icon = if busy { Icon::Loader2 } else { Icon::Upload };
-            if widgets::Button::primary("Import").icon(icon).enabled(can).show(ui).clicked() {
-                act = Some(Act::Import);
+            DialogPart::Body => body(ui, &mut dlg),
+            DialogPart::Footer => {
+                let can = dlg.preview.as_ref().is_some_and(|p| !p.sessions.is_empty()) && !busy;
+                let icon = if busy { Icon::Loader2 } else { Icon::Upload };
+                if widgets::Button::primary("Import")
+                    .icon(icon)
+                    .enabled(can)
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Import);
+                }
+                if Button::secondary("Cancel")
+                    .enabled(!busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Close);
+                }
             }
-            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
-                act = Some(Act::Close);
-            }
-        }
-    });
+        });
     if out.dismissed() && !busy {
         act = Some(Act::Close);
     }
@@ -133,8 +161,14 @@ fn pick_file(app: &App, serial: u64) {
         Pick::Open {
             title: "Import MobaXterm sessions",
             filters: vec![
-                Filter { name: "MobaXterm sessions", extensions: &["mxtsessions", "ini"] },
-                Filter { name: "All files", extensions: &["*"] },
+                Filter {
+                    name: "MobaXterm sessions",
+                    extensions: &["mxtsessions", "ini"],
+                },
+                Filter {
+                    name: "All files",
+                    extensions: &["*"],
+                },
             ],
         },
         move |app, path| {
@@ -206,7 +240,12 @@ fn run_import(app: &mut App, dlg: &mut ImportDialog) {
         move |app, r| match r {
             Ok(result) => {
                 tracing::info!(?result, "import: done");
-                if app.dialogs.import.as_ref().is_some_and(|d| d.serial == serial) {
+                if app
+                    .dialogs
+                    .import
+                    .as_ref()
+                    .is_some_and(|d| d.serial == serial)
+                {
                     app.dialogs.import = None;
                 }
                 app.sidebar.reload(&app.core);
@@ -242,9 +281,23 @@ fn result_toast(r: &MobaImportResult) -> (&'static str, String, bool) {
     if r.missing_keys.is_empty() {
         return ("Import complete", body, false);
     }
-    let shown = r.missing_keys.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
-    let more = if r.missing_keys.len() > 5 { format!(" (+{} more)", r.missing_keys.len() - 5) } else { String::new() };
-    ("Import complete with missing keys", format!("{body}. Could not read: {shown}{more}"), true)
+    let shown = r
+        .missing_keys
+        .iter()
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = if r.missing_keys.len() > 5 {
+        format!(" (+{} more)", r.missing_keys.len() - 5)
+    } else {
+        String::new()
+    };
+    (
+        "Import complete with missing keys",
+        format!("{body}. Could not read: {shown}{more}"),
+        true,
+    )
 }
 
 fn body(ui: &mut Ui, dlg: &mut ImportDialog) {
@@ -253,7 +306,11 @@ fn body(ui: &mut Ui, dlg: &mut ImportDialog) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             form::spinner(ui, 14.0);
-            ui.label(RichText::new("Reading session file…").font(font(size::SM)).color(t.muted));
+            ui.label(
+                RichText::new("Reading session file…")
+                    .font(font(size::SM))
+                    .color(t.muted),
+            );
         });
     }
     if let Some(e) = &dlg.error {
@@ -262,7 +319,11 @@ fn body(ui: &mut Ui, dlg: &mut ImportDialog) {
     let Some(p) = dlg.preview.as_ref() else {
         return;
     };
-    let key_files: BTreeSet<&str> = p.sessions.iter().filter_map(|s| s.private_key_path.as_deref()).collect();
+    let key_files: BTreeSet<&str> = p
+        .sessions
+        .iter()
+        .filter_map(|s| s.private_key_path.as_deref())
+        .collect();
     stat_row(ui, p, key_files.len());
 
     let folders = p.new_folder_paths.len();
@@ -281,11 +342,16 @@ fn body(ui: &mut Ui, dlg: &mut ImportDialog) {
     if dups > 0 {
         let title = format!("{dups} duplicate{} detected", plural(dups));
         group(ui, Some((Icon::AlertTriangle, t.warning)), &title, |ui| {
-            form::hint(ui, "A session with the same folder, name, host, port, and user already exists.");
+            form::hint(
+                ui,
+                "A session with the same folder, name, host, port, and user already exists.",
+            );
             ui.add_space(4.0);
             ui.spacing_mut().item_spacing.y = 6.0;
             for (s, label, hint) in STRATEGIES {
-                if strategy_option(ui, dlg.strategy == s, label, hint).clicked() && dlg.strategy != s {
+                if strategy_option(ui, dlg.strategy == s, label, hint).clicked()
+                    && dlg.strategy != s
+                {
                     tracing::debug!(strategy = s.id(), "import: duplicate strategy");
                     dlg.strategy = s;
                 }
@@ -295,16 +361,26 @@ fn body(ui: &mut Ui, dlg: &mut ImportDialog) {
 
     let n = p.sessions.len();
     if n > 0 {
-        group(ui, None, &format!("{n} session{} to import", plural(n)), |ui| {
-            list(ui, ("import-sessions", 0), 160.0, |ui| {
-                for s in p.sessions.iter().take(LIST_MAX) {
-                    session_line(ui, s);
-                }
-                if n > LIST_MAX {
-                    ui.label(RichText::new(format!("… and {} more", n - LIST_MAX)).font(font(size::SM)).italics().color(t.muted));
-                }
-            });
-        });
+        group(
+            ui,
+            None,
+            &format!("{n} session{} to import", plural(n)),
+            |ui| {
+                list(ui, ("import-sessions", 0), 160.0, |ui| {
+                    for s in p.sessions.iter().take(LIST_MAX) {
+                        session_line(ui, s);
+                    }
+                    if n > LIST_MAX {
+                        ui.label(
+                            RichText::new(format!("… and {} more", n - LIST_MAX))
+                                .font(font(size::SM))
+                                .italics()
+                                .color(t.muted),
+                        );
+                    }
+                });
+            },
+        );
     } else {
         form::hint(
             ui,
@@ -330,22 +406,35 @@ fn stat_row(ui: &mut Ui, p: &MobaImportPreview, key_files: usize) {
         ("Sessions", p.sessions.len(), false),
         ("New folders", p.new_folder_paths.len(), false),
         ("Key files", key_files, false),
-        ("Duplicates", p.duplicate_indices.len(), !p.duplicate_indices.is_empty()),
+        (
+            "Duplicates",
+            p.duplicate_indices.len(),
+            !p.duplicate_indices.is_empty(),
+        ),
         ("Skipped", skipped, p.skipped_malformed > 0),
     ];
     let gap = 8.0;
     let w = (ui.available_width() - gap * 4.0) / 5.0;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::hover());
     for (i, (label, value, warn)) in cells.into_iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(rect.left() + i as f32 * (w + gap), rect.top()), vec2(w, rect.height()));
+        let r = Rect::from_min_size(
+            Pos2::new(rect.left() + i as f32 * (w + gap), rect.top()),
+            vec2(w, rect.height()),
+        );
         ui.painter().rect_filled(r, radius::LG, t.surface2);
         let color = if warn { t.warning } else { t.fg };
-        let v = ui.painter().layout_no_wrap(value.to_string(), font_semibold(size::XL), color);
+        let v = ui
+            .painter()
+            .layout_no_wrap(value.to_string(), font_semibold(size::XL), color);
         let vh = v.size().y;
-        ui.painter().galley(Pos2::new(r.left() + 10.0, r.top() + 8.0), v, color);
+        ui.painter()
+            .galley(Pos2::new(r.left() + 10.0, r.top() + 8.0), v, color);
         widgets::paint_text(
             ui,
-            Rect::from_min_size(Pos2::new(r.left() + 10.0, r.top() + 8.0 + vh), vec2(w - 20.0, 14.0)),
+            Rect::from_min_size(
+                Pos2::new(r.left() + 10.0, r.top() + 8.0 + vh),
+                vec2(w - 20.0, 14.0),
+            ),
             &label.to_uppercase(),
             font_semibold(size::XS),
             t.muted,
@@ -372,27 +461,43 @@ fn group(ui: &mut Ui, icon: Option<(Icon, Color32)>, title: &str, add: impl FnOn
 }
 
 fn list(ui: &mut Ui, salt: (&str, u8), max_h: f32, add: impl FnOnce(&mut Ui)) {
-    egui::ScrollArea::vertical().id_salt(salt).max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        add(ui);
-    });
+    egui::ScrollArea::vertical()
+        .id_salt(salt)
+        .max_height(max_h)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            add(ui);
+        });
 }
 
 fn mono_line(ui: &mut Ui, text: &str, color: Color32) {
     let w = ui.available_width();
     let g = widgets::elide(ui, text, egui::FontId::monospace(size::SM), w);
-    ui.label(RichText::new(g.text()).font(egui::FontId::monospace(size::SM)).color(color));
+    ui.label(
+        RichText::new(g.text())
+            .font(egui::FontId::monospace(size::SM))
+            .color(color),
+    );
 }
 
 /// `name · user@host[:port] [auth] key-file folder/path`.
 fn session_line(ui: &mut Ui, s: &ParsedMobaSession) {
     let t = tokens(ui.ctx());
-    let mono = |text: &str, color: Color32| RichText::new(text.to_string()).font(egui::FontId::monospace(size::SM)).color(color);
+    let mono = |text: &str, color: Color32| {
+        RichText::new(text.to_string())
+            .font(egui::FontId::monospace(size::SM))
+            .color(color)
+    };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.label(mono(&s.name, t.fg));
         ui.label(mono(" · ", alpha(t.muted, 0.5)));
-        let port = if s.port != 22 { format!(":{}", s.port) } else { String::new() };
+        let port = if s.port != 22 {
+            format!(":{}", s.port)
+        } else {
+            String::new()
+        };
         ui.label(mono(&format!("{}@{}{port}", s.username, s.host), t.muted));
         ui.add_space(8.0);
         let (badge, color) = if s.session_kind == "wsl" {
@@ -402,9 +507,13 @@ fn session_line(ui: &mut Ui, s: &ParsedMobaSession) {
         } else {
             (s.auth_type.as_str(), t.warning)
         };
-        Frame::new().fill(alpha(color, 0.16)).corner_radius(CornerRadius::same(radius::PILL as u8)).inner_margin(Margin::symmetric(6, 1)).show(ui, |ui| {
-            ui.label(RichText::new(badge).font(font(size::XS)).color(color));
-        });
+        Frame::new()
+            .fill(alpha(color, 0.16))
+            .corner_radius(CornerRadius::same(radius::PILL as u8))
+            .inner_margin(Margin::symmetric(6, 1))
+            .show(ui, |ui| {
+                ui.label(RichText::new(badge).font(font(size::XS)).color(color));
+            });
         if let Some(k) = &s.private_key_path {
             ui.add_space(4.0);
             ui.label(mono(key_file_name(k), alpha(t.muted, 0.8)));
@@ -418,7 +527,9 @@ fn session_line(ui: &mut Ui, s: &ParsedMobaSession) {
 
 /// The file name of a MobaXterm key path (either slash).
 fn key_file_name(raw: &str) -> &str {
-    raw.rsplit(['\\', '/']).find(|p| !p.is_empty()).unwrap_or(raw)
+    raw.rsplit(['\\', '/'])
+        .find(|p| !p.is_empty())
+        .unwrap_or(raw)
 }
 
 /// `StrategyOption`: a bordered radio row with a title and hint.
@@ -426,8 +537,12 @@ fn strategy_option(ui: &mut Ui, on: bool, label: &str, hint: &str) -> egui::Resp
     let t = tokens(ui.ctx());
     let w = ui.available_width();
     let text_w = w - 24.0 - 30.0;
-    let title_g = ui.painter().layout(label.to_string(), font_semibold(size::BASE), t.fg, text_w);
-    let hint_g = ui.painter().layout(hint.to_string(), font(size::SM), t.muted, text_w);
+    let title_g = ui
+        .painter()
+        .layout(label.to_string(), font_semibold(size::BASE), t.fg, text_w);
+    let hint_g = ui
+        .painter()
+        .layout(hint.to_string(), font(size::SM), t.muted, text_w);
     let h = 10.0 + title_g.size().y + 2.0 + hint_g.size().y + 10.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
     let hovered = resp.hovered();
@@ -439,16 +554,30 @@ fn strategy_option(ui: &mut Ui, on: bool, label: &str, hint: &str) -> egui::Resp
         (t.border_strong, Color32::TRANSPARENT)
     };
     ui.painter().rect_filled(rect, radius::LG, fill);
-    ui.painter().rect_stroke(rect, radius::LG, Stroke::new(1.0, border), StrokeKind::Inside);
-    let c = Pos2::new(rect.left() + 12.0 + 8.0, rect.top() + 10.0 + title_g.size().y / 2.0);
-    ui.painter().circle_stroke(c, 7.0, Stroke::new(1.5, if on { t.accent } else { t.border_strong }));
+    ui.painter().rect_stroke(
+        rect,
+        radius::LG,
+        Stroke::new(1.0, border),
+        StrokeKind::Inside,
+    );
+    let c = Pos2::new(
+        rect.left() + 12.0 + 8.0,
+        rect.top() + 10.0 + title_g.size().y / 2.0,
+    );
+    ui.painter().circle_stroke(
+        c,
+        7.0,
+        Stroke::new(1.5, if on { t.accent } else { t.border_strong }),
+    );
     if on {
         ui.painter().circle_filled(c, 3.5, t.accent);
     }
     let x = rect.left() + 12.0 + 16.0 + 12.0;
     let th = title_g.size().y;
-    ui.painter().galley(Pos2::new(x, rect.top() + 10.0), title_g, t.fg);
-    ui.painter().galley(Pos2::new(x, rect.top() + 10.0 + th + 2.0), hint_g, t.muted);
+    ui.painter()
+        .galley(Pos2::new(x, rect.top() + 10.0), title_g, t.fg);
+    ui.painter()
+        .galley(Pos2::new(x, rect.top() + 10.0 + th + 2.0), hint_g, t.muted);
     widgets::focus_ring(ui, &resp, rect);
     widgets::a11y_selected(&resp, egui::Role::RadioButton, on, label);
     resp.on_hover_cursor(CursorIcon::PointingHand)
@@ -463,9 +592,26 @@ mod tests {
         assert_eq!(key_file_name("_MyDocuments_\\ssh-keys\\x.pem"), "x.pem");
         assert_eq!(key_file_name("/home/u/.ssh/id"), "id");
         assert_eq!(key_file_name("plain"), "plain");
-        let r = MobaImportResult { created: 2, created_folders: 1, ..MobaImportResult::default() };
-        assert_eq!(result_toast(&r), ("Import complete", "2 created, 1 folder".to_string(), false));
-        let r = MobaImportResult { missing_keys: vec!["a.pem".into()], ..MobaImportResult::default() };
-        assert_eq!(result_toast(&r), ("Import complete with missing keys", "Nothing to import. Could not read: a.pem".to_string(), true));
+        let r = MobaImportResult {
+            created: 2,
+            created_folders: 1,
+            ..MobaImportResult::default()
+        };
+        assert_eq!(
+            result_toast(&r),
+            ("Import complete", "2 created, 1 folder".to_string(), false)
+        );
+        let r = MobaImportResult {
+            missing_keys: vec!["a.pem".into()],
+            ..MobaImportResult::default()
+        };
+        assert_eq!(
+            result_toast(&r),
+            (
+                "Import complete with missing keys",
+                "Nothing to import. Could not read: a.pem".to_string(),
+                true
+            )
+        );
     }
 }

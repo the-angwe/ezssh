@@ -42,7 +42,10 @@ impl LinkFinder {
         let end = term.line_search_right(point);
         RegexIter::new(start, end, Direction::Right, term, &mut self.url)
             .find(|m| m.contains(&point))
-            .map(|m| Link { uri: term.bounds_to_string(*m.start(), *m.end()), range: m })
+            .map(|m| Link {
+                uri: term.bounds_to_string(*m.start(), *m.end()),
+                range: m,
+            })
     }
 }
 
@@ -78,14 +81,21 @@ mod tests {
     use crate::terminal::GridSize;
 
     fn term_with(bytes: &[u8], columns: usize) -> Term<VoidListener> {
-        let mut t = Term::new(Config::default(), &GridSize { columns, lines: 4 }, VoidListener);
+        let mut t = Term::new(
+            Config::default(),
+            &GridSize { columns, lines: 4 },
+            VoidListener,
+        );
         let mut p: Processor = Processor::new();
         p.advance(&mut t, bytes);
         t
     }
 
     fn at(t: &Term<VoidListener>, line: i32, col: usize) -> Option<String> {
-        LinkFinder::new().unwrap().at(t, Point::new(Line(line), Column(col))).map(|l| l.uri)
+        LinkFinder::new()
+            .unwrap()
+            .at(t, Point::new(Line(line), Column(col)))
+            .map(|l| l.uri)
     }
 
     #[test]
@@ -108,17 +118,29 @@ mod tests {
     #[test]
     fn url_wrapped_over_two_rows() {
         let t = term_with(b"xx https://example.com/very/long/path", 20);
-        assert_eq!(at(&t, 1, 3).as_deref(), Some("https://example.com/very/long/path"));
-        assert_eq!(at(&t, 0, 5).as_deref(), Some("https://example.com/very/long/path"));
+        assert_eq!(
+            at(&t, 1, 3).as_deref(),
+            Some("https://example.com/very/long/path")
+        );
+        assert_eq!(
+            at(&t, 0, 5).as_deref(),
+            Some("https://example.com/very/long/path")
+        );
     }
 
     #[test]
     fn osc8_hyperlinks() {
-        let t = term_with(b"a \x1b]8;;https://ezssh.dev/doc\x1b\\docs\x1b]8;;\x1b\\ b", 80);
+        let t = term_with(
+            b"a \x1b]8;;https://ezssh.dev/doc\x1b\\docs\x1b]8;;\x1b\\ b",
+            80,
+        );
         let mut f = LinkFinder::new().unwrap();
         let l = f.at(&t, Point::new(Line(0), Column(3))).unwrap();
         assert_eq!(l.uri, "https://ezssh.dev/doc");
-        assert_eq!(l.range, Point::new(Line(0), Column(2))..=Point::new(Line(0), Column(5)));
+        assert_eq!(
+            l.range,
+            Point::new(Line(0), Column(2))..=Point::new(Line(0), Column(5))
+        );
         assert_eq!(at(&t, 0, 7), None);
     }
 }

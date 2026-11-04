@@ -135,7 +135,9 @@ impl App {
         let status = core
             .block_on(|st| async move { api::vault::vault_status(&st).await })
             .map_err(|e| anyhow::anyhow!("reading the vault state: {e}"))?;
-        let theme = match core.block_on(|st| async move { api::settings::settings_get(&st, "theme".into()).await }) {
+        let theme = match core
+            .block_on(|st| async move { api::settings::settings_get(&st, "theme".into()).await })
+        {
             Ok(v) => Theme::from_setting(v.as_deref()),
             Err(e) => {
                 tracing::warn!("app: reading the theme failed, using dark: {e}");
@@ -214,8 +216,14 @@ impl App {
             |st| async move { api::local::wsl_autodetect_seed(&st).await },
             |app, r| {
                 match r {
-                    Ok(0) => app.toasts.info("WSL autodetect", "No distros detected (or all already present).".to_string()),
-                    Ok(n) => app.toasts.success("WSL detected", format!("Added {n} session{} to the WSL folder.", plural(n))),
+                    Ok(0) => app.toasts.info(
+                        "WSL autodetect",
+                        "No distros detected (or all already present).".to_string(),
+                    ),
+                    Ok(n) => app.toasts.success(
+                        "WSL detected",
+                        format!("Added {n} session{} to the WSL folder.", plural(n)),
+                    ),
                     Err(e) => app.toasts.danger("WSL autodetect failed", e.to_string()),
                 }
                 app.sidebar.reload(&app.core);
@@ -226,9 +234,17 @@ impl App {
             |st| async move { api::local::local_shells_autodetect_seed(&st).await },
             |app, r| {
                 match r {
-                    Ok(0) => app.toasts.info("Local shells autodetect", "No new shells detected (or all already present).".to_string()),
-                    Ok(n) => app.toasts.success("Local shells detected", format!("Added {n} session{} to the Local Shells folder.", plural(n))),
-                    Err(e) => app.toasts.danger("Local shells autodetect failed", e.to_string()),
+                    Ok(0) => app.toasts.info(
+                        "Local shells autodetect",
+                        "No new shells detected (or all already present).".to_string(),
+                    ),
+                    Ok(n) => app.toasts.success(
+                        "Local shells detected",
+                        format!("Added {n} session{} to the Local Shells folder.", plural(n)),
+                    ),
+                    Err(e) => app
+                        .toasts
+                        .danger("Local shells autodetect failed", e.to_string()),
                 }
                 app.sidebar.reload(&app.core);
             },
@@ -256,11 +272,15 @@ impl App {
         let mut u = views::unlock::UnlockState::new(false);
         u.probe_recovery(&self.core);
         self.screen = Screen::Unlock(Box::new(u));
-        self.core.call("vault_lock", |st| async move { api::vault::vault_lock(&st).await }, |app, r| {
-            if let Err(e) = r {
-                app.toasts.danger("Lock failed", e.to_string());
-            }
-        });
+        self.core.call(
+            "vault_lock",
+            |st| async move { api::vault::vault_lock(&st).await },
+            |app, r| {
+                if let Err(e) = r {
+                    app.toasts.danger("Lock failed", e.to_string());
+                }
+            },
+        );
     }
 
     // ------------------------------------------------------------ settings
@@ -348,7 +368,8 @@ impl App {
         };
         let mut slot = TermSlot::new(&self.ctx, options, self.term_style.palette.clone());
         slot.term.set_font_size(session.font_size as f32);
-        slot.term.set_faces(self.fonts.faces(&self.ctx, &session.font_family));
+        slot.term
+            .set_faces(self.fonts.faces(&self.ctx, &session.font_family));
         tracing::info!(session = session.id, name = %session.name, kind = %session.session_kind, "app: open tab");
         let id = self.tabs.open(session);
         self.terms.insert(id, slot);
@@ -361,7 +382,13 @@ impl App {
     /// with. An unchanged value keeps a tab-only change (Appearance dialog's
     /// "Apply to tab", Ctrl+Wheel); the cursor keeps the tab's blink setting.
     pub(crate) fn apply_session_terminal(&mut self, saved: &ezssh_core::db::sessions::Session) {
-        let ids: Vec<TabId> = self.tabs.tabs.iter().filter(|t| t.session.id == saved.id).map(|t| t.id).collect();
+        let ids: Vec<TabId> = self
+            .tabs
+            .tabs
+            .iter()
+            .filter(|t| t.session.id == saved.id)
+            .map(|t| t.id)
+            .collect();
         if ids.is_empty() {
             tracing::debug!(session = saved.id, "app: session saved, no open tab");
             return;
@@ -370,7 +397,8 @@ impl App {
             let Some(t) = self.tabs.get_mut(id) else {
                 continue;
             };
-            let font = t.session.font_size != saved.font_size || t.session.font_family != saved.font_family;
+            let font = t.session.font_size != saved.font_size
+                || t.session.font_family != saved.font_family;
             let cursor = t.session.cursor_style != saved.cursor_style;
             let scrollback = t.session.scrollback_lines != saved.scrollback_lines;
             let color = t.session.color != saved.color;
@@ -387,12 +415,20 @@ impl App {
             t.session.cursor_style = saved.cursor_style.clone();
             t.session.scrollback_lines = saved.scrollback_lines;
             if !(font || cursor || scrollback) {
-                tracing::debug!(tab = id, session = saved.id, "app: session saved, terminal options unchanged");
+                tracing::debug!(
+                    tab = id,
+                    session = saved.id,
+                    "app: session saved, terminal options unchanged"
+                );
                 continue;
             }
             let faces = font.then(|| self.fonts.faces(&self.ctx, &saved.font_family));
             let Some(slot) = self.terms.get_mut(&id) else {
-                tracing::warn!(tab = id, session = saved.id, "app: open tab has no terminal, session options not applied");
+                tracing::warn!(
+                    tab = id,
+                    session = saved.id,
+                    "app: open tab has no terminal, session options not applied"
+                );
                 continue;
             };
             if let Some(faces) = faces {
@@ -401,10 +437,12 @@ impl App {
             }
             if cursor {
                 let blink = slot.term.options().cursor_blink;
-                slot.term.set_cursor(CursorKind::from_setting(&saved.cursor_style), blink);
+                slot.term
+                    .set_cursor(CursorKind::from_setting(&saved.cursor_style), blink);
             }
             if scrollback {
-                slot.term.set_scrollback(saved.scrollback_lines.max(0) as usize);
+                slot.term
+                    .set_scrollback(saved.scrollback_lines.max(0) as usize);
             }
             tracing::info!(
                 tab = id,
@@ -437,7 +475,12 @@ impl App {
     /// Close, asking first for a connected tab if the setting says so.
     pub(crate) fn request_close_tab(&mut self, id: TabId) {
         let confirm = self.settings.bool("sessions.confirmCloseLive");
-        if self.tabs.get(id).is_some_and(|t| t.status == crate::tabs::TabStatus::Connected) && confirm {
+        if self
+            .tabs
+            .get(id)
+            .is_some_and(|t| t.status == crate::tabs::TabStatus::Connected)
+            && confirm
+        {
             self.tabs.pending_close = Some(id);
         } else {
             self.close_tab(id);
@@ -496,7 +539,12 @@ impl App {
             ctx.request_repaint_after(next);
         }
         // Connect tabs whose terminal has been laid out.
-        let due: Vec<TabId> = self.terms.iter().filter(|(_, s)| s.connect_due(now)).map(|(id, _)| *id).collect();
+        let due: Vec<TabId> = self
+            .terms
+            .iter()
+            .filter(|(_, s)| s.connect_due(now))
+            .map(|(id, _)| *id)
+            .collect();
         for id in due {
             self.connect_tab(id, false, false);
         }
@@ -522,10 +570,14 @@ impl App {
         }
         if now >= self.xpoll_at {
             self.xpoll_at = now + XSERVER_POLL;
-            self.core.call("xserver_status", |st| async move { api::xserver::xserver_status(&st).await }, |app, r| match r {
-                Ok(s) => app.xstatus = Some(s),
-                Err(e) => tracing::debug!("app: xserver_status: {e}"),
-            });
+            self.core.call(
+                "xserver_status",
+                |st| async move { api::xserver::xserver_status(&st).await },
+                |app, r| match r {
+                    Ok(s) => app.xstatus = Some(s),
+                    Err(e) => tracing::debug!("app: xserver_status: {e}"),
+                },
+            );
         }
         ctx.request_repaint_after(self.xpoll_at.saturating_duration_since(now));
     }

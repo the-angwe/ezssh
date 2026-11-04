@@ -47,7 +47,10 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args> {
-    let mut args = Args { db: None, renderer: Renderer::Wgpu };
+    let mut args = Args {
+        db: None,
+        renderer: Renderer::Wgpu,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -55,7 +58,11 @@ fn parse_args() -> Result<Args> {
                 print!("{HELP}");
                 std::process::exit(0);
             }
-            "--db" => args.db = Some(PathBuf::from(it.next().ok_or_else(|| anyhow!("--db needs a path"))?)),
+            "--db" => {
+                args.db = Some(PathBuf::from(
+                    it.next().ok_or_else(|| anyhow!("--db needs a path"))?,
+                ))
+            }
             "--renderer" => {
                 args.renderer = match it.next().as_deref() {
                     Some("wgpu") => Renderer::Wgpu,
@@ -73,7 +80,11 @@ fn parse_args() -> Result<Args> {
 /// Best hardware adapter that can present to the window, else a software
 /// one (WARP on Windows, llvmpipe / lavapipe on Linux): VMs and RDP
 /// sessions often have no GPU.
-fn select_adapter(adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>>, software_only: bool) -> Result<wgpu::Adapter, String> {
+fn select_adapter(
+    adapters: &[wgpu::Adapter],
+    surface: Option<&wgpu::Surface<'_>>,
+    software_only: bool,
+) -> Result<wgpu::Adapter, String> {
     let rank = |t: wgpu::DeviceType| match t {
         wgpu::DeviceType::DiscreteGpu => 0,
         wgpu::DeviceType::IntegratedGpu => 1,
@@ -149,8 +160,9 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                tracing_subscriber::EnvFilter::new("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")
+            }),
         )
         .init();
     let args = parse_args()?;
@@ -181,17 +193,24 @@ fn main() -> Result<()> {
             options.renderer = eframe::Renderer::Wgpu;
             let software_only = args.renderer == Renderer::Warp;
             let mut setup = WgpuSetupCreateNew::without_display_handle();
-            setup.native_adapter_selector = Some(Arc::new(move |adapters, surface| select_adapter(adapters, surface, software_only)));
+            setup.native_adapter_selector = Some(Arc::new(move |adapters, surface| {
+                select_adapter(adapters, surface, software_only)
+            }));
             options.wgpu_options.wgpu_setup = WgpuSetup::CreateNew(setup);
         }
     }
 
-    let manifest = std::env::var("EZSSH_UPDATE_MANIFEST").ok().filter(|v| !v.is_empty());
+    let manifest = std::env::var("EZSSH_UPDATE_MANIFEST")
+        .ok()
+        .filter(|v| !v.is_empty());
     if let Some(m) = &manifest {
         tracing::warn!(manifest = %m, "ezssh: update manifest overridden (signatures are still checked)");
     }
     let updater = ezssh_core::updater::Config::new(ezssh_core::updater::detect(), manifest);
-    let app_options = ezssh_app::Options { db_path, updater: Some(updater) };
+    let app_options = ezssh_app::Options {
+        db_path,
+        updater: Some(updater),
+    };
     eframe::run_native(
         "ezssh",
         options,

@@ -1,4 +1,3 @@
-
 use crate::api::require_unlocked;
 use crate::error::Result;
 use crate::state::AppState;

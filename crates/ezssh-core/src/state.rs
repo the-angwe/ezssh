@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicU32};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU32};
 
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
@@ -105,11 +105,12 @@ impl AppState {
 /// root from `directories`). Kept from ezTerm so ezSsh opens the database
 /// an ezTerm install left behind.
 pub fn default_db_path() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("com", "ZerosAndOnes", "ezTerm").ok_or_else(|| {
-        AppError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "no platform data directory (home directory unknown)",
-        ))
-    })?;
+    let dirs =
+        directories::ProjectDirs::from("com", "ZerosAndOnes", "ezTerm").ok_or_else(|| {
+            AppError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no platform data directory (home directory unknown)",
+            ))
+        })?;
     Ok(dirs.data_local_dir().join("ezterm.sqlite"))
 }

@@ -45,7 +45,9 @@ impl CredCache {
                         app.creds.list = list;
                         app.creds.generation += 1;
                     }
-                    Err(e) => app.toasts.danger("Could not load credentials", e.to_string()),
+                    Err(e) => app
+                        .toasts
+                        .danger("Could not load credentials", e.to_string()),
                 }
             },
         );

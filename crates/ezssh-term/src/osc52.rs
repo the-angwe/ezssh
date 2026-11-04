@@ -48,7 +48,11 @@ pub fn parse(selection: &[u8], payload: &[u8]) -> Request {
     }
     // Whitespace is tolerated (some senders wrap long payloads), and so is
     // missing padding (Rust's STANDARD_NO_PAD, Go's RawStdEncoding).
-    let stripped: Vec<u8> = payload.iter().copied().filter(|b| !b.is_ascii_whitespace()).collect();
+    let stripped: Vec<u8> = payload
+        .iter()
+        .copied()
+        .filter(|b| !b.is_ascii_whitespace())
+        .collect();
     let pad = stripped.iter().rev().take_while(|&&b| b == b'=').count();
     let body = &stripped[..stripped.len() - pad];
     if pad > 2 || stripped.len() % 4 == 1 || !body.iter().all(|&b| sextet(b).is_some()) {
@@ -104,7 +108,9 @@ mod tests {
         const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut out = String::new();
         for c in s.as_bytes().chunks(3) {
-            let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+            let n = (c[0] as u32) << 16
+                | (*c.get(1).unwrap_or(&0) as u32) << 8
+                | *c.get(2).unwrap_or(&0) as u32;
             for i in 0..4 {
                 if i <= c.len() {
                     out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
@@ -161,7 +167,10 @@ mod tests {
             .enumerate()
             .flat_map(|(i, c)| if i % 8 == 7 { vec![c, '\n'] } else { vec![c] })
             .collect();
-        assert_eq!(p("c", &wrapped), Request::Write("a somewhat longer string".into()));
+        assert_eq!(
+            p("c", &wrapped),
+            Request::Write("a somewhat longer string".into())
+        );
     }
 
     #[test]

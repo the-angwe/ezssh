@@ -108,10 +108,10 @@ initial_command, scrollback_lines, font_size, font_family, cursor_style, compres
 keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<Session>> {
-    let sql = format!(
-        "SELECT {SELECT_COLS} FROM sessions ORDER BY folder_id, sort, id"
-    );
-    Ok(sqlx::query_as::<_, Session>(AssertSqlSafe(sql)).fetch_all(pool).await?)
+    let sql = format!("SELECT {SELECT_COLS} FROM sessions ORDER BY folder_id, sort, id");
+    Ok(sqlx::query_as::<_, Session>(AssertSqlSafe(sql))
+        .fetch_all(pool)
+        .await?)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Session> {
@@ -130,7 +130,10 @@ pub async fn env_get(pool: &SqlitePool, session_id: i64) -> Result<Vec<EnvPair>>
     .bind(session_id)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|(key, value)| EnvPair { key, value }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|(key, value)| EnvPair { key, value })
+        .collect())
 }
 
 async fn env_replace(
@@ -162,7 +165,11 @@ pub async fn create(pool: &SqlitePool, input: &SessionInput) -> Result<Session> 
 }
 
 /// [`create`] plus the session's own password, in one transaction.
-pub async fn create_with(pool: &SqlitePool, input: &SessionInput, password: &PasswordOp) -> Result<Session> {
+pub async fn create_with(
+    pool: &SqlitePool,
+    input: &SessionInput,
+    password: &PasswordOp,
+) -> Result<Session> {
     let mut tx = pool.begin().await?;
     let id = sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
@@ -206,7 +213,12 @@ pub async fn update(pool: &SqlitePool, id: i64, input: &SessionInput) -> Result<
 }
 
 /// [`update`] plus the session's own password, in one transaction.
-pub async fn update_with(pool: &SqlitePool, id: i64, input: &SessionInput, password: &PasswordOp) -> Result<Session> {
+pub async fn update_with(
+    pool: &SqlitePool,
+    id: i64,
+    input: &SessionInput,
+    password: &PasswordOp,
+) -> Result<Session> {
     let mut tx = pool.begin().await?;
     let n = sqlx::query(
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
@@ -264,11 +276,15 @@ async fn bind_password(
         .fetch_optional(&mut **tx)
         .await?;
     if input.auth_type != "password" {
-        for slot in [input.credential_id, input.key_passphrase_credential_id].into_iter().flatten() {
-            let owner: Option<Option<i64>> = sqlx::query_scalar("SELECT session_id FROM credentials WHERE id = ?")
-                .bind(slot)
-                .fetch_optional(&mut **tx)
-                .await?;
+        for slot in [input.credential_id, input.key_passphrase_credential_id]
+            .into_iter()
+            .flatten()
+        {
+            let owner: Option<Option<i64>> =
+                sqlx::query_scalar("SELECT session_id FROM credentials WHERE id = ?")
+                    .bind(slot)
+                    .fetch_optional(&mut **tx)
+                    .await?;
             if matches!(owner, Some(Some(_))) {
                 return Err(crate::error::AppError::Validation(
                     "that credential is a session password, not a shared key".into(),
@@ -276,22 +292,33 @@ async fn bind_password(
             }
         }
         if let Some(o) = owned {
-            tracing::debug!(session = id, credential = o, "sessions: auth type changed, dropping the session password");
-            sqlx::query("DELETE FROM credentials WHERE id = ?").bind(o).execute(&mut **tx).await?;
+            tracing::debug!(
+                session = id,
+                credential = o,
+                "sessions: auth type changed, dropping the session password"
+            );
+            sqlx::query("DELETE FROM credentials WHERE id = ?")
+                .bind(o)
+                .execute(&mut **tx)
+                .await?;
         }
         return Ok(());
     }
     let bound = match op {
-        PasswordOp::Set { nonce, ciphertext } => Some(store_own(tx, id, &input.name, owned, nonce, ciphertext).await?),
+        PasswordOp::Set { nonce, ciphertext } => {
+            Some(store_own(tx, id, &input.name, owned, nonce, ciphertext).await?)
+        }
         // `credential_id` is ignored here: a password session only ever
         // uses its own row.
         PasswordOp::Keep => owned,
     };
-    sqlx::query("UPDATE sessions SET credential_id = ?, key_passphrase_credential_id = NULL WHERE id = ?")
-        .bind(bound)
-        .bind(id)
-        .execute(&mut **tx)
-        .await?;
+    sqlx::query(
+        "UPDATE sessions SET credential_id = ?, key_passphrase_credential_id = NULL WHERE id = ?",
+    )
+    .bind(bound)
+    .bind(id)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -329,18 +356,19 @@ async fn store_own(
 /// cascade, as `vault::reset` does).
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM credentials WHERE session_id = ?").bind(id).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM sessions WHERE id = ?").bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM credentials WHERE session_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM sessions WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }
 
-pub async fn mv(
-    pool: &SqlitePool,
-    id: i64,
-    folder_id: Option<i64>,
-    sort: i64,
-) -> Result<()> {
+pub async fn mv(pool: &SqlitePool, id: i64, folder_id: Option<i64>, sort: i64) -> Result<()> {
     sqlx::query("UPDATE sessions SET folder_id = ?, sort = ? WHERE id = ?")
         .bind(folder_id)
         .bind(sort)
@@ -487,8 +515,14 @@ mod tests {
         src.port = 2222;
         src.color = Some("#ff0000".into());
         src.env = vec![
-            EnvPair { key: "LANG".into(), value: "C.UTF-8".into() },
-            EnvPair { key: "TERM".into(), value: "xterm-256color".into() },
+            EnvPair {
+                key: "LANG".into(),
+                value: "C.UTF-8".into(),
+            },
+            EnvPair {
+                key: "TERM".into(),
+                value: "xterm-256color".into(),
+            },
         ];
         let s = create(&p, &src).await.unwrap();
 
@@ -517,11 +551,19 @@ mod tests {
         };
         crate::db::forwards::create(&p, s.id, &fwd).await.unwrap();
         let dupe2 = duplicate(&p, s.id).await.unwrap();
-        let copied = crate::db::forwards::list_for_session(&p, dupe2.id).await.unwrap();
+        let copied = crate::db::forwards::list_for_session(&p, dupe2.id)
+            .await
+            .unwrap();
         assert_eq!(copied.len(), 1);
         assert_eq!(copied[0].bind_port, 15432);
         assert_eq!(copied[0].dest_addr, "db.internal");
-        assert_eq!(crate::db::forwards::list_for_session(&p, s.id).await.unwrap().len(), 1);
+        assert_eq!(
+            crate::db::forwards::list_for_session(&p, s.id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         // Unknown source id surfaces as NotFound with nothing inserted.
         assert!(matches!(
@@ -541,7 +583,10 @@ mod tests {
         let mut upd = input("alpha2");
         upd.port = 2222;
         upd.keepalive_secs = 60;
-        upd.env = vec![EnvPair { key: "LANG".into(), value: "C.UTF-8".into() }];
+        upd.env = vec![EnvPair {
+            key: "LANG".into(),
+            value: "C.UTF-8".into(),
+        }];
         update(&p, s.id, &upd).await.unwrap();
         let got = get(&p, s.id).await.unwrap();
         assert_eq!(got.port, 2222);

@@ -4,42 +4,43 @@
 use std::io::{Read, Write};
 use std::thread;
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use tokio::sync::mpsc;
 
+use super::{Connection, LocalInput, WslMeta};
 use crate::error::{AppError, Result};
 use crate::events::{CloseReason, Event, Output};
 use crate::state::AppState;
-use super::{Connection, LocalInput, WslMeta};
 
 pub struct SpawnRequest {
     /// "wsl" or "local".
-    pub kind:     String,
+    pub kind: String,
     /// For wsl: distro name (empty = default distro). For local: shell
     /// short-name ('cmd' / 'pwsh' / 'powershell') or absolute path.
-    pub program:  String,
+    pub program: String,
     /// For wsl: optional user (empty = distro default). For local: optional
     /// starting directory (empty = process cwd).
-    pub extra:    String,
+    pub extra: String,
     /// For wsl: optional Linux starting dir passed as `wsl.exe --cd
     /// <value>`; empty/None falls back to `~` so users land in their
     /// Linux home. Ignored for local (cmd/pwsh) rows — those continue
     /// to use `extra` as the Windows cwd.
     pub starting_dir: Option<String>,
-    pub cols:     u16,
-    pub rows:     u16,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 pub struct SpawnOutcome {
     pub connection_id: u64,
 }
 
-pub async fn spawn(
-    state: &AppState,
-    req: SpawnRequest,
-    output: Output,
-) -> Result<SpawnOutcome> {
-    let cmd = build_command(&req.kind, &req.program, &req.extra, req.starting_dir.as_deref())?;
+pub async fn spawn(state: &AppState, req: SpawnRequest, output: Output) -> Result<SpawnOutcome> {
+    let cmd = build_command(
+        &req.kind,
+        &req.program,
+        &req.extra,
+        req.starting_dir.as_deref(),
+    )?;
     let id = state.local.alloc_id();
     // For WSL tabs, capture distro + user so the file browser can resolve
     // `\\wsl.localhost\<distro>\` paths and run `wsl.exe -d <distro> -u
@@ -50,7 +51,11 @@ pub async fn spawn(
         let user = req.extra.trim();
         Some(WslMeta {
             distro: req.program.trim().to_string(),
-            user:   if user.is_empty() { None } else { Some(user.to_string()) },
+            user: if user.is_empty() {
+                None
+            } else {
+                Some(user.to_string())
+            },
         })
     } else {
         None
@@ -104,7 +109,10 @@ pub async fn spawn(
                 Ok(n) => {
                     if !output.send(&buf[..n]) && !consumer_gone {
                         consumer_gone = true;
-                        tracing::debug!(connection_id = reader_id, "local: output consumer gone, dropping output until close");
+                        tracing::debug!(
+                            connection_id = reader_id,
+                            "local: output consumer gone, dropping output until close"
+                        );
                     }
                 }
                 Err(e) => {
@@ -113,7 +121,10 @@ pub async fn spawn(
                 }
             }
         }
-        reader_events.emit(Event::Closed { connection_id: reader_id, reason: CloseReason::Ended });
+        reader_events.emit(Event::Closed {
+            connection_id: reader_id,
+            reason: CloseReason::Ended,
+        });
         // Let the writer thread reap the child; it is a no-op if the UI's
         // disconnect already arrived.
         let _ = reaper_tx.send(LocalInput::Close);
@@ -146,13 +157,17 @@ pub async fn spawn(
         // Kill first: a shell with a foreground program would otherwise
         // survive the writer's VEOF and the reader would never see EOF.
         match child.try_wait() {
-            Ok(Some(status)) => tracing::debug!(connection_id = id, %status, "local: child already exited"),
+            Ok(Some(status)) => {
+                tracing::debug!(connection_id = id, %status, "local: child already exited")
+            }
             Ok(None) => {
                 if let Err(e) = child.kill() {
                     tracing::warn!(connection_id = id, "local: kill failed: {e}");
                 }
                 match child.wait() {
-                    Ok(status) => tracing::debug!(connection_id = id, %status, "local: child reaped"),
+                    Ok(status) => {
+                        tracing::debug!(connection_id = id, %status, "local: child reaped")
+                    }
                     Err(e) => tracing::warn!(connection_id = id, "local: wait failed: {e}"),
                 }
             }
@@ -205,7 +220,9 @@ fn build_command(
             Ok(c)
         }
         "local" => build_local_command(program, extra),
-        _ => Err(AppError::Validation(format!("invalid session kind: {kind}"))),
+        _ => Err(AppError::Validation(format!(
+            "invalid session kind: {kind}"
+        ))),
     }
 }
 

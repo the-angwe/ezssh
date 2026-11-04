@@ -64,7 +64,11 @@ struct Parsed {
 }
 
 fn parse(args: &[String], with_value: &[&str], bool_flags: &[&str]) -> Result<Parsed> {
-    let mut p = Parsed { opts: Vec::new(), flags: Vec::new(), files: Vec::new() };
+    let mut p = Parsed {
+        opts: Vec::new(),
+        flags: Vec::new(),
+        files: Vec::new(),
+    };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if with_value.contains(&a.as_str()) {
@@ -83,7 +87,11 @@ fn parse(args: &[String], with_value: &[&str], bool_flags: &[&str]) -> Result<Pa
 
 impl Parsed {
     fn get(&self, k: &str) -> Option<&str> {
-        self.opts.iter().rev().find(|(n, _)| n == k).map(|(_, v)| v.as_str())
+        self.opts
+            .iter()
+            .rev()
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.as_str())
     }
     fn need(&self, k: &str) -> Result<&str> {
         self.get(k).ok_or_else(|| anyhow!("{k} is required"))
@@ -142,7 +150,8 @@ fn write_private(path: &Path, text: &str) -> Result<()> {
         .mode(0o600)
         .open(path)
         .with_context(|| format!("creating {}", path.display()))?;
-    f.write_all(text.as_bytes()).with_context(|| format!("writing {}", path.display()))
+    f.write_all(text.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))
 }
 
 #[cfg(not(unix))]
@@ -151,7 +160,10 @@ fn write_private(path: &Path, text: &str) -> Result<()> {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn sign(args: &[String]) -> Result<()> {
@@ -160,7 +172,8 @@ fn sign(args: &[String]) -> Result<()> {
     if p.files.is_empty() {
         bail!("no files to sign");
     }
-    let key = env_opt("EZSSH_SIGNING_KEY").ok_or_else(|| anyhow!("EZSSH_SIGNING_KEY is not set"))?;
+    let key =
+        env_opt("EZSSH_SIGNING_KEY").ok_or_else(|| anyhow!("EZSSH_SIGNING_KEY is not set"))?;
     let sk = rel::load_secret_key(&key, env_opt("EZSSH_SIGNING_KEY_PASSWORD"))?;
     let ts = now();
     for f in &p.files {
@@ -188,20 +201,35 @@ fn verify(args: &[String]) -> Result<()> {
     }
     for f in &p.files {
         let sp = sig_path(f);
-        let sig = std::fs::read_to_string(&sp).with_context(|| format!("reading {}", sp.display()))?;
+        let sig =
+            std::fs::read_to_string(&sp).with_context(|| format!("reading {}", sp.display()))?;
         let data = std::fs::File::open(f).with_context(|| format!("opening {}", f.display()))?;
         let comment = rel::verify(&pk, std::io::BufReader::new(data), &sig)
             .with_context(|| format!("{}", f.display()))?;
         match rel::signed_version(&comment) {
             Some(v) if v == version => eprintln!("ok {}", f.display()),
-            other => bail!("{} was signed for version {other:?}, not {version}", f.display()),
+            other => bail!(
+                "{} was signed for version {other:?}, not {version}",
+                f.display()
+            ),
         }
     }
     Ok(())
 }
 
 fn manifest(args: &[String]) -> Result<()> {
-    let p = parse(args, &["--dir", "--version", "--base-url", "--notes", "--pub-date", "--out"], &[])?;
+    let p = parse(
+        args,
+        &[
+            "--dir",
+            "--version",
+            "--base-url",
+            "--notes",
+            "--pub-date",
+            "--out",
+        ],
+        &[],
+    )?;
     let dir = PathBuf::from(p.need("--dir")?);
     let version = rel::normalise_version(p.need("--version")?)?;
     let base = p.need("--base-url")?;
@@ -221,7 +249,10 @@ fn manifest(args: &[String]) -> Result<()> {
         }
         None => String::new(),
     };
-    let pub_date = p.get("--pub-date").map(str::to_string).unwrap_or_else(|| rel::rfc3339(now()));
+    let pub_date = p
+        .get("--pub-date")
+        .map(str::to_string)
+        .unwrap_or_else(|| rel::rfc3339(now()));
 
     let mut assets = Vec::new();
     let mut names: Vec<String> = std::fs::read_dir(&dir)
@@ -235,14 +266,25 @@ fn manifest(args: &[String]) -> Result<()> {
         }
         let sp = dir.join(format!("{name}.sig"));
         match std::fs::read_to_string(&sp) {
-            Ok(sig) => assets.push(rel::Signed { file_name: name, signature: sig.trim().to_string() }),
+            Ok(sig) => assets.push(rel::Signed {
+                file_name: name,
+                signature: sig.trim().to_string(),
+            }),
             Err(e) => eprintln!("skip {name}: no signature ({e})"),
         }
     }
     let m = rel::manifest(&version, &notes, &pub_date, base, &assets)?;
-    let out = p.get("--out").map(PathBuf::from).unwrap_or_else(|| dir.join("latest.json"));
+    let out = p
+        .get("--out")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dir.join("latest.json"));
     let text = serde_json::to_string_pretty(&m).context("encoding latest.json")?;
-    std::fs::write(&out, format!("{text}\n")).with_context(|| format!("writing {}", out.display()))?;
-    eprintln!("wrote {} ({} platform keys)", out.display(), m["platforms"].as_object().map_or(0, |o| o.len()));
+    std::fs::write(&out, format!("{text}\n"))
+        .with_context(|| format!("writing {}", out.display()))?;
+    eprintln!(
+        "wrote {} ({} platform keys)",
+        out.display(),
+        m["platforms"].as_object().map_or(0, |o| o.len())
+    );
     Ok(())
 }

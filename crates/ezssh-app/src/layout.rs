@@ -45,7 +45,10 @@ impl Default for TileGrid {
 
 impl TileGrid {
     pub fn clamped(rows: i64, cols: i64) -> Self {
-        Self { rows: rows.clamp(1, 8) as u8, cols: cols.clamp(1, 8) as u8 }
+        Self {
+            rows: rows.clamp(1, 8) as u8,
+            cols: cols.clamp(1, 8) as u8,
+        }
     }
 }
 
@@ -57,13 +60,20 @@ pub struct SftpColumns {
 
 impl Default for SftpColumns {
     fn default() -> Self {
-        Self { name: SFTP_COL_NAME.2, size: SFTP_COL_SIZE.2 }
+        Self {
+            name: SFTP_COL_NAME.2,
+            size: SFTP_COL_SIZE.2,
+        }
     }
 }
 
 /// Clamp a column width to its bounds; non-finite input gives the default.
 pub fn clamp_col((min, max, default): (f32, f32, f32), w: f32) -> f32 {
-    if w.is_finite() { w.clamp(min, max).round() } else { default }
+    if w.is_finite() {
+        w.clamp(min, max).round()
+    } else {
+        default
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -103,7 +113,8 @@ struct Stored {
 }
 
 fn in_range(v: Option<f64>, min: f32, max: f32) -> Option<f32> {
-    v.filter(|v| v.is_finite() && *v >= min as f64 && *v <= max as f64).map(|v| v.round() as f32)
+    v.filter(|v| v.is_finite() && *v >= min as f64 && *v <= max as f64)
+        .map(|v| v.round() as f32)
 }
 
 impl Layout {
@@ -120,7 +131,12 @@ impl Layout {
         let tile_grid = stored
             .tile_grid
             .map(|v| {
-                let n = |k: &str| v.get(k).and_then(|x| x.as_f64()).filter(|x| x.is_finite() && *x >= 1.0).map(|x| x as i64);
+                let n = |k: &str| {
+                    v.get(k)
+                        .and_then(|x| x.as_f64())
+                        .filter(|x| x.is_finite() && *x >= 1.0)
+                        .map(|x| x as i64)
+                };
                 TileGrid::clamped(n("rows").unwrap_or(2), n("cols").unwrap_or(2))
             })
             .unwrap_or(d.tile_grid);
@@ -129,15 +145,24 @@ impl Layout {
                 let col = |k: &str, (min, max, default): (f32, f32, f32)| {
                     in_range(v.get(k).and_then(|x| x.as_f64()), min, max).unwrap_or(default)
                 };
-                SftpColumns { name: col("name", SFTP_COL_NAME), size: col("size", SFTP_COL_SIZE) }
+                SftpColumns {
+                    name: col("name", SFTP_COL_NAME),
+                    size: col("size", SFTP_COL_SIZE),
+                }
             }
             None => d.sftp_columns,
         };
         Self {
-            view_mode: stored.view_mode.as_deref().and_then(ViewMode::from_id).unwrap_or(d.view_mode),
+            view_mode: stored
+                .view_mode
+                .as_deref()
+                .and_then(ViewMode::from_id)
+                .unwrap_or(d.view_mode),
             tile_grid,
-            sidebar_width: in_range(stored.sidebar_width, SIDEBAR_MIN, SIDEBAR_MAX).unwrap_or(d.sidebar_width),
-            sftp_pane_width: in_range(stored.sftp_pane_width, SFTP_PANE_MIN, SFTP_PANE_MAX).unwrap_or(d.sftp_pane_width),
+            sidebar_width: in_range(stored.sidebar_width, SIDEBAR_MIN, SIDEBAR_MAX)
+                .unwrap_or(d.sidebar_width),
+            sftp_pane_width: in_range(stored.sftp_pane_width, SFTP_PANE_MIN, SFTP_PANE_MAX)
+                .unwrap_or(d.sftp_pane_width),
             sftp_columns,
             last_update_check: stored.last_update_check.filter(|t| *t > 0),
         }
@@ -146,10 +171,14 @@ impl Layout {
     pub fn to_json(&self) -> String {
         let stored = Stored {
             view_mode: Some(self.view_mode.id().to_string()),
-            tile_grid: Some(serde_json::json!({ "rows": self.tile_grid.rows, "cols": self.tile_grid.cols })),
+            tile_grid: Some(
+                serde_json::json!({ "rows": self.tile_grid.rows, "cols": self.tile_grid.cols }),
+            ),
             sidebar_width: Some(self.sidebar_width as f64),
             sftp_pane_width: Some(self.sftp_pane_width as f64),
-            sftp_columns: Some(serde_json::json!({ "name": self.sftp_columns.name, "size": self.sftp_columns.size })),
+            sftp_columns: Some(
+                serde_json::json!({ "name": self.sftp_columns.name, "size": self.sftp_columns.size }),
+            ),
             last_update_check: self.last_update_check,
         };
         match serde_json::to_string_pretty(&stored) {
@@ -213,7 +242,10 @@ mod tests {
             tile_grid: TileGrid { rows: 3, cols: 4 },
             sidebar_width: 300.0,
             sftp_pane_width: 400.0,
-            sftp_columns: SftpColumns { name: 300.0, size: 90.0 },
+            sftp_columns: SftpColumns {
+                name: 300.0,
+                size: 90.0,
+            },
             last_update_check: Some(1_793_181_296),
         };
         assert_eq!(Layout::parse(&l.to_json()), l);
@@ -230,7 +262,13 @@ mod tests {
         assert_eq!(l.tile_grid, TileGrid { rows: 8, cols: 2 });
         assert_eq!(l.sidebar_width, SIDEBAR_DEFAULT);
         assert_eq!(l.sftp_pane_width, 300.0);
-        assert_eq!(l.sftp_columns, SftpColumns { name: SFTP_COL_NAME.2, size: 100.0 });
+        assert_eq!(
+            l.sftp_columns,
+            SftpColumns {
+                name: SFTP_COL_NAME.2,
+                size: 100.0
+            }
+        );
     }
 
     #[test]
@@ -248,7 +286,10 @@ mod tests {
         let path = path_for(&dir.path().join("ezterm.sqlite"));
         assert_eq!(path.file_name().unwrap(), "layout.json");
         assert_eq!(load(&path), Layout::default(), "missing file");
-        let l = Layout { sidebar_width: 333.0, ..Layout::default() };
+        let l = Layout {
+            sidebar_width: 333.0,
+            ..Layout::default()
+        };
         save(&path, &l).unwrap();
         assert_eq!(load(&path), l);
     }

@@ -4,7 +4,10 @@
 
 use std::collections::HashMap;
 
-use egui::{Align, Color32, CornerRadius, Frame, Id, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2};
+use egui::{
+    Align, Color32, CornerRadius, Frame, Id, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke,
+    Ui, vec2,
+};
 use ezssh_term::palette::{self, Palette};
 
 use crate::app::App;
@@ -66,36 +69,71 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let size_w = W.min(ctx.content_rect().width() - 32.0);
     let size_h = H.min(ctx.content_rect().height() - 32.0);
     let id = Id::unique("settings");
-    let resp = egui::Modal::new(id).backdrop_color(Color32::from_black_alpha(128)).frame(widgets::dialog_frame(t)).show(ctx, |ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(size_w, size_h), Sense::hover());
-        let header = Rect::from_min_size(rect.min, vec2(size_w, widgets::DIALOG_HEAD_H));
-        if widgets::dialog_header(ui, id, header, None, t.accent, "Settings", Some("Changes save automatically"), false, false) {
-            close = true;
-        }
-        // Navigation.
-        let nav = Rect::from_min_max(Pos2::new(rect.left(), header.bottom()), Pos2::new(rect.left() + NAV_W, rect.bottom()));
-        ui.painter().vline(nav.right() - 0.5, nav.y_range(), Stroke::new(1.0, t.border));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(nav.shrink2(vec2(8.0, 12.0))), |ui| {
-            widgets::nav_rail(ui, NAV_W - 16.0, &SECTIONS, &mut dlg.section);
-        });
-        // Content.
-        let content = Rect::from_min_max(Pos2::new(nav.right(), header.bottom()), rect.max);
-        ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                Frame::new().inner_margin(Margin { left: 24, right: 24, top: 20, bottom: 24 }).show(ui, |ui| {
-                    ui.set_width(content.width() - 48.0);
-                    let mut s = Sec { ui, app, drafts: &mut dlg.drafts, font_custom: &mut dlg.font_custom, changes: &mut changes };
-                    match dlg.section {
-                        Section::Appearance => s.appearance(),
-                        Section::Terminal => s.terminal(),
-                        Section::Sessions => s.sessions(),
-                        Section::Updates => s.updates(),
-                        Section::Security => s.security(),
-                    }
-                });
+    let resp = egui::Modal::new(id)
+        .backdrop_color(Color32::from_black_alpha(128))
+        .frame(widgets::dialog_frame(t))
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(vec2(size_w, size_h), Sense::hover());
+            let header = Rect::from_min_size(rect.min, vec2(size_w, widgets::DIALOG_HEAD_H));
+            if widgets::dialog_header(
+                ui,
+                id,
+                header,
+                None,
+                t.accent,
+                "Settings",
+                Some("Changes save automatically"),
+                false,
+                false,
+            ) {
+                close = true;
+            }
+            // Navigation.
+            let nav = Rect::from_min_max(
+                Pos2::new(rect.left(), header.bottom()),
+                Pos2::new(rect.left() + NAV_W, rect.bottom()),
+            );
+            ui.painter()
+                .vline(nav.right() - 0.5, nav.y_range(), Stroke::new(1.0, t.border));
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(nav.shrink2(vec2(8.0, 12.0))),
+                |ui| {
+                    widgets::nav_rail(ui, NAV_W - 16.0, &SECTIONS, &mut dlg.section);
+                },
+            );
+            // Content.
+            let content = Rect::from_min_max(Pos2::new(nav.right(), header.bottom()), rect.max);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        Frame::new()
+                            .inner_margin(Margin {
+                                left: 24,
+                                right: 24,
+                                top: 20,
+                                bottom: 24,
+                            })
+                            .show(ui, |ui| {
+                                ui.set_width(content.width() - 48.0);
+                                let mut s = Sec {
+                                    ui,
+                                    app,
+                                    drafts: &mut dlg.drafts,
+                                    font_custom: &mut dlg.font_custom,
+                                    changes: &mut changes,
+                                };
+                                match dlg.section {
+                                    Section::Appearance => s.appearance(),
+                                    Section::Terminal => s.terminal(),
+                                    Section::Sessions => s.sessions(),
+                                    Section::Updates => s.updates(),
+                                    Section::Security => s.security(),
+                                }
+                            });
+                    });
             });
         });
-    });
     if resp.should_close() {
         close = true;
     }
@@ -124,13 +162,20 @@ impl Sec<'_, '_> {
     fn appearance(&mut self) {
         self.group("Appearance", None, |s| {
             let theme = s.app.theme;
-            s.row("Theme", Some("Window chrome only; pick the terminal colours below."), |s, ui| {
-                let mut chosen = theme;
-                let items = [Segment::text(Theme::Dark, "Dark").with_icon(Icon::Moon), Segment::text(Theme::Light, "Light").with_icon(Icon::Sun)];
-                if widgets::segmented(ui, Id::unique("settings-theme"), &mut chosen, &items) {
-                    s.changes.push(Change::Theme(chosen));
-                }
-            });
+            s.row(
+                "Theme",
+                Some("Window chrome only; pick the terminal colours below."),
+                |s, ui| {
+                    let mut chosen = theme;
+                    let items = [
+                        Segment::text(Theme::Dark, "Dark").with_icon(Icon::Moon),
+                        Segment::text(Theme::Light, "Light").with_icon(Icon::Sun),
+                    ];
+                    if widgets::segmented(ui, Id::unique("settings-theme"), &mut chosen, &items) {
+                        s.changes.push(Change::Theme(chosen));
+                    }
+                },
+            );
             s.enum_row(
                 "appearance.tabLabel",
                 "Tab label",
@@ -142,13 +187,34 @@ impl Sec<'_, '_> {
     }
 
     fn terminal(&mut self) {
-        self.group("Defaults for new sessions", Some("Each session can override these in its own dialog."), |s| {
-            s.int_row("terminal.scrollback", "Scrollback lines", Some("0 disables scrollback."));
-            s.int_row("terminal.fontSize", "Font size", None);
-            s.font_family_row("terminal.fontFamily", "Font family");
-            s.enum_row("terminal.cursorStyle", "Cursor style", None, &[("block", "Block"), ("underline", "Underline"), ("bar", "Bar")]);
-            s.bool_row("terminal.cursorBlink", "Cursor blink", Some("Applies to tabs opened after the change."));
-        });
+        self.group(
+            "Defaults for new sessions",
+            Some("Each session can override these in its own dialog."),
+            |s| {
+                s.int_row(
+                    "terminal.scrollback",
+                    "Scrollback lines",
+                    Some("0 disables scrollback."),
+                );
+                s.int_row("terminal.fontSize", "Font size", None);
+                s.font_family_row("terminal.fontFamily", "Font family");
+                s.enum_row(
+                    "terminal.cursorStyle",
+                    "Cursor style",
+                    None,
+                    &[
+                        ("block", "Block"),
+                        ("underline", "Underline"),
+                        ("bar", "Bar"),
+                    ],
+                );
+                s.bool_row(
+                    "terminal.cursorBlink",
+                    "Cursor blink",
+                    Some("Applies to tabs opened after the change."),
+                );
+            },
+        );
         self.group("Mouse and clipboard", None, |s| {
             s.bool_row("terminal.copyOnSelect", "Copy on select", Some("Selecting text copies it immediately."));
             s.enum_row(
@@ -169,24 +235,53 @@ impl Sec<'_, '_> {
             );
         });
         self.group("Bell", None, |s| {
-            s.enum_row("terminal.bell", "On bell", None, &[("none", "Do nothing"), ("visual", "Flash the terminal"), ("sound", "Play a beep")]);
+            s.enum_row(
+                "terminal.bell",
+                "On bell",
+                None,
+                &[
+                    ("none", "Do nothing"),
+                    ("visual", "Flash the terminal"),
+                    ("sound", "Play a beep"),
+                ],
+            );
         });
     }
 
     fn sessions(&mut self) {
         self.group("Tabs", None, |s| {
-            s.bool_row("sessions.confirmCloseLive", "Confirm before closing a connected tab", None);
-            s.bool_row("sessions.confirmExit", "Confirm before quitting with connected tabs", None);
-            s.bool_row("sessions.autoOpenSftp", "Open the file pane when a session connects", Some("SSH and WSL tabs."));
-        });
-        self.group("Defaults for new sessions", Some("Each session can override these in its own dialog."), |s| {
-            s.int_row(
-                "sessions.keepaliveSecs",
-                "Keepalive interval (seconds)",
-                Some("0 disables. Keeps idle connections alive through NAT and firewalls."),
+            s.bool_row(
+                "sessions.confirmCloseLive",
+                "Confirm before closing a connected tab",
+                None,
             );
-            s.int_row("sessions.connectTimeoutSecs", "Connect timeout (seconds)", None);
+            s.bool_row(
+                "sessions.confirmExit",
+                "Confirm before quitting with connected tabs",
+                None,
+            );
+            s.bool_row(
+                "sessions.autoOpenSftp",
+                "Open the file pane when a session connects",
+                Some("SSH and WSL tabs."),
+            );
         });
+        self.group(
+            "Defaults for new sessions",
+            Some("Each session can override these in its own dialog."),
+            |s| {
+                s.int_row(
+                    "sessions.keepaliveSecs",
+                    "Keepalive interval (seconds)",
+                    Some("0 disables. Keeps idle connections alive through NAT and firewalls."),
+                );
+                s.int_row(
+                    "sessions.connectTimeoutSecs",
+                    "Connect timeout (seconds)",
+                    None,
+                );
+            },
+        );
     }
 
     fn updates(&mut self) {
@@ -231,13 +326,20 @@ impl Sec<'_, '_> {
         if !first {
             self.ui.add_space(20.0);
             let r = self.ui.available_rect_before_wrap();
-            self.ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, t.border));
+            self.ui
+                .painter()
+                .hline(r.x_range(), r.top(), Stroke::new(1.0, t.border));
             self.ui.add_space(20.0);
         }
-        self.ui.label(RichText::new(title).font(font_semibold(size::MD)).color(t.fg));
+        self.ui.label(
+            RichText::new(title)
+                .font(font_semibold(size::MD))
+                .color(t.fg),
+        );
         if let Some(h) = hint {
             self.ui.add_space(2.0);
-            self.ui.label(RichText::new(h).font(font(size::SM)).color(t.muted));
+            self.ui
+                .label(RichText::new(h).font(font(size::SM)).color(t.muted));
         }
         self.ui.add_space(6.0);
         body(self);
@@ -249,16 +351,26 @@ impl Sec<'_, '_> {
         let width = self.ui.available_width();
         let top = self.ui.cursor().min;
         let text_w = (width - CONTROL_W - 16.0).max(160.0);
-        let text = self.ui.allocate_ui_with_layout(vec2(text_w, 0.0), Layout::top_down(Align::Min), |ui| {
-            ui.set_width(text_w);
-            ui.add_space(10.0);
-            ui.add(egui::Label::new(RichText::new(label).font(font(size::BASE)).color(t.fg)).wrap());
-            if let Some(h) = hint {
-                ui.add_space(2.0);
-                ui.add(egui::Label::new(RichText::new(h).font(font(size::SM)).color(t.muted)).wrap());
-            }
-            ui.add_space(10.0);
-        });
+        let text = self.ui.allocate_ui_with_layout(
+            vec2(text_w, 0.0),
+            Layout::top_down(Align::Min),
+            |ui| {
+                ui.set_width(text_w);
+                ui.add_space(10.0);
+                ui.add(
+                    egui::Label::new(RichText::new(label).font(font(size::BASE)).color(t.fg))
+                        .wrap(),
+                );
+                if let Some(h) = hint {
+                    ui.add_space(2.0);
+                    ui.add(
+                        egui::Label::new(RichText::new(h).font(font(size::SM)).color(t.muted))
+                            .wrap(),
+                    );
+                }
+                ui.add_space(10.0);
+            },
+        );
         let text_h = text.response.rect.height();
         let h = text_h.max(48.0);
         if h > text_h {
@@ -266,17 +378,28 @@ impl Sec<'_, '_> {
         }
         let row = Rect::from_min_size(top, vec2(width, h));
         let ctrl_rect = Rect::from_min_max(Pos2::new(row.right() - CONTROL_W, row.top()), row.max);
-        let mut child = self.ui.new_child(egui::UiBuilder::new().max_rect(ctrl_rect).layout(Layout::right_to_left(Align::Center)));
+        let mut child = self.ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(ctrl_rect)
+                .layout(Layout::right_to_left(Align::Center)),
+        );
         child.spacing_mut().item_spacing.x = 8.0;
         control(self, &mut child);
-        self.ui.painter().hline(row.x_range(), row.bottom() - 0.5, Stroke::new(1.0, t.border));
+        self.ui.painter().hline(
+            row.x_range(),
+            row.bottom() - 0.5,
+            Stroke::new(1.0, t.border),
+        );
     }
 
     fn bool_row(&mut self, key: &'static str, label: &str, hint: Option<&str>) {
         let value = self.app.settings.bool(key);
         self.row(label, hint, |s, ui| {
             let mut v = value;
-            if widgets::switch(ui, &mut v, label).on_hover_text(label).changed() {
+            if widgets::switch(ui, &mut v, label)
+                .on_hover_text(label)
+                .changed()
+            {
                 s.changes.push(Change::Set(key, Value::Bool(v)));
             }
         });
@@ -291,7 +414,8 @@ impl Sec<'_, '_> {
             if out.step != 0 {
                 // Step from what is typed when it parses, else the stored value.
                 let base = draft.trim().parse::<i64>().unwrap_or(value);
-                s.changes.push(Change::Set(key, Value::Int(base + out.step)));
+                s.changes
+                    .push(Change::Set(key, Value::Int(base + out.step)));
                 s.drafts.remove(key);
                 return;
             }
@@ -299,7 +423,9 @@ impl Sec<'_, '_> {
             if commit {
                 match draft.trim().parse::<i64>() {
                     Ok(n) => s.changes.push(Change::Set(key, Value::Int(n))),
-                    Err(_) => tracing::debug!(key, draft = %draft, "settings: not a number, reverted"),
+                    Err(_) => {
+                        tracing::debug!(key, draft = %draft, "settings: not a number, reverted")
+                    }
                 }
                 // Show the stored (clamped) value next frame.
                 s.drafts.remove(key);
@@ -318,9 +444,19 @@ impl Sec<'_, '_> {
         let custom = *self.font_custom || (!value.is_empty() && !font_presets::is_preset(&value));
         self.row(label, Some("Installed monospace fonts."), |s, ui| {
             let options = font_presets::choices_with_custom();
-            let mut choice = if custom { CUSTOM_FONT.to_string() } else { value.clone() };
+            let mut choice = if custom {
+                CUSTOM_FONT.to_string()
+            } else {
+                value.clone()
+            };
             let select_w = if custom { 108.0 } else { CONTROL_W };
-            if form::select(ui, Id::unique(("settings", key)), &mut choice, options, Some(select_w)) {
+            if form::select(
+                ui,
+                Id::unique(("settings", key)),
+                &mut choice,
+                options,
+                Some(select_w),
+            ) {
                 tracing::debug!(key, font = %choice, "settings: font family picked");
                 if choice == CUSTOM_FONT {
                     *s.font_custom = true;
@@ -333,7 +469,13 @@ impl Sec<'_, '_> {
             }
             if choice == CUSTOM_FONT {
                 let mut v = value.clone();
-                let resp = widgets::text_input(ui, &mut v, "e.g. Iosevka", CONTROL_W - select_w - 8.0, false);
+                let resp = widgets::text_input(
+                    ui,
+                    &mut v,
+                    "e.g. Iosevka",
+                    CONTROL_W - select_w - 8.0,
+                    false,
+                );
                 form::labelled(ui, &resp, "Custom font family");
                 if resp.on_hover_text("Custom font family").changed() {
                     s.changes.push(Change::Set(key, Value::Str(v)));
@@ -344,22 +486,51 @@ impl Sec<'_, '_> {
 
     /// A choice: a segmented control when the labels fit the control
     /// column, else a select.
-    fn enum_row(&mut self, key: &'static str, label: &str, hint: Option<&str>, options: &[(&'static str, &'static str)]) {
+    fn enum_row(
+        &mut self,
+        key: &'static str,
+        label: &str,
+        hint: Option<&str>,
+        options: &[(&'static str, &'static str)],
+    ) {
         let value = self.app.settings.str(key).to_string();
         let t = tokens(self.ui.ctx());
-        let total: f32 = options.iter().map(|(_, l)| self.ui.painter().layout_no_wrap(l.to_string(), font(size::SM), t.fg).size().x + 20.0 + 2.0).sum::<f32>() + 4.0;
+        let total: f32 = options
+            .iter()
+            .map(|(_, l)| {
+                self.ui
+                    .painter()
+                    .layout_no_wrap(l.to_string(), font(size::SM), t.fg)
+                    .size()
+                    .x
+                    + 20.0
+                    + 2.0
+            })
+            .sum::<f32>()
+            + 4.0;
         let segmented = total <= CONTROL_W;
         self.row(label, hint, |s, ui| {
             if segmented {
-                let items: Vec<Segment<'_, &str>> = options.iter().map(|(v, l)| Segment::text(*v, l)).collect();
+                let items: Vec<Segment<'_, &str>> =
+                    options.iter().map(|(v, l)| Segment::text(*v, l)).collect();
                 let mut chosen = value.as_str();
                 if widgets::segmented(ui, Id::unique(("settings-seg", key)), &mut chosen, &items) {
-                    s.changes.push(Change::Set(key, Value::Str(chosen.to_string())));
+                    s.changes
+                        .push(Change::Set(key, Value::Str(chosen.to_string())));
                 }
             } else {
-                let opts: Vec<(String, String)> = options.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+                let opts: Vec<(String, String)> = options
+                    .iter()
+                    .map(|(v, l)| (v.to_string(), l.to_string()))
+                    .collect();
                 let mut chosen = value.clone();
-                if form::select(ui, Id::unique(("settings", key)), &mut chosen, &opts, Some(CONTROL_W)) {
+                if form::select(
+                    ui,
+                    Id::unique(("settings", key)),
+                    &mut chosen,
+                    &opts,
+                    Some(CONTROL_W),
+                ) {
                     s.changes.push(Change::Set(key, Value::Str(chosen)));
                 }
             }
@@ -370,25 +541,46 @@ impl Sec<'_, '_> {
         let t = tokens(self.ui.ctx());
         let value = self.app.settings.str("terminal.palette").to_string();
         let current = palette::by_id(&value);
-        self.row("Terminal colours", Some("ANSI palette for every terminal tab. Changes apply live."), |s, ui| {
-            ui.scope(|ui| {
-                let v = ui.visuals_mut();
-                v.widgets.inactive.weak_bg_fill = t.surface2;
-                v.widgets.hovered.weak_bg_fill = t.surface3;
-                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                egui::ComboBox::from_id_salt("terminal.palette").width(CONTROL_W).selected_text(RichText::new(current.label).font(font(size::BASE))).show_ui(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    for (heading, light) in [("Dark", false), ("Light", true)] {
-                        ui.label(RichText::new(heading).font(font_semibold(size::XS)).color(t.muted));
-                        for p in palette::PALETTES.iter().filter(|p| p.light == light) {
-                            if ui.selectable_label(p.id == value, RichText::new(p.label).font(font(size::BASE))).clicked() && p.id != value {
-                                s.changes.push(Change::Set("terminal.palette", Value::Str(p.id.to_string())));
+        self.row(
+            "Terminal colours",
+            Some("ANSI palette for every terminal tab. Changes apply live."),
+            |s, ui| {
+                ui.scope(|ui| {
+                    let v = ui.visuals_mut();
+                    v.widgets.inactive.weak_bg_fill = t.surface2;
+                    v.widgets.hovered.weak_bg_fill = t.surface3;
+                    ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                    egui::ComboBox::from_id_salt("terminal.palette")
+                        .width(CONTROL_W)
+                        .selected_text(RichText::new(current.label).font(font(size::BASE)))
+                        .show_ui(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            for (heading, light) in [("Dark", false), ("Light", true)] {
+                                ui.label(
+                                    RichText::new(heading)
+                                        .font(font_semibold(size::XS))
+                                        .color(t.muted),
+                                );
+                                for p in palette::PALETTES.iter().filter(|p| p.light == light) {
+                                    if ui
+                                        .selectable_label(
+                                            p.id == value,
+                                            RichText::new(p.label).font(font(size::BASE)),
+                                        )
+                                        .clicked()
+                                        && p.id != value
+                                    {
+                                        s.changes.push(Change::Set(
+                                            "terminal.palette",
+                                            Value::Str(p.id.to_string()),
+                                        ));
+                                    }
+                                }
                             }
-                        }
-                    }
+                        });
                 });
-            });
-        });
+            },
+        );
         self.ui.add_space(12.0);
         swatch(self.ui, current, self.app.mono.clone());
         self.ui.add_space(4.0);
@@ -404,8 +596,14 @@ fn swatch(ui: &mut Ui, p: &Palette, mono: egui::FontFamily) {
     let t = tokens(ui.ctx());
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(w, 60.0), Sense::hover());
-    ui.painter().rect_filled(rect, radius::LG, rgb(p.background));
-    ui.painter().rect_stroke(rect, radius::LG, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
+    ui.painter()
+        .rect_filled(rect, radius::LG, rgb(p.background));
+    ui.painter().rect_stroke(
+        rect,
+        radius::LG,
+        Stroke::new(1.0, t.border_strong),
+        egui::StrokeKind::Inside,
+    );
     let a = |i: usize| rgb(p.ansi[i]);
     let fg = rgb(p.foreground);
     let parts: [(&str, Color32); 11] = [
@@ -431,13 +629,28 @@ fn swatch(ui: &mut Ui, p: &Palette, mono: egui::FontFamily) {
     let cursor_x = text_pos.x + galley.size().x + 2.0;
     let line_h = galley.size().y;
     ui.painter().galley(text_pos, galley, fg);
-    ui.painter().rect_filled(Rect::from_min_size(Pos2::new(cursor_x, text_pos.y + 1.0), vec2(line_h * 0.55, line_h - 2.0)), 0.0, rgb(p.cursor));
+    ui.painter().rect_filled(
+        Rect::from_min_size(
+            Pos2::new(cursor_x, text_pos.y + 1.0),
+            vec2(line_h * 0.55, line_h - 2.0),
+        ),
+        0.0,
+        rgb(p.cursor),
+    );
     let gap = 4.0;
     let n = p.ansi.len() as f32;
     let cw = (rect.width() - 28.0 - gap * (n - 1.0)) / n;
     for (i, c) in p.ansi.iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(rect.left() + 14.0 + i as f32 * (cw + gap), rect.bottom() - 24.0), vec2(cw, 14.0));
-        ui.painter().rect_filled(r, CornerRadius::same(radius::SM as u8), rgb(*c));
-        ui.interact(r, Id::unique(("ansi", i)), Sense::hover()).on_hover_text(format!("ANSI {i}: #{:02x}{:02x}{:02x}", c.r, c.g, c.b));
+        let r = Rect::from_min_size(
+            Pos2::new(
+                rect.left() + 14.0 + i as f32 * (cw + gap),
+                rect.bottom() - 24.0,
+            ),
+            vec2(cw, 14.0),
+        );
+        ui.painter()
+            .rect_filled(r, CornerRadius::same(radius::SM as u8), rgb(*c));
+        ui.interact(r, Id::unique(("ansi", i)), Sense::hover())
+            .on_hover_text(format!("ANSI {i}: #{:02x}{:02x}{:02x}", c.r, c.g, c.b));
     }
 }

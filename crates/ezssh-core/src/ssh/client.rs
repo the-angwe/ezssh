@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex as StdMutex};
 
-use russh::client::{self, Config, Handle, Msg};
-use russh::keys::agent::client::AgentClient;
-use russh::keys::agent::AgentIdentity;
-use russh::keys::{decode_secret_key, PrivateKeyWithHashAlg};
 use russh::Channel;
+use russh::client::{self, Config, Handle, Msg};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::AgentClient;
+use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
@@ -13,7 +13,7 @@ use crate::error::{AppError, Result};
 use crate::events::{CloseReason, Event, Events, Output};
 use crate::log_redacted;
 use crate::sftp::SftpRegistry;
-use crate::ssh::known_hosts::{fingerprint_sha256, KeyCheck};
+use crate::ssh::known_hosts::{KeyCheck, fingerprint_sha256};
 use crate::ssh::registry::{Connection, ConnectionInput, ConnectionRegistry};
 use crate::state::AppState;
 use crate::vault;
@@ -112,7 +112,9 @@ impl client::Handler for ClientHandler {
         // Dropping `reply` without accepting sends the server an
         // AdministrativelyProhibited rejection — the right answer when
         // X11 wasn't negotiated on this connection.
-        let Some(display) = self.x11_display else { return Ok(()); };
+        let Some(display) = self.x11_display else {
+            return Ok(());
+        };
         let target = format!("127.0.0.1:{}", 6000 + display as u16);
         tokio::spawn(async move {
             // Accept only once the X server answered, so a dead VcXsrv
@@ -131,8 +133,13 @@ impl client::Handler for ClientHandler {
             // socket instead of lingering until the SSH session ends.
             let mut stream = channel.into_stream();
             if let Err(e) = tokio::io::copy_bidirectional_with_sizes(
-                &mut stream, &mut tcp, crate::ssh::forwards::COPY_BUF, crate::ssh::forwards::COPY_BUF,
-            ).await {
+                &mut stream,
+                &mut tcp,
+                crate::ssh::forwards::COPY_BUF,
+                crate::ssh::forwards::COPY_BUF,
+            )
+            .await
+            {
                 tracing::debug!("x11 forward: pump ended: {e}");
             }
         });
@@ -155,7 +162,8 @@ impl client::Handler for ClientHandler {
     ) -> std::result::Result<(), Self::Error> {
         let key = (connected_address.to_string(), connected_port);
         let tx = {
-            let map = self.forwarded_tcpip_dispatch
+            let map = self
+                .forwarded_tcpip_dispatch
                 .read()
                 .expect("forwarded_tcpip_dispatch poisoned");
             map.get(&key).cloned()
@@ -218,10 +226,7 @@ pub fn connect(
     Box::pin(connect_impl(deps, req))
 }
 
-async fn connect_impl(
-    deps: ConnectDeps,
-    req: ConnectRequest,
-) -> Result<ConnectOutcome> {
+async fn connect_impl(deps: ConnectDeps, req: ConnectRequest) -> Result<ConnectOutcome> {
     // 1. Resolve saved session + load (possibly) encrypted credential.
     let session = db::sessions::get(&deps.db, req.session_id).await?;
     {
@@ -244,8 +249,9 @@ async fn connect_impl(
     // Duration as "no keepalives"), matching our `keepalive_secs` semantics.
     let mut config = Config::default();
     if session.keepalive_secs > 0 {
-        config.keepalive_interval =
-            Some(std::time::Duration::from_secs(session.keepalive_secs as u64));
+        config.keepalive_interval = Some(std::time::Duration::from_secs(
+            session.keepalive_secs as u64,
+        ));
     }
     if session.compression == 1 {
         // Prefer zlib variants when the server offers them, but keep "none"
@@ -290,11 +296,7 @@ async fn connect_impl(
     // from `session` across the connect await — capturing `&str` there trips
     // the `for<'a> &'a str: Send` HRTB check on russh 0.60.
     let host_owned = session.host.clone();
-    let connect_fut = client::connect(
-        config,
-        (host_owned, session.port as u16),
-        handler,
-    );
+    let connect_fut = client::connect(config, (host_owned, session.port as u16), handler);
     // One budget for the whole connect: TCP, key exchange, authentication
     // and the channel setup below. A server that completes the handshake
     // and then stalls on userauth or the PTY request must not leave the
@@ -358,9 +360,10 @@ async fn connect_impl(
     // inside it runs at the end of that function call — our in-process copy of
     // the secret is erased before we proceed. (See SECURITY NOTE on
     // `AuthMaterial` about the non-zeroized russh-side copy.)
-    let authed = tokio::time::timeout_at(deadline, authenticate(&mut handle, &session, auth_material))
-        .await
-        .map_err(|_| AppError::Ssh("connect timeout during authentication".into()))??;
+    let authed =
+        tokio::time::timeout_at(deadline, authenticate(&mut handle, &session, auth_material))
+            .await
+            .map_err(|_| AppError::Ssh("connect timeout during authentication".into()))??;
     if !authed {
         return Err(AppError::AuthFailed);
     }
@@ -402,7 +405,15 @@ async fn connect_impl(
     }
     tokio::time::timeout_at(
         deadline,
-        channel.request_pty(false, "xterm-256color", req.cols as u32, req.rows as u32, 0, 0, &[]),
+        channel.request_pty(
+            false,
+            "xterm-256color",
+            req.cols as u32,
+            req.rows as u32,
+            0,
+            0,
+            &[],
+        ),
     )
     .await
     .map_err(|_| AppError::Ssh("connect timeout requesting a PTY".into()))?
@@ -497,36 +508,37 @@ async fn connect_impl(
     let handle_for_scan = handle_arc.clone();
     let session_id_for_scan = session.id;
     tokio::spawn(async move {
-        let auto = match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan).await {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("auto-start db query failed: {e}");
-                // Synthesize a status-event so the pane can show that
-                // auto-start was attempted but the DB scan blew up.
-                // persistent_id=0 + a sentinel spec is the agreed shape
-                // for "scan-level" errors (per-row failures have their
-                // own emit below carrying the real id).
-                events_for_scan.emit(Event::ForwardStatus {
-                    connection_id: id,
-                    summary: crate::ssh::forwards::RuntimeForwardSummary {
-                        runtime_id: 0,
-                        persistent_id: None,
-                        spec: crate::ssh::forwards::ForwardSpec {
-                            name: "auto-start".into(),
-                            kind: crate::ssh::forwards::ForwardKind::Local,
-                            bind_addr: String::new(),
-                            bind_port: 0,
-                            dest_addr: String::new(),
-                            dest_port: 0,
+        let auto =
+            match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan).await {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("auto-start db query failed: {e}");
+                    // Synthesize a status-event so the pane can show that
+                    // auto-start was attempted but the DB scan blew up.
+                    // persistent_id=0 + a sentinel spec is the agreed shape
+                    // for "scan-level" errors (per-row failures have their
+                    // own emit below carrying the real id).
+                    events_for_scan.emit(Event::ForwardStatus {
+                        connection_id: id,
+                        summary: crate::ssh::forwards::RuntimeForwardSummary {
+                            runtime_id: 0,
+                            persistent_id: None,
+                            spec: crate::ssh::forwards::ForwardSpec {
+                                name: "auto-start".into(),
+                                kind: crate::ssh::forwards::ForwardKind::Local,
+                                bind_addr: String::new(),
+                                bind_port: 0,
+                                dest_addr: String::new(),
+                                dest_port: 0,
+                            },
+                            status: crate::ssh::forwards::ForwardStatus::Error {
+                                message: format!("auto-start db query: {e}"),
+                            },
                         },
-                        status: crate::ssh::forwards::ForwardStatus::Error {
-                            message: format!("auto-start db query: {e}"),
-                        },
-                    },
-                });
-                return;
-            }
-        };
+                    });
+                    return;
+                }
+            };
         for f in auto {
             let spec = match crate::api::forwards::spec_from_db(&f) {
                 Ok(s) => s,
@@ -547,10 +559,13 @@ async fn connect_impl(
                 handle_for_scan.clone(),
                 spec.clone(),
                 Some(f.id),
-            ).await {
+            )
+            .await
+            {
                 tracing::warn!(
                     "auto-start forward {}:{} failed: {e}",
-                    spec.bind_addr, spec.bind_port,
+                    spec.bind_addr,
+                    spec.bind_port,
                 );
             }
         }
@@ -617,10 +632,7 @@ async fn load_auth_material(
             let row = db::credentials::get(&deps.db, cred_id).await?;
             let vs = deps.vault.read().await;
             let pt = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
-            Ok((
-                AuthMaterial::Password(pt),
-                Some(row.kind),
-            ))
+            Ok((AuthMaterial::Password(pt), Some(row.kind)))
         }
         "key" => {
             let cred_id = session
@@ -639,17 +651,9 @@ async fn load_auth_material(
             } else {
                 None
             };
-            Ok((
-                AuthMaterial::PrivateKey {
-                    pem,
-                    passphrase,
-                },
-                Some(row.kind),
-            ))
+            Ok((AuthMaterial::PrivateKey { pem, passphrase }, Some(row.kind)))
         }
-        other => Err(AppError::Validation(format!(
-            "unknown auth_type: {other}"
-        ))),
+        other => Err(AppError::Validation(format!("unknown auth_type: {other}"))),
     }
 }
 
@@ -750,14 +754,16 @@ async fn authenticate(
 /// site. On Windows we prefer the OpenSSH-for-Windows named pipe
 /// (`\\.\pipe\openssh-ssh-agent`); Pageant support is a follow-up.
 #[cfg(windows)]
-async fn connect_ssh_agent(
-) -> std::result::Result<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>, russh::keys::Error> {
+async fn connect_ssh_agent() -> std::result::Result<
+    AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>,
+    russh::keys::Error,
+> {
     AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await
 }
 
 #[cfg(unix)]
-async fn connect_ssh_agent(
-) -> std::result::Result<AgentClient<tokio::net::UnixStream>, russh::keys::Error> {
+async fn connect_ssh_agent()
+-> std::result::Result<AgentClient<tokio::net::UnixStream>, russh::keys::Error> {
     AgentClient::connect_env().await
 }
 
@@ -807,7 +813,10 @@ async fn drive_channel(
         x11_display,
     } = driver;
     let closed = |reason: CloseReason| {
-        events.emit(Event::Closed { connection_id: id, reason });
+        events.emit(Event::Closed {
+            connection_id: id,
+            reason,
+        });
     };
     let mut consumer_gone = false;
     // The channel is split so that a write can never starve the reader:
@@ -828,7 +837,10 @@ async fn drive_channel(
                     // ChannelWriteHalf::data takes an AsyncRead; &[u8] implements it.
                     if let Err(e) = writer.data(&bytes[..]).await {
                         tracing::warn!(connection_id = id, "ssh write failed: {e}");
-                        writer_events.emit(Event::WriteFailed { connection_id: id, message: e.to_string() });
+                        writer_events.emit(Event::WriteFailed {
+                            connection_id: id,
+                            message: e.to_string(),
+                        });
                     }
                 }
                 ConnectionInput::Resize { cols, rows } => {

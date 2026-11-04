@@ -11,8 +11,8 @@ use ezssh_core::db::sessions::Session;
 
 use crate::app::App;
 use crate::core::Core;
-use crate::icons::Icon;
 use crate::form::{self, InputOpts};
+use crate::icons::Icon;
 use crate::style::{ICON_BTN, ROW_H, ROW_INSET, alpha, font, font_semibold, radius, size, tokens};
 use crate::tabs::TabStatus;
 use crate::tabs::session_summary;
@@ -61,7 +61,10 @@ pub fn slot_for_row(ratio: f32, row: RowKind, id: i64, source: RowKind) -> DropS
 /// A row cannot be dropped onto itself.
 pub fn slot_rejected(slot: DropSlot, source: (RowKind, i64)) -> bool {
     match (source.0, slot) {
-        (RowKind::Folder, DropSlot::IntoFolder(f) | DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f)) => f == source.1,
+        (
+            RowKind::Folder,
+            DropSlot::IntoFolder(f) | DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f),
+        ) => f == source.1,
         (RowKind::Session, DropSlot::BeforeSession(s) | DropSlot::AfterSession(s)) => s == source.1,
         _ => false,
     }
@@ -69,7 +72,12 @@ pub fn slot_rejected(slot: DropSlot, source: (RowKind, i64)) -> bool {
 
 /// A folder dropped into (or beside a row inside) its own subtree: the
 /// core would refuse it as a cycle, so the target is not offered either.
-pub fn into_own_subtree(slot: DropSlot, source: (RowKind, i64), folders: &[Folder], sessions: &[Session]) -> bool {
+pub fn into_own_subtree(
+    slot: DropSlot,
+    source: (RowKind, i64),
+    folders: &[Folder],
+    sessions: &[Session],
+) -> bool {
     if source.0 != RowKind::Folder {
         return false;
     }
@@ -77,12 +85,16 @@ pub fn into_own_subtree(slot: DropSlot, source: (RowKind, i64), folders: &[Folde
     match slot {
         DropSlot::IntoRoot => false,
         DropSlot::IntoFolder(f) => desc.contains(&f),
-        DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f) => {
-            folders.iter().find(|x| x.id == f).and_then(|x| x.parent_id).is_some_and(|p| desc.contains(&p))
-        }
-        DropSlot::BeforeSession(s) | DropSlot::AfterSession(s) => {
-            sessions.iter().find(|x| x.id == s).and_then(|x| x.folder_id).is_some_and(|p| desc.contains(&p))
-        }
+        DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f) => folders
+            .iter()
+            .find(|x| x.id == f)
+            .and_then(|x| x.parent_id)
+            .is_some_and(|p| desc.contains(&p)),
+        DropSlot::BeforeSession(s) | DropSlot::AfterSession(s) => sessions
+            .iter()
+            .find(|x| x.id == s)
+            .and_then(|x| x.folder_id)
+            .is_some_and(|p| desc.contains(&p)),
     }
 }
 
@@ -92,8 +104,12 @@ fn resolve_dest(slot: DropSlot, folders: &[Folder], sessions: &[Session]) -> Opt
     match slot {
         DropSlot::IntoRoot => Some(None),
         DropSlot::IntoFolder(f) => Some(Some(f)),
-        DropSlot::BeforeSession(s) | DropSlot::AfterSession(s) => sessions.iter().find(|x| x.id == s).map(|x| x.folder_id),
-        DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f) => folders.iter().find(|x| x.id == f).map(|x| x.parent_id),
+        DropSlot::BeforeSession(s) | DropSlot::AfterSession(s) => {
+            sessions.iter().find(|x| x.id == s).map(|x| x.folder_id)
+        }
+        DropSlot::BeforeFolder(f) | DropSlot::AfterFolder(f) => {
+            folders.iter().find(|x| x.id == f).map(|x| x.parent_id)
+        }
     }
 }
 
@@ -101,8 +117,10 @@ fn resolve_dest(slot: DropSlot, folders: &[Folder], sessions: &[Session]) -> Opt
 /// when the anchor is not a sibling of the dragged kind.
 fn order_for_drop(existing: &[i64], dragged: i64, slot: DropSlot, kind: RowKind) -> Vec<i64> {
     let anchor = match (kind, slot) {
-        (RowKind::Session, DropSlot::BeforeSession(a)) | (RowKind::Folder, DropSlot::BeforeFolder(a)) => Some((a, 0)),
-        (RowKind::Session, DropSlot::AfterSession(a)) | (RowKind::Folder, DropSlot::AfterFolder(a)) => Some((a, 1)),
+        (RowKind::Session, DropSlot::BeforeSession(a))
+        | (RowKind::Folder, DropSlot::BeforeFolder(a)) => Some((a, 0)),
+        (RowKind::Session, DropSlot::AfterSession(a))
+        | (RowKind::Folder, DropSlot::AfterFolder(a)) => Some((a, 1)),
         _ => None,
     };
     let mut out = existing.to_vec();
@@ -126,7 +144,12 @@ pub enum DropOp {
 /// folder to expand so the user sees where it landed. `into` drops put
 /// the item first in the folder (sort 0); before / after drops reorder
 /// the whole sibling list.
-pub fn plan_drop(source: (RowKind, i64), slot: DropSlot, folders: &[Folder], sessions: &[Session]) -> (Vec<DropOp>, Option<i64>) {
+pub fn plan_drop(
+    source: (RowKind, i64),
+    slot: DropSlot,
+    folders: &[Folder],
+    sessions: &[Session],
+) -> (Vec<DropOp>, Option<i64>) {
     let (kind, id) = source;
     let into = matches!(slot, DropSlot::IntoRoot | DropSlot::IntoFolder(_));
     let Some(dest) = resolve_dest(slot, folders, sessions) else {
@@ -144,13 +167,23 @@ pub fn plan_drop(source: (RowKind, i64), slot: DropSlot, folders: &[Folder], ses
                 return (vec![DropOp::MoveSession { id, folder: dest }], dest);
             }
             let cross = cur.folder_id != dest;
-            let mut ops = if cross { vec![DropOp::MoveSession { id, folder: dest }] } else { vec![] };
-            let mut existing: Vec<&Session> = sessions.iter().filter(|s| s.folder_id == dest && s.id != id).collect();
+            let mut ops = if cross {
+                vec![DropOp::MoveSession { id, folder: dest }]
+            } else {
+                vec![]
+            };
+            let mut existing: Vec<&Session> = sessions
+                .iter()
+                .filter(|s| s.folder_id == dest && s.id != id)
+                .collect();
             existing.sort_by_key(|s| (s.sort, s.id));
             let existing: Vec<i64> = existing.iter().map(|s| s.id).collect();
             let ordered = order_for_drop(&existing, id, slot, RowKind::Session);
             if ordered.len() > 1 || cross {
-                ops.push(DropOp::ReorderSessions { folder: dest, ids: ordered });
+                ops.push(DropOp::ReorderSessions {
+                    folder: dest,
+                    ids: ordered,
+                });
             }
             (ops, dest)
         }
@@ -158,7 +191,10 @@ pub fn plan_drop(source: (RowKind, i64), slot: DropSlot, folders: &[Folder], ses
             let Some(cur) = folders.iter().find(|f| f.id == id) else {
                 return (vec![], None);
             };
-            if slot == DropSlot::IntoFolder(id) || dest == Some(id) || into_own_subtree(slot, source, folders, sessions) {
+            if slot == DropSlot::IntoFolder(id)
+                || dest == Some(id)
+                || into_own_subtree(slot, source, folders, sessions)
+            {
                 return (vec![], None);
             }
             if into {
@@ -168,13 +204,23 @@ pub fn plan_drop(source: (RowKind, i64), slot: DropSlot, folders: &[Folder], ses
                 return (vec![DropOp::MoveFolder { id, parent: dest }], dest);
             }
             let cross = cur.parent_id != dest;
-            let mut ops = if cross { vec![DropOp::MoveFolder { id, parent: dest }] } else { vec![] };
-            let mut existing: Vec<&Folder> = folders.iter().filter(|f| f.parent_id == dest && f.id != id).collect();
+            let mut ops = if cross {
+                vec![DropOp::MoveFolder { id, parent: dest }]
+            } else {
+                vec![]
+            };
+            let mut existing: Vec<&Folder> = folders
+                .iter()
+                .filter(|f| f.parent_id == dest && f.id != id)
+                .collect();
             existing.sort_by_key(|f| (f.sort, f.id));
             let existing: Vec<i64> = existing.iter().map(|f| f.id).collect();
             let ordered = order_for_drop(&existing, id, slot, RowKind::Folder);
             if ordered.len() > 1 || cross {
-                ops.push(DropOp::ReorderFolders { parent: dest, ids: ordered });
+                ops.push(DropOp::ReorderFolders {
+                    parent: dest,
+                    ids: ordered,
+                });
             }
             (ops, None)
         }
@@ -197,7 +243,12 @@ pub fn descendants(folders: &[Folder], f: i64) -> HashSet<i64> {
 
 /// Case-insensitive A→Z (or Z→A) order of a folder's direct children:
 /// (folder ids, session ids), each `None` when there is nothing to sort.
-pub fn sorted_children(folders: &[Folder], sessions: &[Session], parent: Option<i64>, asc: bool) -> (Option<Vec<i64>>, Option<Vec<i64>>) {
+pub fn sorted_children(
+    folders: &[Folder],
+    sessions: &[Session],
+    parent: Option<i64>,
+    asc: bool,
+) -> (Option<Vec<i64>>, Option<Vec<i64>>) {
     let cmp = |a: &str, b: &str| {
         let o = a.to_lowercase().cmp(&b.to_lowercase());
         if asc { o } else { o.reverse() }
@@ -216,10 +267,18 @@ async fn run_ops(st: &ezssh_core::AppState, ops: Vec<DropOp>) -> ezssh_core::Res
     for op in ops {
         tracing::debug!(?op, "sidebar: drop op");
         match op {
-            DropOp::MoveSession { id, folder } => api::sessions::session_move(st, id, folder, 0).await?,
-            DropOp::ReorderSessions { folder, ids } => api::sessions::session_reorder(st, folder, ids).await?,
-            DropOp::MoveFolder { id, parent } => api::folders::folder_move(st, id, parent, 0).await?,
-            DropOp::ReorderFolders { parent, ids } => api::folders::folder_reorder(st, parent, ids).await?,
+            DropOp::MoveSession { id, folder } => {
+                api::sessions::session_move(st, id, folder, 0).await?
+            }
+            DropOp::ReorderSessions { folder, ids } => {
+                api::sessions::session_reorder(st, folder, ids).await?
+            }
+            DropOp::MoveFolder { id, parent } => {
+                api::folders::folder_move(st, id, parent, 0).await?
+            }
+            DropOp::ReorderFolders { parent, ids } => {
+                api::folders::folder_reorder(st, parent, ids).await?
+            }
         }
     }
     Ok(())
@@ -230,7 +289,11 @@ pub fn parse_color(s: &str) -> Option<Color32> {
     let h = s.trim().strip_prefix('#')?;
     let v = |i: usize, n: usize| u8::from_str_radix(h.get(i..i + n)?, 16).ok();
     match h.len() {
-        3 => Some(Color32::from_rgb(v(0, 1)? * 17, v(1, 1)? * 17, v(2, 1)? * 17)),
+        3 => Some(Color32::from_rgb(
+            v(0, 1)? * 17,
+            v(1, 1)? * 17,
+            v(2, 1)? * 17,
+        )),
         6 => Some(Color32::from_rgb(v(0, 2)?, v(2, 2)?, v(4, 2)?)),
         _ => None,
     }
@@ -300,7 +363,10 @@ impl Sidebar {
         core.call(
             "folder_list+session_list",
             |st| async move {
-                let (f, s) = tokio::join!(api::folders::folder_list(&st), api::sessions::session_list(&st));
+                let (f, s) = tokio::join!(
+                    api::folders::folder_list(&st),
+                    api::sessions::session_list(&st)
+                );
                 Ok::<_, ezssh_core::AppError>((f?, s?))
             },
             |app, r| match r {
@@ -338,7 +404,8 @@ impl Sidebar {
 
     fn folder_menu(&self, pos: Pos2, folder: Option<&Folder>) -> Menu<Action> {
         let id = folder.map(|f| f.id);
-        let children = self.folders.iter().filter(|f| f.parent_id == id).count() + self.sessions.iter().filter(|s| s.folder_id == id).count();
+        let children = self.folders.iter().filter(|f| f.parent_id == id).count()
+            + self.sessions.iter().filter(|s| s.folder_id == id).count();
         let mut items = vec![
             MenuEntry::item("New Session", Action::NewSession(id)),
             MenuEntry::item("New Folder", Action::NewFolder(id)),
@@ -406,16 +473,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // Top bar: the filter field, the ＋ menu and the collapse button.
     let bar = Rect::from_min_size(pane.min, vec2(width, BAR_H));
-    let inner = Rect::from_min_max(Pos2::new(bar.left() + 8.0, bar.top() + 8.0), Pos2::new(bar.right() - 8.0, bar.bottom() - 8.0));
-    let mut top = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    let inner = Rect::from_min_max(
+        Pos2::new(bar.left() + 8.0, bar.top() + 8.0),
+        Pos2::new(bar.right() - 8.0, bar.bottom() - 8.0),
+    );
+    let mut top = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
     top.spacing_mut().item_spacing.x = 4.0;
     let filter_w = (inner.width() - 2.0 * ICON_BTN - 8.0).max(48.0);
-    let filter = form::input(&mut top, &mut app.sidebar.filter, InputOpts::new("Filter sessions").icon(Icon::Search).width(filter_w).small());
+    let filter = form::input(
+        &mut top,
+        &mut app.sidebar.filter,
+        InputOpts::new("Filter sessions")
+            .icon(Icon::Search)
+            .width(filter_w)
+            .small(),
+    );
     form::labelled(&top, &filter, "Filter sessions");
     if std::mem::take(&mut app.sidebar.focus_filter) {
         filter.request_focus();
     }
-    if filter.has_focus() && top.input(|i| i.key_pressed(egui::Key::Escape)) && !app.sidebar.filter.is_empty() {
+    if filter.has_focus()
+        && top.input(|i| i.key_pressed(egui::Key::Escape))
+        && !app.sidebar.filter.is_empty()
+    {
         app.sidebar.filter.clear();
     }
     let plus = widgets::icon_btn(&mut top, Icon::Plus, false, "New");
@@ -430,31 +514,88 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ],
         ));
     }
-    if widgets::icon_btn(&mut top, Icon::PanelLeftClose, false, "Hide sessions (Ctrl+B)").clicked() {
+    if widgets::icon_btn(
+        &mut top,
+        Icon::PanelLeftClose,
+        false,
+        "Hide sessions (Ctrl+B)",
+    )
+    .clicked()
+    {
         app.tabs.sidebar_collapsed = true;
     }
 
     // Footer: vault state and the app actions.
-    let footer = Rect::from_min_max(Pos2::new(pane.left(), pane.bottom() - FOOTER_H), Pos2::new(pane.left() + width, pane.bottom()));
-    ui.painter().hline(footer.x_range(), footer.top() + 0.5, Stroke::new(1.0, t.border));
-    let mut foot = ui.new_child(egui::UiBuilder::new().max_rect(footer.shrink2(vec2(8.0, 6.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    let footer = Rect::from_min_max(
+        Pos2::new(pane.left(), pane.bottom() - FOOTER_H),
+        Pos2::new(pane.left() + width, pane.bottom()),
+    );
+    ui.painter().hline(
+        footer.x_range(),
+        footer.top() + 0.5,
+        Stroke::new(1.0, t.border),
+    );
+    let mut foot = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(footer.shrink2(vec2(8.0, 6.0)))
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+    );
     foot.spacing_mut().item_spacing.x = 2.0;
     let left = app_actions(app, &mut foot);
-    let label_r = Rect::from_min_max(Pos2::new(footer.left() + 12.0, footer.top()), Pos2::new(left - 8.0, footer.bottom()));
+    let label_r = Rect::from_min_max(
+        Pos2::new(footer.left() + 12.0, footer.top()),
+        Pos2::new(left - 8.0, footer.bottom()),
+    );
     if label_r.width() > 40.0 {
-        Icon::ShieldCheck.paint(ui, Rect::from_center_size(Pos2::new(label_r.left() + 7.0, label_r.center().y), vec2(14.0, 14.0)), 14.0, t.success);
-        let shown = widgets::paint_text(ui, label_r.with_min_x(label_r.left() + 20.0), "Unlocked", font(size::SM), t.muted);
-        ui.interact(shown.union(Rect::from_center_size(Pos2::new(label_r.left() + 7.0, label_r.center().y), vec2(14.0, 14.0))), ui.scope_id().with("vault-state"), Sense::hover())
-            .on_hover_text("The vault is unlocked. Lock it with the lock button; open tabs stay connected.");
+        Icon::ShieldCheck.paint(
+            ui,
+            Rect::from_center_size(
+                Pos2::new(label_r.left() + 7.0, label_r.center().y),
+                vec2(14.0, 14.0),
+            ),
+            14.0,
+            t.success,
+        );
+        let shown = widgets::paint_text(
+            ui,
+            label_r.with_min_x(label_r.left() + 20.0),
+            "Unlocked",
+            font(size::SM),
+            t.muted,
+        );
+        ui.interact(
+            shown.union(Rect::from_center_size(
+                Pos2::new(label_r.left() + 7.0, label_r.center().y),
+                vec2(14.0, 14.0),
+            )),
+            ui.scope_id().with("vault-state"),
+            Sense::hover(),
+        )
+        .on_hover_text(
+            "The vault is unlocked. Lock it with the lock button; open tabs stay connected.",
+        );
     }
 
     // Tree.
-    let tree_rect = Rect::from_min_max(Pos2::new(pane.left(), bar.bottom()), Pos2::new(pane.left() + width, footer.top()));
-    let mut tree = ui.new_child(egui::UiBuilder::new().max_rect(tree_rect).id_salt("sidebar-tree"));
+    let tree_rect = Rect::from_min_max(
+        Pos2::new(pane.left(), bar.bottom()),
+        Pos2::new(pane.left() + width, footer.top()),
+    );
+    let mut tree = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(tree_rect)
+            .id_salt("sidebar-tree"),
+    );
     let dragging = app.sidebar.drag.is_some();
     if dragging && app.sidebar.target == Some(DropSlot::IntoRoot) {
-        tree.painter().rect_filled(tree_rect.shrink(4.0), radius::LG, t.accent_soft);
-        tree.painter().rect_stroke(tree_rect.shrink(4.0), radius::LG, Stroke::new(1.0, alpha(t.accent, 0.5)), StrokeKind::Inside);
+        tree.painter()
+            .rect_filled(tree_rect.shrink(4.0), radius::LG, t.accent_soft);
+        tree.painter().rect_stroke(
+            tree_rect.shrink(4.0),
+            radius::LG,
+            Stroke::new(1.0, alpha(t.accent, 0.5)),
+            StrokeKind::Inside,
+        );
     }
     // Background: root context menu, and the "into root" drop zone.
     let bg = tree.interact(tree_rect, Id::unique("sidebar-tree-bg"), Sense::click());
@@ -473,50 +614,72 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let mut open: HashMap<i64, TabStatus> = HashMap::new();
     for tab in &app.tabs.tabs {
         let e = open.entry(tab.session.id).or_insert(tab.status);
-        if tab.status == TabStatus::Connected || (*e != TabStatus::Connected && tab.status == TabStatus::Connecting) {
+        if tab.status == TabStatus::Connected
+            || (*e != TabStatus::Connected && tab.status == TabStatus::Connecting)
+        {
             *e = tab.status;
         }
     }
     let shown = filter_sets(&app.sidebar);
-    egui::ScrollArea::vertical().id_salt("sidebar-scroll").auto_shrink(false).show(&mut tree, |ui| {
-        ui.add_space(4.0);
-        ui.spacing_mut().item_spacing.y = 0.0;
-        if app.sidebar.folders.is_empty() && app.sidebar.sessions.is_empty() {
-            if widgets::empty_state(ui, Icon::Terminal, "No sessions yet", "Create your first saved connection.", Some(("New session", true)), true)
+    egui::ScrollArea::vertical()
+        .id_salt("sidebar-scroll")
+        .auto_shrink(false)
+        .show(&mut tree, |ui| {
+            ui.add_space(4.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            if app.sidebar.folders.is_empty() && app.sidebar.sessions.is_empty() {
+                if widgets::empty_state(
+                    ui,
+                    Icon::Terminal,
+                    "No sessions yet",
+                    "Create your first saved connection.",
+                    Some(("New session", true)),
+                    true,
+                )
                 .is_some_and(|r| r.clicked())
-            {
-                new_session = true;
+                {
+                    new_session = true;
+                }
+                return;
             }
-            return;
-        }
-        let mut ctx = Walk { rows: &mut rows, opened: &mut opened, menus: &mut actions, open: &open, shown: shown.as_ref() };
-        walk(ui, &mut app.sidebar, None, 0, &mut ctx);
-        if let Some((s, _)) = &shown
-            && s.is_empty()
-        {
-            ui.add_space(24.0);
-            ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("No sessions match").font(font(size::SM)).color(t.muted));
-            });
-        }
-        // Auto-scroll near the edges while dragging.
-        if dragging && let Some(p) = pointer {
-            let clip = ui.clip_rect();
-            if clip.x_range().contains(p.x) {
-                let d = if p.y < clip.top() + AUTOSCROLL_EDGE {
-                    AUTOSCROLL_SPEED
-                } else if p.y > clip.bottom() - AUTOSCROLL_EDGE {
-                    -AUTOSCROLL_SPEED
-                } else {
-                    0.0
-                };
-                if d != 0.0 {
-                    ui.scroll_with_delta(vec2(0.0, d));
-                    ui.ctx().request_repaint();
+            let mut ctx = Walk {
+                rows: &mut rows,
+                opened: &mut opened,
+                menus: &mut actions,
+                open: &open,
+                shown: shown.as_ref(),
+            };
+            walk(ui, &mut app.sidebar, None, 0, &mut ctx);
+            if let Some((s, _)) = &shown
+                && s.is_empty()
+            {
+                ui.add_space(24.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new("No sessions match")
+                            .font(font(size::SM))
+                            .color(t.muted),
+                    );
+                });
+            }
+            // Auto-scroll near the edges while dragging.
+            if dragging && let Some(p) = pointer {
+                let clip = ui.clip_rect();
+                if clip.x_range().contains(p.x) {
+                    let d = if p.y < clip.top() + AUTOSCROLL_EDGE {
+                        AUTOSCROLL_SPEED
+                    } else if p.y > clip.bottom() - AUTOSCROLL_EDGE {
+                        -AUTOSCROLL_SPEED
+                    } else {
+                        0.0
+                    };
+                    if d != 0.0 {
+                        ui.scroll_with_delta(vec2(0.0, d));
+                        ui.ctx().request_repaint();
+                    }
                 }
             }
-        }
-    });
+        });
     app.sidebar.rows = rows;
     if new_session {
         act(app, Action::NewSession(None));
@@ -549,7 +712,14 @@ pub fn app_actions(app: &mut App, ui: &mut Ui) -> f32 {
         app.dialogs.settings = Some(crate::views::settings::SettingsDialog::default());
     }
     let dark = app.theme == crate::style::Theme::Dark;
-    if widgets::icon_btn(ui, if dark { Icon::Sun } else { Icon::Moon }, false, if dark { "Light theme" } else { "Dark theme" }).clicked() {
+    if widgets::icon_btn(
+        ui,
+        if dark { Icon::Sun } else { Icon::Moon },
+        false,
+        if dark { "Light theme" } else { "Dark theme" },
+    )
+    .clicked()
+    {
         app.set_theme(app.theme.toggled());
     }
     if widgets::icon_btn(ui, Icon::Lock, false, "Lock vault").clicked() {
@@ -568,10 +738,15 @@ fn updates_button(app: &mut App, ui: &mut Ui) {
         Some(u) => format!("Update available: v{}", u.version),
         None => "Check for updates".to_string(),
     };
-    let resp = ui.add_enabled_ui(enabled, |ui| widgets::icon_btn(ui, Icon::Sparkles, false, &tip)).inner;
+    let resp = ui
+        .add_enabled_ui(enabled, |ui| {
+            widgets::icon_btn(ui, Icon::Sparkles, false, &tip)
+        })
+        .inner;
     let resp = resp.on_disabled_hover_text("Update checks are off in this run");
     if app.updater.available.is_some() {
-        ui.painter().circle_filled(resp.rect.right_top() + vec2(-7.0, 7.0), 3.0, t.accent);
+        ui.painter()
+            .circle_filled(resp.rect.right_top() + vec2(-7.0, 7.0), 3.0, t.accent);
     }
     if resp.clicked() {
         crate::views::update::open(app);
@@ -588,7 +763,12 @@ fn filter_sets(sb: &Sidebar) -> Option<(HashSet<i64>, HashSet<i64>)> {
         return None;
     }
     let hit = |s: &str| s.to_lowercase().contains(&q);
-    let parent_of = |f: i64| sb.folders.iter().find(|x| x.id == f).and_then(|x| x.parent_id);
+    let parent_of = |f: i64| {
+        sb.folders
+            .iter()
+            .find(|x| x.id == f)
+            .and_then(|x| x.parent_id)
+    };
     let ancestors = |mut f: Option<i64>| {
         let mut out = Vec::new();
         while let Some(id) = f {
@@ -600,12 +780,21 @@ fn filter_sets(sb: &Sidebar) -> Option<(HashSet<i64>, HashSet<i64>)> {
         }
         out
     };
-    let matching_folders: HashSet<i64> = sb.folders.iter().filter(|f| hit(&f.name)).map(|f| f.id).collect();
+    let matching_folders: HashSet<i64> = sb
+        .folders
+        .iter()
+        .filter(|f| hit(&f.name))
+        .map(|f| f.id)
+        .collect();
     let mut sessions = HashSet::new();
     let mut folders = HashSet::new();
     for s in &sb.sessions {
         let chain = ancestors(s.folder_id);
-        if hit(&s.name) || hit(&s.host) || hit(&s.username) || chain.iter().any(|f| matching_folders.contains(f)) {
+        if hit(&s.name)
+            || hit(&s.host)
+            || hit(&s.username)
+            || chain.iter().any(|f| matching_folders.contains(f))
+        {
             sessions.insert(s.id);
             folders.extend(chain);
         }
@@ -633,7 +822,12 @@ struct Walk<'a> {
 
 /// Folders before sessions at every depth.
 fn walk(ui: &mut Ui, sb: &mut Sidebar, parent: Option<i64>, depth: usize, w: &mut Walk<'_>) {
-    let folders: Vec<Folder> = sb.folders.iter().filter(|f| f.parent_id == parent).cloned().collect();
+    let folders: Vec<Folder> = sb
+        .folders
+        .iter()
+        .filter(|f| f.parent_id == parent)
+        .cloned()
+        .collect();
     for f in folders {
         if w.shown.is_some_and(|(_, fs)| !fs.contains(&f.id)) {
             continue;
@@ -645,7 +839,12 @@ fn walk(ui: &mut Ui, sb: &mut Sidebar, parent: Option<i64>, depth: usize, w: &mu
             walk(ui, sb, Some(f.id), depth + 1, w);
         }
     }
-    let sessions: Vec<Session> = sb.sessions.iter().filter(|s| s.folder_id == parent).cloned().collect();
+    let sessions: Vec<Session> = sb
+        .sessions
+        .iter()
+        .filter(|s| s.folder_id == parent)
+        .cloned()
+        .collect();
     for s in sessions {
         if w.shown.is_some_and(|(ss, _)| !ss.contains(&s.id)) {
             continue;
@@ -655,23 +854,41 @@ fn walk(ui: &mut Ui, sb: &mut Sidebar, parent: Option<i64>, depth: usize, w: &mu
 }
 
 fn count_sessions(sb: &Sidebar, folder: i64) -> usize {
-    sb.sessions.iter().filter(|s| s.folder_id == Some(folder)).count()
-        + sb.folders.iter().filter(|f| f.parent_id == Some(folder)).map(|f| count_sessions(sb, f.id)).sum::<usize>()
+    sb.sessions
+        .iter()
+        .filter(|s| s.folder_id == Some(folder))
+        .count()
+        + sb.folders
+            .iter()
+            .filter(|f| f.parent_id == Some(folder))
+            .map(|f| count_sessions(sb, f.id))
+            .sum::<usize>()
 }
 
 fn drop_line(ui: &Ui, rect: Rect, top: bool) {
     let t = tokens(ui.ctx());
     let y = if top { rect.top() } else { rect.bottom() };
     ui.painter().rect_filled(
-        Rect::from_min_max(Pos2::new(rect.left() + ROW_INSET, y - 1.0), Pos2::new(rect.right() - ROW_INSET, y + 1.0)),
+        Rect::from_min_max(
+            Pos2::new(rect.left() + ROW_INSET, y - 1.0),
+            Pos2::new(rect.right() - ROW_INSET, y + 1.0),
+        ),
         1.0,
         t.accent,
     );
 }
 
-fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: bool, w: &mut Walk<'_>) {
+fn folder_row(
+    ui: &mut Ui,
+    sb: &mut Sidebar,
+    f: &Folder,
+    depth: usize,
+    open: bool,
+    w: &mut Walk<'_>,
+) {
     let t = tokens(ui.ctx());
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
     w.rows.push((RowKind::Folder, f.id, rect));
     let source = sb.drag == Some((RowKind::Folder, f.id));
     let into = sb.drag.is_some() && sb.target == Some(DropSlot::IntoFolder(f.id));
@@ -679,7 +896,12 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
     if into {
         let pill = rect.shrink2(vec2(ROW_INSET, 1.0));
         ui.painter().rect_filled(pill, radius::MD, t.accent_soft);
-        ui.painter().rect_stroke(pill, radius::MD, Stroke::new(1.0, alpha(t.accent, 0.6)), StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            pill,
+            radius::MD,
+            Stroke::new(1.0, alpha(t.accent, 0.6)),
+            StrokeKind::Inside,
+        );
     } else {
         widgets::row_fill(ui, rect, hovered && sb.drag.is_none(), false);
     }
@@ -687,7 +909,12 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
     let fade = if source { 0.5 } else { 1.0 };
     let x0 = rect.left() + ROW_INSET + 4.0 + depth as f32 * INDENT;
     let cy = rect.center().y;
-    (if open { Icon::ChevronDown } else { Icon::ChevronRight }).paint(
+    (if open {
+        Icon::ChevronDown
+    } else {
+        Icon::ChevronRight
+    })
+    .paint(
         ui,
         Rect::from_center_size(Pos2::new(x0 + 6.0, cy), vec2(12.0, 12.0)),
         12.0,
@@ -695,7 +922,12 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
     );
     let icon = if open { Icon::FolderOpen } else { Icon::Folder };
     let icon_x = x0 + 12.0 + 6.0;
-    icon.paint(ui, Rect::from_center_size(Pos2::new(icon_x + 8.0, cy), vec2(16.0, 16.0)), 16.0, alpha(if hovered || into { t.fg2 } else { t.muted }, fade));
+    icon.paint(
+        ui,
+        Rect::from_center_size(Pos2::new(icon_x + 8.0, cy), vec2(16.0, 16.0)),
+        16.0,
+        alpha(if hovered || into { t.fg2 } else { t.muted }, fade),
+    );
 
     // Right side: the session count.
     let mut right = rect.right() - ROW_INSET - 6.0;
@@ -706,11 +938,24 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
         let badge = Rect::from_min_max(Pos2::new(right - cw, cy - 9.0), Pos2::new(right, cy + 9.0));
         widgets::paint_chip(ui, badge, &text, None, false, false);
         right = badge.left() - 6.0;
-        ui.interact(badge, resp.id.with("badge"), Sense::hover()).on_hover_text(format!("{count} session{}", if count == 1 { "" } else { "s" }));
+        ui.interact(badge, resp.id.with("badge"), Sense::hover())
+            .on_hover_text(format!(
+                "{count} session{}",
+                if count == 1 { "" } else { "s" }
+            ));
     }
     let name_left = icon_x + 16.0 + 8.0;
     let color = alpha(if hovered || into { t.fg } else { t.fg2 }, fade);
-    widgets::paint_text(ui, Rect::from_min_max(Pos2::new(name_left, rect.top()), Pos2::new(right, rect.bottom())), &f.name, font_semibold(size::BASE), color);
+    widgets::paint_text(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(name_left, rect.top()),
+            Pos2::new(right, rect.bottom()),
+        ),
+        &f.name,
+        font_semibold(size::BASE),
+        color,
+    );
 
     if sb.target == Some(DropSlot::BeforeFolder(f.id)) {
         drop_line(ui, rect, true);
@@ -733,7 +978,8 @@ fn folder_row(ui: &mut Ui, sb: &mut Sidebar, f: &Folder, depth: usize, open: boo
 
 fn session_row(ui: &mut Ui, sb: &mut Sidebar, s: &Session, depth: usize, w: &mut Walk<'_>) {
     let t = tokens(ui.ctx());
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
     w.rows.push((RowKind::Session, s.id, rect));
     let selected = sb.selected == Some(s.id);
     let source = sb.drag == Some((RowKind::Session, s.id));
@@ -749,7 +995,8 @@ fn session_row(ui: &mut Ui, sb: &mut Sidebar, s: &Session, depth: usize, w: &mut
         "local" => t.success,
         _ => t.accent,
     };
-    ui.painter().rect_filled(tile, radius::SM, alpha(color.unwrap_or(kind_default), fade));
+    ui.painter()
+        .rect_filled(tile, radius::SM, alpha(color.unwrap_or(kind_default), fade));
     let icon = match s.session_kind.as_str() {
         "wsl" => Icon::SquareTerminal,
         "local" => Icon::MonitorDot,
@@ -759,12 +1006,25 @@ fn session_row(ui: &mut Ui, sb: &mut Sidebar, s: &Session, depth: usize, w: &mut
     let mut right = rect.right() - ROW_INSET - 6.0;
     if let Some(status) = w.open.get(&s.id) {
         widgets::status_dot(ui, Pos2::new(right - 5.0, rect.center().y), *status, 11.0);
-        ui.interact(Rect::from_center_size(Pos2::new(right - 5.0, rect.center().y), vec2(12.0, 12.0)), resp.id.with("open"), Sense::hover())
-            .on_hover_text(format!("Open tab: {}", status.label()));
+        ui.interact(
+            Rect::from_center_size(Pos2::new(right - 5.0, rect.center().y), vec2(12.0, 12.0)),
+            resp.id.with("open"),
+            Sense::hover(),
+        )
+        .on_hover_text(format!("Open tab: {}", status.label()));
         right -= 16.0;
     }
-    let name_rect = Rect::from_min_max(Pos2::new(tile.right() + 8.0, rect.top()), Pos2::new(right, rect.bottom()));
-    widgets::paint_text(ui, name_rect, &s.name, font(size::BASE), alpha(if selected || hovered { t.fg } else { t.fg2 }, fade));
+    let name_rect = Rect::from_min_max(
+        Pos2::new(tile.right() + 8.0, rect.top()),
+        Pos2::new(right, rect.bottom()),
+    );
+    widgets::paint_text(
+        ui,
+        name_rect,
+        &s.name,
+        font(size::BASE),
+        alpha(if selected || hovered { t.fg } else { t.fg2 }, fade),
+    );
 
     if sb.target == Some(DropSlot::BeforeSession(s.id)) {
         drop_line(ui, rect, true);
@@ -795,7 +1055,13 @@ fn drag_update(app: &mut App, ui: &Ui, tree_rect: Rect) {
     let Some(source) = app.sidebar.drag else {
         return;
     };
-    let (pos, down, escape) = ui.ctx().input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.key_pressed(egui::Key::Escape)));
+    let (pos, down, escape) = ui.ctx().input(|i| {
+        (
+            i.pointer.latest_pos(),
+            i.pointer.primary_down(),
+            i.key_pressed(egui::Key::Escape),
+        )
+    });
     ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
     let slot = pos.and_then(|p| {
         if !tree_rect.contains(p) {
@@ -803,10 +1069,14 @@ fn drag_update(app: &mut App, ui: &Ui, tree_rect: Rect) {
         }
         let hit = app.sidebar.rows.iter().find(|(_, _, r)| r.contains(p));
         let slot = match hit {
-            Some((kind, id, r)) => slot_for_row((p.y - r.top()) / r.height().max(1.0), *kind, *id, source.0),
+            Some((kind, id, r)) => {
+                slot_for_row((p.y - r.top()) / r.height().max(1.0), *kind, *id, source.0)
+            }
             None => DropSlot::IntoRoot,
         };
-        (!slot_rejected(slot, source) && !into_own_subtree(slot, source, &app.sidebar.folders, &app.sidebar.sessions)).then_some(slot)
+        (!slot_rejected(slot, source)
+            && !into_own_subtree(slot, source, &app.sidebar.folders, &app.sidebar.sessions))
+        .then_some(slot)
     });
     app.sidebar.target = slot;
     if escape {
@@ -861,7 +1131,11 @@ fn act(app: &mut App, a: Action) {
     tracing::debug!(?a, "sidebar: action");
     let sb = &mut app.sidebar;
     match a {
-        Action::NewSession(folder) => app.dialogs.session = Some(crate::views::session_dialog::SessionDialog::new_session(folder)),
+        Action::NewSession(folder) => {
+            app.dialogs.session = Some(crate::views::session_dialog::SessionDialog::new_session(
+                folder,
+            ))
+        }
         Action::Edit(id) => {
             if let Some(s) = sb.sessions.iter().find(|s| s.id == id).cloned() {
                 app.dialogs.session = Some(crate::views::session_dialog::SessionDialog::edit(s));
@@ -874,23 +1148,61 @@ fn act(app: &mut App, a: Action) {
         Action::Credentials => app.dialogs.credentials = Some(Default::default()),
         Action::ChangePassword => app.dialogs.change_password = Some(Default::default()),
         Action::RecoveryCode => app.dialogs.recovery_code = Some(Default::default()),
-        Action::NewFolder(parent) => sb.prompt = Some(Prompt::NewFolder(parent, PromptState::new("New folder", "Folder name", "", "My servers", "Create"))),
+        Action::NewFolder(parent) => {
+            sb.prompt = Some(Prompt::NewFolder(
+                parent,
+                PromptState::new("New folder", "Folder name", "", "My servers", "Create"),
+            ))
+        }
         Action::RenameFolder(id) => {
             if let Some(f) = sb.folders.iter().find(|f| f.id == id) {
-                sb.prompt = Some(Prompt::RenameFolder(id, PromptState::new(format!("Rename \"{}\"", f.name), "Folder name", &f.name, "", "Rename")));
+                sb.prompt = Some(Prompt::RenameFolder(
+                    id,
+                    PromptState::new(
+                        format!("Rename \"{}\"", f.name),
+                        "Folder name",
+                        &f.name,
+                        "",
+                        "Rename",
+                    ),
+                ));
             }
         }
-        Action::DeleteFolder(id) => sb.confirm = sb.folders.iter().find(|f| f.id == id).cloned().map(Pending::DeleteFolder),
-        Action::DeleteSession(id) => sb.confirm = sb.sessions.iter().find(|s| s.id == id).cloned().map(|s| Pending::DeleteSession(Box::new(s))),
+        Action::DeleteFolder(id) => {
+            sb.confirm = sb
+                .folders
+                .iter()
+                .find(|f| f.id == id)
+                .cloned()
+                .map(Pending::DeleteFolder)
+        }
+        Action::DeleteSession(id) => {
+            sb.confirm = sb
+                .sessions
+                .iter()
+                .find(|s| s.id == id)
+                .cloned()
+                .map(|s| Pending::DeleteSession(Box::new(s)))
+        }
         Action::MoveFolder(id) => {
             if let Some(f) = sb.folders.iter().find(|f| f.id == id).cloned() {
-                let st = MoveState::new(format!("Move folder \"{}\" to…", f.name), &sb.folders, f.parent_id, descendants(&sb.folders, f.id));
+                let st = MoveState::new(
+                    format!("Move folder \"{}\" to…", f.name),
+                    &sb.folders,
+                    f.parent_id,
+                    descendants(&sb.folders, f.id),
+                );
                 sb.moving = Some(Moving::Folder(f, Box::new(st)));
             }
         }
         Action::MoveSession(id) => {
             if let Some(s) = sb.sessions.iter().find(|s| s.id == id).cloned() {
-                let st = MoveState::new(format!("Move \"{}\" to…", s.name), &sb.folders, s.folder_id, HashSet::new());
+                let st = MoveState::new(
+                    format!("Move \"{}\" to…", s.name),
+                    &sb.folders,
+                    s.folder_id,
+                    HashSet::new(),
+                );
                 sb.moving = Some(Moving::Session(Box::new(s), Box::new(st)));
             }
         }
@@ -912,14 +1224,18 @@ fn act(app: &mut App, a: Action) {
                 },
                 move |app, r| {
                     match r {
-                        Ok(()) => app.toasts.success("Sorted", (if asc { "A → Z" } else { "Z → A" }).to_string()),
+                        Ok(()) => app
+                            .toasts
+                            .success("Sorted", (if asc { "A → Z" } else { "Z → A" }).to_string()),
                         Err(e) => app.toasts.danger("Action failed", e.to_string()),
                     }
                     app.sidebar.reload(&app.core);
                 },
             );
         }
-        Action::Settings => app.dialogs.settings = Some(crate::views::settings::SettingsDialog::default()),
+        Action::Settings => {
+            app.dialogs.settings = Some(crate::views::settings::SettingsDialog::default())
+        }
         Action::Connect(id) => {
             if let Some(s) = sb.sessions.iter().find(|s| s.id == id).cloned() {
                 app.open_session(s);
@@ -985,17 +1301,24 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
 
     if let Some(c) = &app.sidebar.confirm {
         let (title, body) = match c {
-            Pending::DeleteFolder(f) => {
-                (format!("Delete folder \"{}\"?", f.name), "Subfolders will be deleted. Sessions inside will be moved to the root.")
-            }
-            Pending::DeleteSession(s) => {
-                (format!("Delete \"{}\"?", s.name), "This also removes any saved credentials attached to this session.")
-            }
+            Pending::DeleteFolder(f) => (
+                format!("Delete folder \"{}\"?", f.name),
+                "Subfolders will be deleted. Sessions inside will be moved to the root.",
+            ),
+            Pending::DeleteSession(s) => (
+                format!("Delete \"{}\"?", s.name),
+                "This also removes any saved credentials attached to this session.",
+            ),
         };
         let answer = dialogs::confirm(
             ctx,
             Id::unique("sidebar-confirm"),
-            dialogs::Confirm { title: &title, body, confirm_text: "Delete", danger: true },
+            dialogs::Confirm {
+                title: &title,
+                body,
+                confirm_text: "Delete",
+                danger: true,
+            },
         );
         if let Some(yes) = answer
             && let Some(c) = app.sidebar.confirm.take()
@@ -1081,25 +1404,55 @@ mod tests {
     use crate::tabs::test_session;
 
     fn folder(id: i64, parent: Option<i64>, sort: i64, name: &str) -> Folder {
-        Folder { id, parent_id: parent, name: name.into(), sort }
+        Folder {
+            id,
+            parent_id: parent,
+            name: name.into(),
+            sort,
+        }
     }
 
     fn session(id: i64, folder: Option<i64>, sort: i64, name: &str) -> Session {
-        Session { folder_id: folder, sort, ..test_session(id, name, "ssh") }
+        Session {
+            folder_id: folder,
+            sort,
+            ..test_session(id, name, "ssh")
+        }
     }
 
     #[test]
     fn row_slots() {
         use DropSlot::*;
-        assert_eq!(slot_for_row(0.2, RowKind::Session, 5, RowKind::Session), BeforeSession(5));
-        assert_eq!(slot_for_row(0.6, RowKind::Session, 5, RowKind::Folder), AfterSession(5));
+        assert_eq!(
+            slot_for_row(0.2, RowKind::Session, 5, RowKind::Session),
+            BeforeSession(5)
+        );
+        assert_eq!(
+            slot_for_row(0.6, RowKind::Session, 5, RowKind::Folder),
+            AfterSession(5)
+        );
         // A session dragged over a folder always goes into it.
-        assert_eq!(slot_for_row(0.1, RowKind::Folder, 7, RowKind::Session), IntoFolder(7));
-        assert_eq!(slot_for_row(0.9, RowKind::Folder, 7, RowKind::Session), IntoFolder(7));
+        assert_eq!(
+            slot_for_row(0.1, RowKind::Folder, 7, RowKind::Session),
+            IntoFolder(7)
+        );
+        assert_eq!(
+            slot_for_row(0.9, RowKind::Folder, 7, RowKind::Session),
+            IntoFolder(7)
+        );
         // A folder drag splits 25 / 50 / 25.
-        assert_eq!(slot_for_row(0.2, RowKind::Folder, 7, RowKind::Folder), BeforeFolder(7));
-        assert_eq!(slot_for_row(0.5, RowKind::Folder, 7, RowKind::Folder), IntoFolder(7));
-        assert_eq!(slot_for_row(0.8, RowKind::Folder, 7, RowKind::Folder), AfterFolder(7));
+        assert_eq!(
+            slot_for_row(0.2, RowKind::Folder, 7, RowKind::Folder),
+            BeforeFolder(7)
+        );
+        assert_eq!(
+            slot_for_row(0.5, RowKind::Folder, 7, RowKind::Folder),
+            IntoFolder(7)
+        );
+        assert_eq!(
+            slot_for_row(0.8, RowKind::Folder, 7, RowKind::Folder),
+            AfterFolder(7)
+        );
     }
 
     #[test]
@@ -1113,8 +1466,17 @@ mod tests {
     }
 
     fn data() -> (Vec<Folder>, Vec<Session>) {
-        let folders = vec![folder(1, None, 0, "A"), folder(2, None, 1, "B"), folder(3, Some(1), 0, "A1")];
-        let sessions = vec![session(10, None, 0, "r0"), session(11, Some(1), 0, "a0"), session(12, Some(1), 1, "a1"), session(13, Some(2), 0, "b0")];
+        let folders = vec![
+            folder(1, None, 0, "A"),
+            folder(2, None, 1, "B"),
+            folder(3, Some(1), 0, "A1"),
+        ];
+        let sessions = vec![
+            session(10, None, 0, "r0"),
+            session(11, Some(1), 0, "a0"),
+            session(12, Some(1), 1, "a1"),
+            session(13, Some(2), 0, "b0"),
+        ];
         (folders, sessions)
     }
 
@@ -1122,11 +1484,23 @@ mod tests {
     fn session_into_folder_moves_to_top() {
         let (f, s) = data();
         let (ops, expand) = plan_drop((RowKind::Session, 10), DropSlot::IntoFolder(2), &f, &s);
-        assert_eq!(ops, vec![DropOp::MoveSession { id: 10, folder: Some(2) }]);
+        assert_eq!(
+            ops,
+            vec![DropOp::MoveSession {
+                id: 10,
+                folder: Some(2)
+            }]
+        );
         assert_eq!(expand, Some(2));
         // Into the folder it is already in: nothing.
-        assert_eq!(plan_drop((RowKind::Session, 11), DropSlot::IntoFolder(1), &f, &s).0, vec![]);
-        assert_eq!(plan_drop((RowKind::Session, 10), DropSlot::IntoRoot, &f, &s).0, vec![]);
+        assert_eq!(
+            plan_drop((RowKind::Session, 11), DropSlot::IntoFolder(1), &f, &s).0,
+            vec![]
+        );
+        assert_eq!(
+            plan_drop((RowKind::Session, 10), DropSlot::IntoRoot, &f, &s).0,
+            vec![]
+        );
     }
 
     #[test]
@@ -1134,12 +1508,27 @@ mod tests {
         let (f, s) = data();
         // a0 after a1, same folder.
         let (ops, _) = plan_drop((RowKind::Session, 11), DropSlot::AfterSession(12), &f, &s);
-        assert_eq!(ops, vec![DropOp::ReorderSessions { folder: Some(1), ids: vec![12, 11] }]);
+        assert_eq!(
+            ops,
+            vec![DropOp::ReorderSessions {
+                folder: Some(1),
+                ids: vec![12, 11]
+            }]
+        );
         // r0 before a1: cross-folder move, then reorder there.
         let (ops, expand) = plan_drop((RowKind::Session, 10), DropSlot::BeforeSession(12), &f, &s);
         assert_eq!(
             ops,
-            vec![DropOp::MoveSession { id: 10, folder: Some(1) }, DropOp::ReorderSessions { folder: Some(1), ids: vec![11, 10, 12] }]
+            vec![
+                DropOp::MoveSession {
+                    id: 10,
+                    folder: Some(1)
+                },
+                DropOp::ReorderSessions {
+                    folder: Some(1),
+                    ids: vec![11, 10, 12]
+                }
+            ]
         );
         assert_eq!(expand, Some(1));
         // Alone in its folder, dropped next to nobody new: no calls.
@@ -1151,16 +1540,48 @@ mod tests {
     fn folder_moves_and_reorders() {
         let (f, s) = data();
         let (ops, expand) = plan_drop((RowKind::Folder, 2), DropSlot::IntoFolder(1), &f, &s);
-        assert_eq!(ops, vec![DropOp::MoveFolder { id: 2, parent: Some(1) }]);
+        assert_eq!(
+            ops,
+            vec![DropOp::MoveFolder {
+                id: 2,
+                parent: Some(1)
+            }]
+        );
         assert_eq!(expand, Some(1));
-        assert_eq!(plan_drop((RowKind::Folder, 3), DropSlot::IntoFolder(1), &f, &s).0, vec![], "already there");
-        assert_eq!(plan_drop((RowKind::Folder, 1), DropSlot::IntoFolder(1), &f, &s).0, vec![], "into itself");
+        assert_eq!(
+            plan_drop((RowKind::Folder, 3), DropSlot::IntoFolder(1), &f, &s).0,
+            vec![],
+            "already there"
+        );
+        assert_eq!(
+            plan_drop((RowKind::Folder, 1), DropSlot::IntoFolder(1), &f, &s).0,
+            vec![],
+            "into itself"
+        );
         // B before A at the root.
         let (ops, _) = plan_drop((RowKind::Folder, 2), DropSlot::BeforeFolder(1), &f, &s);
-        assert_eq!(ops, vec![DropOp::ReorderFolders { parent: None, ids: vec![2, 1] }]);
+        assert_eq!(
+            ops,
+            vec![DropOp::ReorderFolders {
+                parent: None,
+                ids: vec![2, 1]
+            }]
+        );
         // A1 after B: out of A, to the root, after B.
         let (ops, _) = plan_drop((RowKind::Folder, 3), DropSlot::AfterFolder(2), &f, &s);
-        assert_eq!(ops, vec![DropOp::MoveFolder { id: 3, parent: None }, DropOp::ReorderFolders { parent: None, ids: vec![1, 2, 3] }]);
+        assert_eq!(
+            ops,
+            vec![
+                DropOp::MoveFolder {
+                    id: 3,
+                    parent: None
+                },
+                DropOp::ReorderFolders {
+                    parent: None,
+                    ids: vec![1, 2, 3]
+                }
+            ]
+        );
     }
 
     #[test]
@@ -1171,13 +1592,24 @@ mod tests {
         let (fs, ss) = sorted_children(&f, &s, None, false);
         assert_eq!(fs, Some(vec![2, 1]));
         assert_eq!(ss, None, "one root session: nothing to sort");
-        let mixed = vec![session(1, None, 0, "beta"), session(2, None, 1, "Alpha"), session(3, None, 2, "alpha2")];
-        assert_eq!(sorted_children(&[], &mixed, None, true).1, Some(vec![2, 3, 1]), "case-insensitive");
+        let mixed = vec![
+            session(1, None, 0, "beta"),
+            session(2, None, 1, "Alpha"),
+            session(3, None, 2, "alpha2"),
+        ];
+        assert_eq!(
+            sorted_children(&[], &mixed, None, true).1,
+            Some(vec![2, 3, 1]),
+            "case-insensitive"
+        );
     }
 
     #[test]
     fn colours() {
-        assert_eq!(parse_color("#e06c75"), Some(Color32::from_rgb(0xe0, 0x6c, 0x75)));
+        assert_eq!(
+            parse_color("#e06c75"),
+            Some(Color32::from_rgb(0xe0, 0x6c, 0x75))
+        );
         assert_eq!(parse_color("#fff"), Some(Color32::WHITE));
         assert_eq!(parse_color("red"), None);
         assert_eq!(parse_color("#12345"), None);

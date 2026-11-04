@@ -17,14 +17,14 @@ use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, Rgb};
 use egui::{
-    Align2, Button, Color32, CursorIcon, Event, EventFilter, FontId, ImeEvent, LayerId, Mesh, MouseWheelUnit,
-    Order, PointerButton, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, TextEdit, Ui, Vec2,
-    pos2, vec2,
+    Align2, Button, Color32, CursorIcon, Event, EventFilter, FontId, ImeEvent, LayerId, Mesh,
+    MouseWheelUnit, Order, PointerButton, Pos2, Rect, Response, RichText, Sense, Shape, Stroke,
+    StrokeKind, TextEdit, Ui, Vec2, pos2, vec2,
 };
 
 use crate::boxdraw;
 use crate::fonts::Faces;
-use crate::keys::{self, Action, Key, Mods, Modes};
+use crate::keys::{self, Action, Key, Modes, Mods};
 use crate::links::{Link, LinkFinder};
 use crate::mouse;
 use crate::palette::{Palette, dim};
@@ -55,7 +55,11 @@ pub enum RightClick {
 
 impl RightClick {
     pub fn from_setting(s: &str) -> Self {
-        if s == "paste" { Self::Paste } else { Self::Menu }
+        if s == "paste" {
+            Self::Paste
+        } else {
+            Self::Menu
+        }
     }
 }
 
@@ -113,9 +117,16 @@ impl Default for TermStyle {
 /// Connection state painted over the terminal as a card. The app owns the state machine; the widget only draws it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Overlay {
-    Connecting { summary: String },
-    Failed { message: String },
-    Closed { reason: Option<String>, summary: String },
+    Connecting {
+        summary: String,
+    },
+    Failed {
+        message: String,
+    },
+    Closed {
+        reason: Option<String>,
+        summary: String,
+    },
 }
 
 /// Something the app has to do for the terminal.
@@ -274,7 +285,13 @@ pub struct TerminalView<'a> {
 
 impl<'a> TerminalView<'a> {
     pub fn new(term: &'a mut Terminal, style: &'a TermStyle) -> Self {
-        Self { term, style, focus_on_show: false, overlay: None, input: true }
+        Self {
+            term,
+            style,
+            focus_on_show: false,
+            overlay: None,
+            input: true,
+        }
     }
 
     /// Take keyboard focus this frame (new tab, tab switch).
@@ -299,7 +316,13 @@ impl<'a> TerminalView<'a> {
     }
 
     pub fn show(self, ui: &mut Ui) -> TermOutput {
-        let TerminalView { term, style, focus_on_show, overlay, input } = self;
+        let TerminalView {
+            term,
+            style,
+            focus_on_show,
+            overlay,
+            input,
+        } = self;
         let mut actions = Vec::new();
         let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -312,7 +335,9 @@ impl<'a> TerminalView<'a> {
         // as in an editor); only the context menu refuses it.
         let menu_open = term.view.menu.is_some();
         let wants_focus = focus_on_show || std::mem::take(&mut term.view.refocus);
-        if !blocked && (wants_focus || ((response.clicked() || response.drag_started()) && !menu_open)) {
+        if !blocked
+            && (wants_focus || ((response.clicked() || response.drag_started()) && !menu_open))
+        {
             response.request_focus();
         }
         let focused = response.has_focus() && !blocked;
@@ -320,7 +345,12 @@ impl<'a> TerminalView<'a> {
             ctx.memory_mut(|m| {
                 m.set_focus_lock_filter(
                     id,
-                    EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true },
+                    EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: true,
+                    },
                 )
             });
         }
@@ -338,7 +368,10 @@ impl<'a> TerminalView<'a> {
         let inner = rect.shrink(style.padding);
         let cols = ((inner.width() / cell.x).floor() as usize).max(2);
         let rows = ((inner.height() / cell.y).floor() as usize).max(1);
-        let origin = pos2((inner.min.x * ppp).round() / ppp, (inner.min.y * ppp).round() / ppp);
+        let origin = pos2(
+            (inner.min.x * ppp).round() / ppp,
+            (inner.min.y * ppp).round() / ppp,
+        );
         term.view.cell = cell;
         term.view.origin = origin;
         if (cols, rows) != (term.view.cols, term.view.rows) {
@@ -372,7 +405,11 @@ impl<'a> TerminalView<'a> {
             let report = t.mode().contains(TermMode::FOCUS_IN_OUT);
             drop(t);
             if report {
-                term.write(if focused { &b"\x1b[I"[..] } else { &b"\x1b[O"[..] });
+                term.write(if focused {
+                    &b"\x1b[I"[..]
+                } else {
+                    &b"\x1b[O"[..]
+                });
             }
         }
 
@@ -380,7 +417,13 @@ impl<'a> TerminalView<'a> {
         let layer = ui.layer_id();
         let hovered = !blocked && (response.hovered() || response.contains_pointer());
         if !blocked {
-            let env = PointerEnv { ctx: &ctx, rect, layer, hovered, topmost: response.hovered() };
+            let env = PointerEnv {
+                ctx: &ctx,
+                rect,
+                layer,
+                hovered,
+                topmost: response.hovered(),
+            };
             handle_pointer(term, style, &events, &env, &mut actions);
         }
         // Keys go to the menu while it is open (Escape closes it in
@@ -402,7 +445,10 @@ impl<'a> TerminalView<'a> {
                 let t = term.lock();
                 let c = t.grid().cursor.point;
                 let row = (c.line.0 + t.grid().display_offset() as i32).max(0) as f32;
-                Rect::from_min_size(origin + vec2(c.column.0 as f32 * cell.x, row * cell.y), cell)
+                Rect::from_min_size(
+                    origin + vec2(c.column.0 as f32 * cell.x, row * cell.y),
+                    cell,
+                )
             };
             ctx.output_mut(|o| {
                 o.ime = Some(egui::output::IMEOutput {
@@ -432,7 +478,11 @@ impl<'a> TerminalView<'a> {
             // Dim the terminal under the card (bg at 70 %), on the
             // widget's own layer so the card stays on top.
             let bg = to_c32(style.palette.background);
-            ui.painter_at(rect).rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 178));
+            ui.painter_at(rect).rect_filled(
+                rect,
+                0.0,
+                Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 178),
+            );
             show_overlay(&ctx, rect, id, o, &mut actions);
         }
         TermOutput { response, actions }
@@ -462,7 +512,10 @@ impl ImeLoopFilter {
                 if !keep {
                     self.dropped += 1;
                     if self.dropped.is_power_of_two() {
-                        tracing::debug!(dropped = self.dropped, "term.ime: dropped empty pre-edit events");
+                        tracing::debug!(
+                            dropped = self.dropped,
+                            "term.ime: dropped empty pre-edit events"
+                        );
                     }
                 }
                 keep
@@ -487,7 +540,11 @@ fn cell_at(v: &ViewState, pos: Pos2) -> (usize, usize, Side) {
     let fx = rel.x / v.cell.x;
     let col = (fx.floor().max(0.0) as usize).min(v.cols.saturating_sub(1));
     let row = ((rel.y / v.cell.y).floor().max(0.0) as usize).min(v.rows.saturating_sub(1));
-    let side = if fx - fx.floor() < 0.5 { Side::Left } else { Side::Right };
+    let side = if fx - fx.floor() < 0.5 {
+        Side::Left
+    } else {
+        Side::Right
+    };
     (col, row, side)
 }
 
@@ -526,7 +583,12 @@ fn read_clipboard(term: &mut Terminal) -> Option<String> {
 }
 
 /// Paste, or ask first when the text would run several lines.
-fn request_paste(term: &mut Terminal, style: &TermStyle, text: String, actions: &mut Vec<TermAction>) {
+fn request_paste(
+    term: &mut Terminal,
+    style: &TermStyle,
+    text: String,
+    actions: &mut Vec<TermAction>,
+) {
     if text.is_empty() {
         return;
     }
@@ -575,7 +637,13 @@ fn handle_keyboard(
     let mut skip_text_at: Option<usize> = None;
     for (i, ev) in events.iter().enumerate() {
         match ev {
-            Event::Key { key, pressed, repeat, modifiers, .. } => {
+            Event::Key {
+                key,
+                pressed,
+                repeat,
+                modifiers,
+                ..
+            } => {
                 let mods = Mods::from_egui(*modifiers);
                 let ctrl_shift = mods.ctrl && mods.shift && !mods.alt;
                 // A consumed shortcut's release must not reach a kitty
@@ -608,7 +676,10 @@ fn handle_keyboard(
                             copy_selection(term, ctx);
                             continue;
                         }
-                        egui::Key::PageUp | egui::Key::PageDown | egui::Key::Home | egui::Key::End
+                        egui::Key::PageUp
+                        | egui::Key::PageDown
+                        | egui::Key::Home
+                        | egui::Key::End
                             if mods.shift && !mods.ctrl && !mods.alt =>
                         {
                             let mut t = term.lock();
@@ -724,12 +795,26 @@ fn handle_pointer(
     let (ctx, rect, hovered) = (env.ctx, env.rect, env.hovered);
     for ev in events {
         match ev {
-            Event::PointerButton { pos, button, pressed, modifiers } => {
+            Event::PointerButton {
+                pos,
+                button,
+                pressed,
+                modifiers,
+            } => {
                 if *pressed && (!rect.contains(*pos) || !env.on_top(*pos) || !env.topmost) {
-                    tracing::trace!(?pos, ?button, topmost = env.topmost, "term: press not for this terminal");
+                    tracing::trace!(
+                        ?pos,
+                        ?button,
+                        topmost = env.topmost,
+                        "term: press not for this terminal"
+                    );
                     continue;
                 }
-                if !*pressed && !term.view.selecting && term.view.reported_button.is_none() && term.view.press_link.is_none() {
+                if !*pressed
+                    && !term.view.selecting
+                    && term.view.reported_button.is_none()
+                    && term.view.press_link.is_none()
+                {
                     continue;
                 }
                 let mods = Mods::from_egui(*modifiers);
@@ -743,10 +828,16 @@ fn handle_pointer(
                     _ => continue,
                 };
                 if reporting || (!*pressed && term.view.reported_button == Some(mbutton)) {
-                    let kind = if *pressed { mouse::Kind::Press } else { mouse::Kind::Release };
+                    let kind = if *pressed {
+                        mouse::Kind::Press
+                    } else {
+                        mouse::Kind::Release
+                    };
                     term.view.reported_button = if *pressed { Some(mbutton) } else { None };
                     term.view.last_motion_cell = Some((col, row));
-                    if let Some(bytes) = mouse::encode(mbutton, kind, col, row, mods, mouse_format(mode)) {
+                    if let Some(bytes) =
+                        mouse::encode(mbutton, kind, col, row, mods, mouse_format(mode))
+                    {
                         term.write(bytes);
                     }
                     continue;
@@ -785,7 +876,9 @@ fn handle_pointer(
                         if empty {
                             term.lock().selection = None;
                             // A click (no drag) on a link opens it.
-                            if let Some(uri) = link.filter(|u| term.view.hover.as_ref().is_some_and(|h| h.uri == *u)) {
+                            if let Some(uri) = link
+                                .filter(|u| term.view.hover.as_ref().is_some_and(|h| h.uri == *u))
+                            {
                                 tracing::debug!(%uri, "term.link: open");
                                 actions.push(TermAction::OpenUrl(uri));
                             }
@@ -834,13 +927,28 @@ fn handle_pointer(
                     term.view.last_motion_cell = Some((col, row));
                     let button = term.view.reported_button.unwrap_or(mouse::Button::None);
                     let mods = Mods::from_egui(ctx.input(|i| i.modifiers));
-                    if let Some(bytes) = mouse::encode(button, mouse::Kind::Motion, col, row, mods, mouse_format(mode)) {
+                    if let Some(bytes) = mouse::encode(
+                        button,
+                        mouse::Kind::Motion,
+                        col,
+                        row,
+                        mods,
+                        mouse_format(mode),
+                    ) {
                         term.write(bytes);
                     }
                 }
             }
-            Event::MouseWheel { unit, delta, modifiers, .. } if hovered => {
-                if ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| !env.on_top(p)) {
+            Event::MouseWheel {
+                unit,
+                delta,
+                modifiers,
+                ..
+            } if hovered => {
+                if ctx
+                    .input(|i| i.pointer.hover_pos())
+                    .is_some_and(|p| !env.on_top(p))
+                {
                     continue;
                 }
                 let mods = Mods::from_egui(*modifiers);
@@ -868,15 +976,30 @@ fn handle_pointer(
                 term.view.scroll_accum -= n as f32;
                 let mode = *term.lock().mode();
                 if mode.intersects(TermMode::MOUSE_MODE) && !mods.shift {
-                    let pos = ctx.input(|i| i.pointer.latest_pos()).unwrap_or(rect.center());
+                    let pos = ctx
+                        .input(|i| i.pointer.latest_pos())
+                        .unwrap_or(rect.center());
                     let (col, row, _) = cell_at(&term.view, pos);
-                    let button = if n > 0 { mouse::Button::WheelUp } else { mouse::Button::WheelDown };
+                    let button = if n > 0 {
+                        mouse::Button::WheelUp
+                    } else {
+                        mouse::Button::WheelDown
+                    };
                     for _ in 0..n.unsigned_abs() {
-                        if let Some(b) = mouse::encode(button, mouse::Kind::Press, col, row, mods, mouse_format(mode)) {
+                        if let Some(b) = mouse::encode(
+                            button,
+                            mouse::Kind::Press,
+                            col,
+                            row,
+                            mods,
+                            mouse_format(mode),
+                        ) {
                             term.write(b);
                         }
                     }
-                } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !mods.shift {
+                } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
+                    && !mods.shift
+                {
                     let seq: &[u8] = match (n > 0, mode.contains(TermMode::APP_CURSOR)) {
                         (true, true) => b"\x1bOA",
                         (true, false) => b"\x1b[A",
@@ -895,10 +1018,17 @@ fn handle_pointer(
 
 /// Track the link under the pointer. Links are inactive while a program
 /// takes the mouse (unless Shift is held, as for selection).
-fn update_hover(term: &mut Terminal, ctx: &egui::Context, rect: Rect, layer: LayerId, hovered: bool) {
+fn update_hover(
+    term: &mut Terminal,
+    ctx: &egui::Context,
+    rect: Rect,
+    layer: LayerId,
+    hovered: bool,
+) {
     let pos = ctx.input(|i| i.pointer.hover_pos());
     let shift = ctx.input(|i| i.modifiers.shift);
-    let Some(pos) = pos.filter(|p| hovered && rect.contains(*p) && ctx.layer_id_at(*p).is_none_or(|l| l == layer))
+    let Some(pos) = pos
+        .filter(|p| hovered && rect.contains(*p) && ctx.layer_id_at(*p).is_none_or(|l| l == layer))
     else {
         term.view.hover = None;
         return;
@@ -933,15 +1063,23 @@ fn update_hover(term: &mut Terminal, ctx: &egui::Context, rect: Rect, layer: Lay
 
 // ---------------------------------------------------------------- popups
 
-fn show_menu(ctx: &egui::Context, term: &mut Terminal, style: &TermStyle, id: egui::Id, actions: &mut Vec<TermAction>) {
+fn show_menu(
+    ctx: &egui::Context,
+    term: &mut Terminal,
+    style: &TermStyle,
+    id: egui::Id,
+    actions: &mut Vec<TermAction>,
+) {
     let Some((pos, just_opened)) = term.view.menu else {
         return;
     };
     let has_selection = term.has_selection();
     let mut chosen: Option<&'static str> = None;
-    let area = egui::Area::new(id.with("context-menu")).order(Order::Foreground).fixed_pos(pos).constrain(true).show(
-        ctx,
-        |ui| {
+    let area = egui::Area::new(id.with("context-menu"))
+        .order(Order::Foreground)
+        .fixed_pos(pos)
+        .constrain(true)
+        .show(ctx, |ui| {
             egui::Frame::menu(ui.style()).show(ui, |ui| {
                 ui.set_min_width(190.0);
                 let item = |ui: &mut Ui, enabled: bool, label: &'static str, shortcut: &str| {
@@ -960,12 +1098,14 @@ fn show_menu(ctx: &egui::Context, term: &mut Terminal, style: &TermStyle, id: eg
                     .or_else(|| item(ui, true, "Appearance…", ""))
                     .or_else(|| item(ui, true, "Clear scrollback", ""));
             });
-        },
-    );
+        });
     let mut close = chosen.is_some() || ctx.input(|i| i.key_pressed(egui::Key::Escape));
     if !just_opened {
         let outside = ctx.input(|i| {
-            i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p))
+            i.pointer.any_pressed()
+                && i.pointer
+                    .interact_pos()
+                    .is_some_and(|p| !area.response.rect.contains(p))
         });
         close |= outside;
     }
@@ -1003,13 +1143,22 @@ fn show_find(ctx: &egui::Context, term: &mut Terminal, rect: Rect, id: egui::Id)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let edit = ui.add(TextEdit::singleline(&mut find.query).hint_text("Find").desired_width(176.0));
+                    let edit = ui.add(
+                        TextEdit::singleline(&mut find.query)
+                            .hint_text("Find")
+                            .desired_width(176.0),
+                    );
                     if std::mem::take(&mut find.focus_input) {
                         edit.request_focus();
                     }
                     let mut changed = edit.changed();
-                    let (enter, escape, shift) =
-                        ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape), i.modifiers.shift));
+                    let (enter, escape, shift) = ui.input(|i| {
+                        (
+                            i.key_pressed(egui::Key::Enter),
+                            i.key_pressed(egui::Key::Escape),
+                            i.modifiers.shift,
+                        )
+                    });
                     let mut step: Option<bool> = None;
                     if edit.lost_focus() && enter {
                         step = Some(!shift);
@@ -1021,7 +1170,9 @@ fn show_find(ctx: &egui::Context, term: &mut Terminal, rect: Rect, id: egui::Id)
                     if !find.query.is_empty() {
                         let text = match (&find.error, find.counter()) {
                             (Some(_), _) => "bad regex".to_string(),
-                            (None, (i, n)) if find.truncated && n == MAX_COUNTED => format!("{i}/{n}+"),
+                            (None, (i, n)) if find.truncated && n == MAX_COUNTED => {
+                                format!("{i}/{n}+")
+                            }
                             (None, (i, n)) => format!("{i}/{n}"),
                         };
                         let label = ui.label(RichText::new(text).small().weak());
@@ -1029,18 +1180,34 @@ fn show_find(ctx: &egui::Context, term: &mut Terminal, rect: Rect, id: egui::Id)
                             label.on_hover_text(e.as_str());
                         }
                     }
-                    if ui.selectable_label(find.case_sensitive, "Aa").on_hover_text("Case sensitive").clicked() {
+                    if ui
+                        .selectable_label(find.case_sensitive, "Aa")
+                        .on_hover_text("Case sensitive")
+                        .clicked()
+                    {
                         find.case_sensitive = !find.case_sensitive;
                         changed = true;
                     }
-                    if ui.selectable_label(find.regex, ".*").on_hover_text("Regular expression").clicked() {
+                    if ui
+                        .selectable_label(find.regex, ".*")
+                        .on_hover_text("Regular expression")
+                        .clicked()
+                    {
                         find.regex = !find.regex;
                         changed = true;
                     }
-                    if ui.small_button("Prev").on_hover_text("Previous (Shift+Enter)").clicked() {
+                    if ui
+                        .small_button("Prev")
+                        .on_hover_text("Previous (Shift+Enter)")
+                        .clicked()
+                    {
                         step = Some(false);
                     }
-                    if ui.small_button("Next").on_hover_text("Next (Enter)").clicked() {
+                    if ui
+                        .small_button("Next")
+                        .on_hover_text("Next (Enter)")
+                        .clicked()
+                    {
                         step = Some(true);
                     }
                     if ui.small_button("×").on_hover_text("Close (Esc)").clicked() {
@@ -1065,7 +1232,13 @@ fn show_find(ctx: &egui::Context, term: &mut Terminal, rect: Rect, id: egui::Id)
     }
 }
 
-fn show_overlay(ctx: &egui::Context, rect: Rect, id: egui::Id, overlay: &Overlay, actions: &mut Vec<TermAction>) {
+fn show_overlay(
+    ctx: &egui::Context,
+    rect: Rect,
+    id: egui::Id,
+    overlay: &Overlay,
+    actions: &mut Vec<TermAction>,
+) {
     egui::Area::new(id.with("overlay"))
         .order(Order::Middle)
         .pivot(Align2::CENTER_CENTER)
@@ -1083,7 +1256,11 @@ fn show_overlay(ctx: &egui::Context, rect: Rect, id: egui::Id, overlay: &Overlay
                             false
                         }
                         Overlay::Failed { message } => {
-                            ui.label(RichText::new("Connection failed").strong().color(ui.visuals().error_fg_color));
+                            ui.label(
+                                RichText::new("Connection failed")
+                                    .strong()
+                                    .color(ui.visuals().error_fg_color),
+                            );
                             ui.label(RichText::new(message).small().weak());
                             ui.add_space(4.0);
                             ui.button("Reconnect").clicked()
@@ -1116,7 +1293,11 @@ fn to_c32(c: Rgb) -> Color32 {
 
 fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
     let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Rgb { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b) }
+    Rgb {
+        r: m(a.r, b.r),
+        g: m(a.g, b.g),
+        b: m(a.b, b.b),
+    }
 }
 
 fn resolve(color: Color, colors: &Colors, palette: &Palette) -> Rgb {
@@ -1131,7 +1312,9 @@ fn resolve(color: Color, colors: &Colors, palette: &Palette) -> Rgb {
 /// dim text uses the dim variant.
 fn adjust_fg(color: Color, flags: Flags) -> Color {
     match color {
-        Color::Named(n) if flags.contains(Flags::BOLD) && (n as usize) < 8 => Color::Indexed(n as u8 + 8),
+        Color::Named(n) if flags.contains(Flags::BOLD) && (n as usize) < 8 => {
+            Color::Indexed(n as u8 + 8)
+        }
         Color::Indexed(i) if flags.contains(Flags::BOLD) && i < 8 => Color::Indexed(i + 8),
         _ => color,
     }
@@ -1159,7 +1342,11 @@ fn ligature_prone(c: char) -> bool {
 
 /// Whether the cursor is drawn this frame, and when to repaint for the
 /// next blink phase.
-fn cursor_phase(blinking: bool, since_epoch: Duration, since_input: Duration) -> (bool, Option<Duration>) {
+fn cursor_phase(
+    blinking: bool,
+    since_epoch: Duration,
+    since_input: Duration,
+) -> (bool, Option<Duration>) {
     if !blinking || since_input >= BLINK_IDLE_STOP {
         return (true, None);
     }
@@ -1177,10 +1364,22 @@ fn visible_matches(find: Option<&Find>, top: i32, bottom: i32) -> Vec<Match> {
     let Some(f) = find else {
         return Vec::new();
     };
-    f.matches.iter().filter(|m| m.start().line.0 <= bottom && m.end().line.0 >= top).cloned().collect()
+    f.matches
+        .iter()
+        .filter(|m| m.start().line.0 <= bottom && m.end().line.0 >= top)
+        .cloned()
+        .collect()
 }
 
-fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: bool, faces: &Faces, ppp: f32) {
+fn paint(
+    ui: &Ui,
+    term: &mut Terminal,
+    style: &TermStyle,
+    rect: Rect,
+    focused: bool,
+    faces: &Faces,
+    ppp: f32,
+) {
     let font = &FontId::new(term.view.font_size, faces.regular.clone());
     let painter = ui.painter_at(rect);
     let palette = &style.palette;
@@ -1209,7 +1408,8 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
         cursor_blinks = t.cursor_style().blinking;
         let cp = content.cursor.point;
         let cursor_row = cp.line.0 + offset;
-        cursor_cell = (cursor_row >= 0 && (cursor_row as usize) < rows).then_some((cp.column.0, cursor_row as usize));
+        cursor_cell = (cursor_row >= 0 && (cursor_row as usize) < rows)
+            .then_some((cp.column.0, cursor_row as usize));
         cursor_wide = t.grid()[cp].flags.contains(Flags::WIDE_CHAR);
         let matches = visible_matches(term.view.find.as_ref(), -offset, rows as i32 - 1 - offset);
         for indexed in content.display_iter {
@@ -1228,7 +1428,9 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
             let c = if c.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER) {
                 let mut blank = c.clone();
                 blank.c = ' ';
-                blank.flags.remove(Flags::WIDE_CHAR | Flags::LEADING_WIDE_CHAR_SPACER);
+                blank
+                    .flags
+                    .remove(Flags::WIDE_CHAR | Flags::LEADING_WIDE_CHAR_SPACER);
                 std::borrow::Cow::Owned(blank)
             } else {
                 std::borrow::Cow::Borrowed(c)
@@ -1264,7 +1466,9 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
                 fg: to_c32(fg),
                 bg,
                 flags: c.flags,
-                link: hover.as_ref().is_some_and(|h| h.range.contains(&indexed.point)),
+                link: hover
+                    .as_ref()
+                    .is_some_and(|h| h.range.contains(&indexed.point)),
             });
         }
     }
@@ -1279,13 +1483,27 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
     }
     let focused_block = focused && cursor_on && cursor_shape == CursorShape::Block;
     let cell_rect = |col: usize, row: usize, span: usize| {
-        Rect::from_min_size(origin + vec2(col as f32 * cell.x, row as f32 * cell.y), vec2(cell.x * span as f32, cell.y))
+        Rect::from_min_size(
+            origin + vec2(col as f32 * cell.x, row as f32 * cell.y),
+            vec2(cell.x * span as f32, cell.y),
+        )
     };
-    let span_of = |p: &PCell| if p.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+    let span_of = |p: &PCell| {
+        if p.flags.contains(Flags::WIDE_CHAR) {
+            2
+        } else {
+            1
+        }
+    };
     // Backgrounds go into one un-feathered mesh with edges on whole device
     // pixels, so neighbouring runs meet without seams.
     let snap = |v: f32| (v * ppp).round() / ppp;
-    let snapped = |r: Rect| Rect::from_min_max(pos2(snap(r.min.x), snap(r.min.y)), pos2(snap(r.max.x), snap(r.max.y)));
+    let snapped = |r: Rect| {
+        Rect::from_min_max(
+            pos2(snap(r.min.x), snap(r.min.y)),
+            pos2(snap(r.max.x), snap(r.max.y)),
+        )
+    };
     let mut bg_mesh = Mesh::default();
 
     // Backgrounds, merged into runs.
@@ -1324,7 +1542,8 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
     // Text. Box-drawing rectangles collect in their own mesh.
     let mut fg_mesh = Mesh::default();
     let box_stroke = boxdraw::stroke_px(cell.x, ppp);
-    let font_for = |bold: bool, italic: bool| FontId::new(font.size, faces.pick(bold, italic).clone());
+    let font_for =
+        |bold: bool, italic: bool| FontId::new(font.size, faces.pick(bold, italic).clone());
     for (row, line) in lines.iter().enumerate() {
         let y = origin.y + row as f32 * cell.y;
         let mut run = String::new();
@@ -1347,21 +1566,34 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
         };
         for p in line {
             let under_cursor = focused_block && cursor_cell == Some((p.col, row));
-            let fg = if under_cursor { to_c32(palette.cursor_accent) } else { p.fg };
+            let fg = if under_cursor {
+                to_c32(palette.cursor_accent)
+            } else {
+                p.fg
+            };
             let bold = p.flags.contains(Flags::BOLD);
             let italic = p.flags.contains(Flags::ITALIC);
             let span = span_of(p);
 
             if style.builtin_box_drawing && boxdraw::handles(p.c) {
                 flush(&mut run, run_start, run_key.take());
-                boxdraw::draw(&mut fg_mesh, &painter, cell_rect(p.col, row, span), p.c, fg, ppp, box_stroke);
+                boxdraw::draw(
+                    &mut fg_mesh,
+                    &painter,
+                    cell_rect(p.col, row, span),
+                    p.c,
+                    fg,
+                    ppp,
+                    box_stroke,
+                );
                 continue;
             }
             if is_simple(p.c) && p.extra.is_none() && span == 1 {
                 let key = Some((fg, bold, italic));
                 // Runs hold only ASCII, so byte length = cell count.
-                let split_ligature =
-                    !style.ligatures && ligature_prone(p.c) && run.chars().last().is_some_and(ligature_prone);
+                let split_ligature = !style.ligatures
+                    && ligature_prone(p.c)
+                    && run.chars().last().is_some_and(ligature_prone);
                 if run_key != key || run_start + run.len() != p.col || split_ligature {
                     flush(&mut run, run_start, run_key.take());
                     run_start = p.col;
@@ -1394,15 +1626,24 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
             let t = ((font.size / 14.0) * ppp).round().max(1.0) / ppp;
             if p.link || p.flags.intersects(Flags::ALL_UNDERLINES) {
                 let uy = ((r.bottom() - cell.y * 0.12) * ppp).round() / ppp;
-                painter.line_segment([pos2(r.left(), uy), pos2(r.right(), uy)], Stroke::new(t, p.fg));
+                painter.line_segment(
+                    [pos2(r.left(), uy), pos2(r.right(), uy)],
+                    Stroke::new(t, p.fg),
+                );
                 if p.flags.contains(Flags::DOUBLE_UNDERLINE) {
                     let uy2 = uy - 2.0 * t - 1.0 / ppp;
-                    painter.line_segment([pos2(r.left(), uy2), pos2(r.right(), uy2)], Stroke::new(t, p.fg));
+                    painter.line_segment(
+                        [pos2(r.left(), uy2), pos2(r.right(), uy2)],
+                        Stroke::new(t, p.fg),
+                    );
                 }
             }
             if p.flags.contains(Flags::STRIKEOUT) {
                 let sy = (r.center().y * ppp).round() / ppp;
-                painter.line_segment([pos2(r.left(), sy), pos2(r.right(), sy)], Stroke::new(t, p.fg));
+                painter.line_segment(
+                    [pos2(r.left(), sy), pos2(r.right(), sy)],
+                    Stroke::new(t, p.fg),
+                );
             }
         }
     }
@@ -1418,30 +1659,51 @@ fn paint(ui: &Ui, term: &mut Terminal, style: &TermStyle, rect: Rect, focused: b
         let w = (2.0 * px).max((cell.x / 8.0 / px).round() * px);
         match cursor_shape {
             // Unfocused: hollow block, whatever the shape, as xterm.js does.
-            CursorShape::Block | CursorShape::HollowBlock | CursorShape::Beam | CursorShape::Underline
+            CursorShape::Block
+            | CursorShape::HollowBlock
+            | CursorShape::Beam
+            | CursorShape::Underline
                 if !focused =>
             {
-                painter.rect_stroke(r.shrink(px / 2.0), 0.0, Stroke::new(px, color), StrokeKind::Inside);
+                painter.rect_stroke(
+                    r.shrink(px / 2.0),
+                    0.0,
+                    Stroke::new(px, color),
+                    StrokeKind::Inside,
+                );
             }
             CursorShape::HollowBlock if cursor_on => {
-                painter.rect_stroke(r.shrink(px / 2.0), 0.0, Stroke::new(px, color), StrokeKind::Inside);
+                painter.rect_stroke(
+                    r.shrink(px / 2.0),
+                    0.0,
+                    Stroke::new(px, color),
+                    StrokeKind::Inside,
+                );
             }
             CursorShape::Beam if cursor_on => {
                 painter.rect_filled(Rect::from_min_size(r.min, vec2(w, r.height())), 0.0, color);
             }
             CursorShape::Underline if cursor_on => {
-                painter.rect_filled(Rect::from_min_max(pos2(r.left(), r.bottom() - w), r.max), 0.0, color);
+                painter.rect_filled(
+                    Rect::from_min_max(pos2(r.left(), r.bottom() - w), r.max),
+                    0.0,
+                    color,
+                );
             }
             _ => {}
         }
         // IME pre-edit text at the cursor, underlined.
         let pre = &term.view.ime_preedit;
         if focused && !pre.is_empty() {
-            let galley = painter.layout_no_wrap(pre.clone(), font.clone(), to_c32(palette.foreground));
+            let galley =
+                painter.layout_no_wrap(pre.clone(), font.clone(), to_c32(palette.foreground));
             let pr = Rect::from_min_size(r.min, galley.size());
             painter.rect_filled(pr, 0.0, to_c32(palette.background));
             painter.galley(r.min, galley, to_c32(palette.foreground));
-            painter.line_segment([pr.left_bottom(), pr.right_bottom()], Stroke::new(px, to_c32(palette.foreground)));
+            painter.line_segment(
+                [pr.left_bottom(), pr.right_bottom()],
+                Stroke::new(px, to_c32(palette.foreground)),
+            );
         }
     }
 
@@ -1470,38 +1732,66 @@ mod tests {
     use alacritty_terminal::vte::ansi::NamedColor;
 
     fn preedit(text: &str) -> Event {
-        Event::Ime(ImeEvent::Preedit { text: text.into(), active_range_chars: None })
+        Event::Ime(ImeEvent::Preedit {
+            text: text.into(),
+            active_range_chars: None,
+        })
     }
 
     #[test]
     fn ime_filter_drops_idle_empty_preedits_only() {
         let mut f = ImeLoopFilter::default();
-        let mut raw = egui::RawInput { events: vec![preedit("")], ..Default::default() };
+        let mut raw = egui::RawInput {
+            events: vec![preedit("")],
+            ..Default::default()
+        };
         f.filter(&mut raw);
         assert!(raw.events.is_empty());
 
         // Composition then cancel: the empty pre-edit is kept.
-        let mut raw = egui::RawInput { events: vec![preedit("か"), preedit("")], ..Default::default() };
+        let mut raw = egui::RawInput {
+            events: vec![preedit("か"), preedit("")],
+            ..Default::default()
+        };
         f.filter(&mut raw);
         assert_eq!(raw.events.len(), 2);
 
-        let mut raw = egui::RawInput { events: vec![preedit("")], ..Default::default() };
+        let mut raw = egui::RawInput {
+            events: vec![preedit("")],
+            ..Default::default()
+        };
         f.filter(&mut raw);
         assert!(raw.events.is_empty());
     }
 
     #[test]
     fn bold_uses_bright_variant() {
-        assert_eq!(adjust_fg(Color::Named(NamedColor::Red), Flags::BOLD), Color::Indexed(9));
-        assert_eq!(adjust_fg(Color::Indexed(2), Flags::BOLD), Color::Indexed(10));
-        assert_eq!(adjust_fg(Color::Indexed(2), Flags::empty()), Color::Indexed(2));
+        assert_eq!(
+            adjust_fg(Color::Named(NamedColor::Red), Flags::BOLD),
+            Color::Indexed(9)
+        );
+        assert_eq!(
+            adjust_fg(Color::Indexed(2), Flags::BOLD),
+            Color::Indexed(10)
+        );
+        assert_eq!(
+            adjust_fg(Color::Indexed(2), Flags::empty()),
+            Color::Indexed(2)
+        );
     }
 
     #[test]
     fn zoom_steps_every_40px_and_clamps() {
         let mut acc = 0.0;
         // One mouse-wheel notch up (100 px): two steps, 20 px carried.
-        assert_eq!(zoom_step(13.0, &mut acc, wheel_px(MouseWheelUnit::Line, 1.0, 16.0, 24)), 15.0);
+        assert_eq!(
+            zoom_step(
+                13.0,
+                &mut acc,
+                wheel_px(MouseWheelUnit::Line, 1.0, 16.0, 24)
+            ),
+            15.0
+        );
         assert_eq!(acc, 20.0);
         // A trackpad's small deltas accumulate.
         assert_eq!(zoom_step(15.0, &mut acc, 10.0), 15.0);

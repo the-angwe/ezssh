@@ -75,16 +75,18 @@ impl XServerManager {
     ///    system install (useful for dev builds / `cargo run`).
     pub fn detect_install_path() -> Option<PathBuf> {
         if let Ok(exe) = std::env::current_exe()
-            && let Some(dir) = exe.parent() {
-                let bundled = dir.join(BUNDLED_VCXSRV_REL);
-                if bundled.exists() {
-                    return Some(bundled);
-                }
+            && let Some(dir) = exe.parent()
+        {
+            let bundled = dir.join(BUNDLED_VCXSRV_REL);
+            if bundled.exists() {
+                return Some(bundled);
             }
+        }
         if let Some(user) = user_install_path()
-            && user.exists() {
-                return Some(user);
-            }
+            && user.exists()
+        {
+            return Some(user);
+        }
         for candidate in VCXSRV_CANDIDATES {
             let p = PathBuf::from(candidate);
             if p.exists() {
@@ -145,21 +147,20 @@ impl XServerManager {
             }
             None => false,
         };
-        if should_stop
-            && let Some(mut entry) = displays.remove(&display) {
-                // kill + wait block (TerminateProcess may take a moment to
-                // land); keep them off the runtime workers and off the
-                // `displays` lock.
-                let display_number = display;
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = entry.child.kill() {
-                        tracing::warn!(display_number, "vcxsrv kill failed: {e}");
-                    }
-                    if let Err(e) = entry.child.wait() {
-                        tracing::warn!(display_number, "vcxsrv wait failed: {e}");
-                    }
-                });
-            }
+        if should_stop && let Some(mut entry) = displays.remove(&display) {
+            // kill + wait block (TerminateProcess may take a moment to
+            // land); keep them off the runtime workers and off the
+            // `displays` lock.
+            let display_number = display;
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = entry.child.kill() {
+                    tracing::warn!(display_number, "vcxsrv kill failed: {e}");
+                }
+                if let Err(e) = entry.child.wait() {
+                    tracing::warn!(display_number, "vcxsrv wait failed: {e}");
+                }
+            });
+        }
     }
 }
 
@@ -184,8 +185,7 @@ pub fn user_install_path() -> Option<PathBuf> {
 /// so the install surface is deterministic. The installer is an NSIS
 /// EXE — we drive it with `/S /D=<target>` below.
 #[cfg(target_os = "windows")]
-const VCXSRV_INSTALLER_URL: &str =
-    "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/\
+const VCXSRV_INSTALLER_URL: &str = "https://sourceforge.net/projects/vcxsrv/files/vcxsrv/1.20.14.0/\
      vcxsrv-64.1.20.14.0.installer.exe/download";
 
 /// Download VcXsrv and silent-install it to the per-user data dir, then
@@ -277,7 +277,7 @@ pub async fn install_vcxsrv() -> Result<PathBuf> {
 /// SSH wire protocol is well-formed and so future cookie-enforcing
 /// upgrades don't require a client-side change.
 pub fn generate_cookie() -> String {
-    use rand::{rngs::SysRng, TryRng};
+    use rand::{TryRng, rngs::SysRng};
     let mut buf = [0u8; 16];
     // Fall back to a zero cookie if the OS RNG fails. VcXsrv launched
     // with `-ac` ignores the cookie value, so a zero value is still a

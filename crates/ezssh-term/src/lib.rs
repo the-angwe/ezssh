@@ -18,8 +18,8 @@ pub mod terminal;
 pub mod view;
 
 pub use alacritty_terminal::event::WindowSize;
+pub use fonts::{Faces, FontRegistry};
 pub use palette::Palette;
+pub use terminal::CursorKind;
 pub use terminal::{Feeder, Pty, TermOptions, Terminal};
 pub use view::{BellMode, Overlay, RightClick, TermAction, TermOutput, TermStyle, TerminalView};
-pub use fonts::{Faces, FontRegistry};
-pub use terminal::CursorKind;

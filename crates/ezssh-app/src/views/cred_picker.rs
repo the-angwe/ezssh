@@ -46,7 +46,10 @@ impl CredPicker {
     /// `kind` is `private_key` or `key_passphrase`; `salt` keeps the ids of
     /// several pickers apart.
     pub fn new(kind: &'static str, salt: impl std::hash::Hash + std::fmt::Debug) -> Self {
-        debug_assert!(matches!(kind, "private_key" | "key_passphrase"), "picker kind {kind}");
+        debug_assert!(
+            matches!(kind, "private_key" | "key_passphrase"),
+            "picker kind {kind}"
+        );
         Self {
             kind,
             salt: Id::unique(("cred-picker", kind)).with(salt),
@@ -64,11 +67,19 @@ impl CredPicker {
     }
 
     fn verb(&self) -> &'static str {
-        if self.kind == "private_key" { "private key" } else { "passphrase" }
+        if self.kind == "private_key" {
+            "private key"
+        } else {
+            "passphrase"
+        }
     }
 
     fn secret_hint(&self) -> &'static str {
-        if self.kind == "private_key" { "Private key (PEM or OpenSSH)" } else { "Passphrase" }
+        if self.kind == "private_key" {
+            "Private key (PEM or OpenSSH)"
+        } else {
+            "Passphrase"
+        }
     }
 
     fn reset_form(&mut self) {
@@ -82,7 +93,10 @@ impl CredPicker {
 
     /// Clear `value` when it names a credential the list no longer has.
     fn clamp(&mut self, app: &App, value: &mut Option<i64>) {
-        if app.creds.generation == self.seen_generation || app.creds.loading || app.creds.generation == 0 {
+        if app.creds.generation == self.seen_generation
+            || app.creds.loading
+            || app.creds.generation == 0
+        {
             return;
         }
         self.seen_generation = app.creds.generation;
@@ -95,7 +109,11 @@ impl CredPicker {
                 self.pending = None;
             }
         } else if self.pending != Some(id) {
-            tracing::debug!(kind = self.kind, credential = id, "cred_picker: selection no longer listed, cleared");
+            tracing::debug!(
+                kind = self.kind,
+                credential = id,
+                "cred_picker: selection no longer listed, cleared"
+            );
             *value = None;
         }
     }
@@ -115,7 +133,11 @@ impl CredPicker {
         self.busy = false;
         match done {
             Ok(meta) => {
-                tracing::debug!(kind = self.kind, credential = meta.id, "cred_picker: created and selected");
+                tracing::debug!(
+                    kind = self.kind,
+                    credential = meta.id,
+                    "cred_picker: created and selected"
+                );
                 self.reset_form();
                 self.pending = Some(meta.id);
                 *value = Some(meta.id);
@@ -171,19 +193,49 @@ impl CredPicker {
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                let mut options: Vec<(Option<i64>, String)> = vec![(None, format!("— choose saved {} —", self.verb()))];
-                options.extend(app.creds.of_kind(self.kind).map(|c| (Some(c.id), c.label.clone())));
+                let mut options: Vec<(Option<i64>, String)> =
+                    vec![(None, format!("— choose saved {} —", self.verb()))];
+                options.extend(
+                    app.creds
+                        .of_kind(self.kind)
+                        .map(|c| (Some(c.id), c.label.clone())),
+                );
                 let manage_w = 28.0;
-                let add_w = if self.adding { 0.0 } else { add_button_width(ui) + 8.0 };
+                let add_w = if self.adding {
+                    0.0
+                } else {
+                    add_button_width(ui) + 8.0
+                };
                 let select_w = (ui.available_width() - manage_w - add_w - 8.0).max(120.0);
-                if form::select(ui, self.salt.with("select"), value, &options, Some(select_w)) {
+                if form::select(
+                    ui,
+                    self.salt.with("select"),
+                    value,
+                    &options,
+                    Some(select_w),
+                ) {
                     tracing::debug!(kind = self.kind, credential = ?value, "cred_picker: picked");
                 }
-                if !self.adding && widgets::Button::ghost("Add new").icon(Icon::Plus).small().show(ui).clicked() {
+                if !self.adding
+                    && widgets::Button::ghost("Add new")
+                        .icon(Icon::Plus)
+                        .small()
+                        .show(ui)
+                        .clicked()
+                {
                     self.adding = true;
                     self.focus_label = true;
                 }
-                if widgets::Button::icon_only(Icon::Settings2, "Manage credentials", widgets::Variant::Ghost).small().show(ui).on_hover_text("Manage credentials").clicked() {
+                if widgets::Button::icon_only(
+                    Icon::Settings2,
+                    "Manage credentials",
+                    widgets::Variant::Ghost,
+                )
+                .small()
+                .show(ui)
+                .on_hover_text("Manage credentials")
+                .clicked()
+                {
                     tracing::debug!("cred_picker: open the manager");
                     app.dialogs.credentials = Some(Default::default());
                 }
@@ -199,13 +251,23 @@ impl CredPicker {
                     ui.set_width(ui.available_width());
                     ui.spacing_mut().item_spacing.y = 8.0;
                     form::caption(ui, &format!("New {}", self.verb()));
-                    let l = form::input(ui, &mut self.label, form::InputOpts::new("Label (e.g. 'Prod server key')"));
+                    let l = form::input(
+                        ui,
+                        &mut self.label,
+                        form::InputOpts::new("Label (e.g. 'Prod server key')"),
+                    );
                     crate::form::labelled(ui, &l, "New credential label");
                     if std::mem::take(&mut self.focus_label) {
                         l.request_focus();
                     }
                     let s = if self.kind == "private_key" {
-                        form::textarea(ui, &mut self.secret, "-----BEGIN OPENSSH PRIVATE KEY-----", 6, true)
+                        form::textarea(
+                            ui,
+                            &mut self.secret,
+                            "-----BEGIN OPENSSH PRIVATE KEY-----",
+                            6,
+                            true,
+                        )
                     } else {
                         let hint = self.secret_hint();
                         form::secret(ui, &mut self.secret, hint, &mut self.show, None)
@@ -213,16 +275,27 @@ impl CredPicker {
                     crate::form::labelled(ui, &s, "New credential secret");
                     // Enter in the label or (single-line) secret submits, as in
                     // the credentials manager's form.
-                    let enter = form::entered(ui, &l) || (self.kind != "private_key" && form::entered(ui, &s));
+                    let enter = form::entered(ui, &l)
+                        || (self.kind != "private_key" && form::entered(ui, &s));
                     if let Some(e) = &self.err {
                         ui.label(egui::RichText::new(e).font(font(size::SM)).color(t.danger));
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
-                        if widgets::Button::primary("Save credential").small().enabled(!self.busy).show(ui).clicked() || (enter && !self.busy) {
+                        if widgets::Button::primary("Save credential")
+                            .small()
+                            .enabled(!self.busy)
+                            .show(ui)
+                            .clicked()
+                            || (enter && !self.busy)
+                        {
                             self.create(app);
                         }
-                        if widgets::Button::secondary("Cancel").small().show(ui).clicked() {
+                        if widgets::Button::secondary("Cancel")
+                            .small()
+                            .show(ui)
+                            .clicked()
+                        {
                             self.reset_form();
                         }
                     });
@@ -232,7 +305,9 @@ impl CredPicker {
 }
 
 fn add_button_width(ui: &Ui) -> f32 {
-    let g = ui.painter().layout_no_wrap("Add new".into(), font(size::SM), Color32::WHITE);
+    let g = ui
+        .painter()
+        .layout_no_wrap("Add new".into(), font(size::SM), Color32::WHITE);
     g.size().x + 14.0 + 8.0 + 20.0
 }
 
@@ -243,7 +318,10 @@ mod tests {
     #[test]
     fn verbs_and_hints_follow_the_kind() {
         let k = CredPicker::new("private_key", 1);
-        assert_eq!((k.verb(), k.secret_hint()), ("private key", "Private key (PEM or OpenSSH)"));
+        assert_eq!(
+            (k.verb(), k.secret_hint()),
+            ("private key", "Private key (PEM or OpenSSH)")
+        );
         let p = CredPicker::new("key_passphrase", 1);
         assert_eq!((p.verb(), p.secret_hint()), ("passphrase", "Passphrase"));
         assert_ne!(k.salt, p.salt);
@@ -257,6 +335,8 @@ mod tests {
         k.secret.push_str("hunter2");
         k.show = true;
         k.reset_form();
-        assert!(!k.adding && k.label.is_empty() && k.secret.is_empty() && !k.show && k.err.is_none());
+        assert!(
+            !k.adding && k.label.is_empty() && k.secret.is_empty() && !k.show && k.err.is_none()
+        );
     }
 }

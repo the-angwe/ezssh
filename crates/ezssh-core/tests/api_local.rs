@@ -5,7 +5,7 @@
 
 #![cfg(unix)]
 
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use ezssh_core::api;
@@ -55,7 +55,10 @@ fn wait_closed(rx: &mpsc::Receiver<Event>, id: u64, timeout: Duration) -> CloseR
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         match rx.recv_timeout(left) {
-            Ok(Event::Closed { connection_id, reason }) if connection_id == id => return reason,
+            Ok(Event::Closed {
+                connection_id,
+                reason,
+            }) if connection_id == id => return reason,
             Ok(other) => eprintln!("ignoring {other:?}"),
             Err(e) => panic!("no close event for {id} within {timeout:?}: {e}"),
         }
@@ -69,41 +72,62 @@ async fn local_shell_round_trip() {
     let (sink, rx) = events::channel(|| {});
     let state = AppState::open(&db, sink).await.expect("open state");
 
-    assert_eq!(api::vault::vault_status(&state).await.unwrap(), "uninitialized");
+    assert_eq!(
+        api::vault::vault_status(&state).await.unwrap(),
+        "uninitialized"
+    );
     // Everything behind the vault is refused until it exists and is unlocked.
     assert!(matches!(
         api::sessions::session_list(&state).await,
         Err(AppError::VaultLocked)
     ));
-    api::vault::vault_init(&state, "correct horse battery".into()).await.unwrap();
+    api::vault::vault_init(&state, "correct horse battery".into())
+        .await
+        .unwrap();
     assert_eq!(api::vault::vault_status(&state).await.unwrap(), "unlocked");
 
-    let session = api::sessions::session_create(&state, local_session("sh")).await.unwrap();
+    let session = api::sessions::session_create(&state, local_session("sh"))
+        .await
+        .unwrap();
     assert_eq!(api::sessions::session_list(&state).await.unwrap().len(), 1);
 
     let buf = Arc::new(Mutex::new(Vec::new()));
-    let conn = api::local::local_connect(&state, session.id, 80, 24, Box::new(Collect(buf.clone())))
-        .await
-        .expect("local connect");
+    let conn =
+        api::local::local_connect(&state, session.id, 80, 24, Box::new(Collect(buf.clone())))
+            .await
+            .expect("local connect");
     assert!(state.local.get(conn.connection_id).await.is_some());
 
-    api::local::local_resize(&state, conn.connection_id, 100, 30).await.unwrap();
-    api::local::local_write(&state, conn.connection_id, b"echo ezssh-$((40+2)); exit\n".to_vec())
+    api::local::local_resize(&state, conn.connection_id, 100, 30)
         .await
         .unwrap();
+    api::local::local_write(
+        &state,
+        conn.connection_id,
+        b"echo ezssh-$((40+2)); exit\n".to_vec(),
+    )
+    .await
+    .unwrap();
 
     let reason = wait_closed(&rx, conn.connection_id, Duration::from_secs(10));
     assert_eq!(reason, CloseReason::Ended);
     let text = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
     assert!(text.contains("ezssh-42"), "shell output was {text:?}");
 
-    api::local::local_disconnect(&state, conn.connection_id).await.unwrap();
+    api::local::local_disconnect(&state, conn.connection_id)
+        .await
+        .unwrap();
 
     // Reopening the same file sees an initialised, locked vault.
     drop(state);
     let (sink, _rx) = events::channel(|| {});
     let state = AppState::open(&db, sink).await.expect("reopen state");
     assert_eq!(api::vault::vault_status(&state).await.unwrap(), "locked");
-    api::vault::vault_unlock(&state, "correct horse battery".into()).await.unwrap();
-    assert_eq!(api::sessions::session_list(&state).await.unwrap()[0].name, "sh");
+    api::vault::vault_unlock(&state, "correct horse battery".into())
+        .await
+        .unwrap();
+    assert_eq!(
+        api::sessions::session_list(&state).await.unwrap()[0].name,
+        "sh"
+    );
 }

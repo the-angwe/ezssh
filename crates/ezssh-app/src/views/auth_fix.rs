@@ -12,8 +12,8 @@ use ezssh_core::{Secret, api};
 use zeroize::Zeroizing;
 
 use super::cred_picker::CredPicker;
-use crate::form::labelled;
 use crate::app::App;
+use crate::form::labelled;
 use crate::form::{self, InputOpts};
 use crate::icons::Icon;
 use crate::style::{alpha, tokens};
@@ -45,7 +45,11 @@ impl AuthFix {
         Self {
             username: session.username.clone(),
             auth_type: session.auth_type.clone(),
-            credential_id: if password_auth { None } else { session.credential_id },
+            credential_id: if password_auth {
+                None
+            } else {
+                session.credential_id
+            },
             passphrase_id: session.key_passphrase_credential_id,
             password: Zeroizing::new(String::new()),
             show_password: false,
@@ -76,7 +80,9 @@ impl AuthFix {
             return Some("Username is required");
         }
         match self.auth_type.as_str() {
-            "password" if self.password.is_empty() && !self.password_stored() => Some("Password is required"),
+            "password" if self.password.is_empty() && !self.password_stored() => {
+                Some("Password is required")
+            }
             "key" if self.credential_id.is_none() => Some("Pick or add a credential"),
             _ => None,
         }
@@ -91,14 +97,23 @@ impl AuthFix {
             auth_type: self.auth_type.clone(),
             credential_id: self.credential_id,
             passphrase_id: self.passphrase_id,
-            password: (self.auth_type == "password" && !self.password.is_empty()).then(|| Secret::new(String::clone(&self.password))),
+            password: (self.auth_type == "password" && !self.password.is_empty())
+                .then(|| Secret::new(String::clone(&self.password))),
         }
         .into_input(&self.session)
     }
 
     fn header_line(&self) -> String {
-        let user = if self.username.is_empty() { "user" } else { self.username.as_str() };
-        let port = if self.session.port != 22 { format!(":{}", self.session.port) } else { String::new() };
+        let user = if self.username.is_empty() {
+            "user"
+        } else {
+            self.username.as_str()
+        };
+        let port = if self.session.port != 22 {
+            format!(":{}", self.session.port)
+        } else {
+            String::new()
+        };
         format!("{user}@{}{port}", self.session.host)
     }
 }
@@ -143,7 +158,6 @@ impl AuthFields {
             password: self.password,
         }
     }
-
 }
 
 /// Save: the env vars first (they live in their own table and
@@ -165,7 +179,8 @@ fn save(app: &mut App, fix: &mut AuthFix, tab: TabId) {
         auth_type: fix.auth_type.clone(),
         credential_id: fix.credential_id,
         passphrase_id: fix.passphrase_id,
-        password: (fix.auth_type == "password" && !fix.password.is_empty()).then(|| Secret::new(String::clone(&fix.password))),
+        password: (fix.auth_type == "password" && !fix.password.is_empty())
+            .then(|| Secret::new(String::clone(&fix.password))),
     };
     tracing::debug!(tab, session = id, auth = %overlay.auth_type, new_password = overlay.password.is_some(), "auth_fix: saving");
     app.core.call(
@@ -245,38 +260,72 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     let card = Rect::from_center_size(rect.center(), vec2(card_w, card_h));
     let ui = &mut child;
     let card_id = Id::unique(("auth-fix-card", tab));
-    ui.painter().add(widgets::dialog_frame(t).shadow.as_shape(card, crate::style::radius::XL));
-    ui.painter().rect_filled(card, crate::style::radius::XL, t.surface);
-    ui.painter().rect_stroke(card, crate::style::radius::XL, egui::Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
+    ui.painter().add(
+        widgets::dialog_frame(t)
+            .shadow
+            .as_shape(card, crate::style::radius::XL),
+    );
+    ui.painter()
+        .rect_filled(card, crate::style::radius::XL, t.surface);
+    ui.painter().rect_stroke(
+        card,
+        crate::style::radius::XL,
+        egui::Stroke::new(1.0, t.border_strong),
+        egui::StrokeKind::Inside,
+    );
 
     // Header.
     let header = Rect::from_min_size(card.min, vec2(card_w, HEADER_H));
     let line = fix.header_line();
-    if widgets::dialog_header(ui, card_id, header, Some(Icon::AlertTriangle), t.warning, "Fix authentication", Some(&line), true, fix.busy) {
+    if widgets::dialog_header(
+        ui,
+        card_id,
+        header,
+        Some(Icon::AlertTriangle),
+        t.warning,
+        "Fix authentication",
+        Some(&line),
+        true,
+        fix.busy,
+    ) {
         cancel = true;
     }
 
     // Body.
     let footer = Rect::from_min_max(pos2(card.left(), card.bottom() - FOOTER_H), card.max);
-    let body = Rect::from_min_max(pos2(card.left(), header.bottom()), pos2(card.right(), footer.top()));
+    let body = Rect::from_min_max(
+        pos2(card.left(), header.bottom()),
+        pos2(card.right(), footer.top()),
+    );
     ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
-        egui::ScrollArea::vertical().id_salt(("auth-fix-scroll", tab)).auto_shrink([false, true]).show(ui, |ui| {
-            let inner = Frame::new().inner_margin(Margin::same(PAD as i8)).show(ui, |ui| {
-                ui.set_width(card_w - 2.0 * PAD);
-                ui.spacing_mut().item_spacing.y = 16.0;
-                form::note(ui, Icon::AlertTriangle, t.danger, &fix.message);
-                body_fields(app, ui, &mut fix);
-                if let Some(e) = &fix.err {
-                    widgets::error_strip(ui, e);
-                }
+        egui::ScrollArea::vertical()
+            .id_salt(("auth-fix-scroll", tab))
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                let inner = Frame::new()
+                    .inner_margin(Margin::same(PAD as i8))
+                    .show(ui, |ui| {
+                        ui.set_width(card_w - 2.0 * PAD);
+                        ui.spacing_mut().item_spacing.y = 16.0;
+                        form::note(ui, Icon::AlertTriangle, t.danger, &fix.message);
+                        body_fields(app, ui, &mut fix);
+                        if let Some(e) = &fix.err {
+                            widgets::error_strip(ui, e);
+                        }
+                    });
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(body_h_id, inner.response.rect.height()));
             });
-            ui.ctx().data_mut(|d| d.insert_temp(body_h_id, inner.response.rect.height()));
-        });
     });
 
     // Footer.
     widgets::dialog_footer(ui, footer, PAD, |ui| {
-        if widgets::Button::primary("Save & reconnect").icon(Icon::PlugZap).enabled(!fix.busy).show(ui).clicked() {
+        if widgets::Button::primary("Save & reconnect")
+            .icon(Icon::PlugZap)
+            .enabled(!fix.busy)
+            .show(ui)
+            .clicked()
+        {
             submit = true;
         }
         if widgets::Button::secondary("Close tab").show(ui).clicked() && !fix.busy {
@@ -286,7 +335,11 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
 
     // Escape: only for the active tab's overlay, and not while a dialog
     // (the credentials manager) is on top.
-    if !fix.busy && app.tabs.active == Some(tab) && !app.any_modal_open() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+    if !fix.busy
+        && app.tabs.active == Some(tab)
+        && !app.any_modal_open()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape))
+    {
         cancel = true;
     }
 
@@ -323,14 +376,22 @@ fn body_fields(app: &mut App, ui: &mut Ui, fix: &mut AuthFix) {
         "password" => {
             let stored = fix.password_stored();
             form::field(ui, "Password", None, |ui| {
-                let hint = if stored { "Saved — leave blank to keep" } else { "Password" };
+                let hint = if stored {
+                    "Saved — leave blank to keep"
+                } else {
+                    "Password"
+                };
                 let r = form::secret(ui, &mut fix.password, hint, &mut fix.show_password, None);
                 labelled(ui, &r, "Password");
             });
         }
         "key" => {
-            form::field(ui, "Private key", None, |ui| fix.key_picker.show(app, ui, &mut fix.credential_id));
-            form::field(ui, "Key passphrase (optional)", None, |ui| fix.pass_picker.show(app, ui, &mut fix.passphrase_id));
+            form::field(ui, "Private key", None, |ui| {
+                fix.key_picker.show(app, ui, &mut fix.credential_id)
+            });
+            form::field(ui, "Key passphrase (optional)", None, |ui| {
+                fix.pass_picker.show(app, ui, &mut fix.passphrase_id)
+            });
         }
         _ => super::session_dialog::agent_hint(ui),
     }
@@ -369,17 +430,31 @@ mod tests {
 
     #[test]
     fn validation_and_password_rule() {
-        let mut f = AuthFix::new(1, session("password", Some(3)), "Authentication failed".into());
+        let mut f = AuthFix::new(
+            1,
+            session("password", Some(3)),
+            "Authentication failed".into(),
+        );
         assert_eq!(f.header_line(), "root@10.0.0.1:2222");
         assert_eq!(f.validate(), None, "a stored password may be kept");
         assert!(f.to_input().password.is_none());
         f.password.push_str("hunter2");
         let i = f.to_input();
-        assert_eq!((i.password.as_ref().map(|p| p.expose()), i.credential_id), (Some("hunter2"), None));
-        assert_eq!(i.initial_command.as_deref(), Some("htop"), "untouched fields kept");
+        assert_eq!(
+            (i.password.as_ref().map(|p| p.expose()), i.credential_id),
+            (Some("hunter2"), None)
+        );
+        assert_eq!(
+            i.initial_command.as_deref(),
+            Some("htop"),
+            "untouched fields kept"
+        );
         f.switch_method("key");
         assert_eq!(f.validate(), Some("Pick or add a credential"));
-        assert!(f.to_input().password.is_none(), "no password for a key session");
+        assert!(
+            f.to_input().password.is_none(),
+            "no password for a key session"
+        );
         f.username = " ".into();
         assert_eq!(f.validate(), Some("Username is required"));
 

@@ -7,12 +7,15 @@
 use std::time::Duration;
 
 use egui::{
-    Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Key, Layout, Margin, Modifiers, Order, Pos2, Rect, Response, RichText,
-    Sense, Stroke, StrokeKind, Ui, Vec2, vec2,
+    Align, Align2, Color32, CornerRadius, CursorIcon, Frame, Id, Key, Layout, Margin, Modifiers,
+    Order, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, Vec2, vec2,
 };
 
 use crate::icons::Icon;
-use crate::style::{self, CONTROL_H, CONTROL_H_SM, ICON_BTN, NAV_ROW_H, ROW_INSET, alpha, font, font_semibold, radius, size, tokens};
+use crate::style::{
+    self, CONTROL_H, CONTROL_H_SM, ICON_BTN, NAV_ROW_H, ROW_INSET, alpha, font, font_semibold,
+    radius, size, tokens,
+};
 use crate::tabs::TabStatus;
 
 // ---------------------------------------------------------------- accessibility
@@ -137,7 +140,12 @@ impl<'a> Button<'a> {
 
     /// A square button with only an icon; `label` names it.
     pub fn icon_only(icon: Icon, label: &'a str, variant: Variant) -> Self {
-        Self { text: None, icon: Some(icon), label: Some(label), ..Self::new("", variant) }
+        Self {
+            text: None,
+            icon: Some(icon),
+            label: Some(label),
+            ..Self::new("", variant)
+        }
     }
 
     pub fn icon(mut self, icon: impl Into<Option<Icon>>) -> Self {
@@ -189,26 +197,52 @@ impl<'a> Button<'a> {
     pub fn show(self, ui: &mut Ui) -> Response {
         let t = tokens(ui.ctx());
         let filled = matches!(self.variant, Variant::Primary | Variant::Danger);
-        let text_font = if filled { font_semibold(self.size.text()) } else { font(self.size.text()) };
-        let galley = self.text.filter(|s| !s.is_empty()).map(|s| ui.painter().layout_no_wrap(s.to_string(), text_font, t.fg));
+        let text_font = if filled {
+            font_semibold(self.size.text())
+        } else {
+            font(self.size.text())
+        };
+        let galley = self
+            .text
+            .filter(|s| !s.is_empty())
+            .map(|s| ui.painter().layout_no_wrap(s.to_string(), text_font, t.fg));
         let text_w = galley.as_ref().map_or(0.0, |g| g.size().x);
         let icon_px = self.size.icon();
         let icon_w = if self.icon.is_some() { icon_px } else { 0.0 };
-        let gap = if self.icon.is_some() && galley.is_some() { 8.0 } else { 0.0 };
+        let gap = if self.icon.is_some() && galley.is_some() {
+            8.0
+        } else {
+            0.0
+        };
         let chevron_w = if self.chevron { 12.0 + 4.0 } else { 0.0 };
         let content_w = icon_w + gap + text_w + chevron_w;
         let h = self.size.height();
-        let natural = if galley.is_some() { content_w + 2.0 * self.size.pad_x() } else { h };
+        let natural = if galley.is_some() {
+            content_w + 2.0 * self.size.pad_x()
+        } else {
+            h
+        };
         let w = self.width.unwrap_or(natural);
         let enabled = self.enabled;
-        let (rect, resp) = ui.allocate_exact_size(vec2(w, h), if enabled { Sense::click() } else { Sense::hover() });
+        let (rect, resp) = ui.allocate_exact_size(
+            vec2(w, h),
+            if enabled {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
         if ui.is_rect_visible(rect) {
             let hovered = enabled && resp.hovered();
             let pressed = enabled && resp.is_pointer_button_down_on();
             let fade = |c: Color32| if enabled { c } else { alpha(c, 0.45) };
             let (fill, stroke, fg, icon_color) = match self.variant {
                 Variant::Primary | Variant::Danger => {
-                    let base = if self.variant == Variant::Primary { t.accent } else { t.danger };
+                    let base = if self.variant == Variant::Primary {
+                        t.accent
+                    } else {
+                        t.danger
+                    };
                     let fill = if pressed {
                         style::over(base, Color32::BLACK, 0.12)
                     } else if hovered {
@@ -232,7 +266,12 @@ impl<'a> Button<'a> {
                         None => t.border_strong,
                     };
                     let fg = tint.unwrap_or(t.fg);
-                    (fade(fill), Some(fade(stroke)), fade(fg), fade(tint.unwrap_or(if hovered { t.fg } else { t.fg2 })))
+                    (
+                        fade(fill),
+                        Some(fade(stroke)),
+                        fade(fg),
+                        fade(tint.unwrap_or(if hovered { t.fg } else { t.fg2 })),
+                    )
                 }
                 Variant::Ghost => {
                     let tint = self.tint;
@@ -252,20 +291,41 @@ impl<'a> Button<'a> {
                 ui.painter().rect_filled(rect, radius::MD, fill);
             }
             if let Some(s) = stroke {
-                ui.painter().rect_stroke(rect, radius::MD, Stroke::new(1.0, s), StrokeKind::Inside);
+                ui.painter()
+                    .rect_stroke(rect, radius::MD, Stroke::new(1.0, s), StrokeKind::Inside);
             }
             let mut x = rect.center().x - content_w / 2.0;
             if let Some(icon) = self.icon {
-                icon.paint(ui, Rect::from_center_size(Pos2::new(x + icon_px / 2.0, rect.center().y), Vec2::splat(icon_px)), icon_px, icon_color);
+                icon.paint(
+                    ui,
+                    Rect::from_center_size(
+                        Pos2::new(x + icon_px / 2.0, rect.center().y),
+                        Vec2::splat(icon_px),
+                    ),
+                    icon_px,
+                    icon_color,
+                );
                 x += icon_w + gap;
             }
             if let Some(g) = galley {
                 let th = g.size().y;
-                ui.painter().galley_with_override_text_color(Pos2::new(x, rect.center().y - th / 2.0), g, fg);
+                ui.painter().galley_with_override_text_color(
+                    Pos2::new(x, rect.center().y - th / 2.0),
+                    g,
+                    fg,
+                );
                 x += text_w;
             }
             if self.chevron {
-                Icon::ChevronDown.paint(ui, Rect::from_center_size(Pos2::new(x + 4.0 + 6.0, rect.center().y), Vec2::splat(12.0)), 12.0, icon_color);
+                Icon::ChevronDown.paint(
+                    ui,
+                    Rect::from_center_size(
+                        Pos2::new(x + 4.0 + 6.0, rect.center().y),
+                        Vec2::splat(12.0),
+                    ),
+                    12.0,
+                    icon_color,
+                );
             }
             focus_ring(ui, &resp, rect);
         }
@@ -274,7 +334,11 @@ impl<'a> Button<'a> {
         // hover only, which AccessKit would otherwise report as enabled.
         let label = self.label.or(self.text).unwrap_or_default();
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
-        let resp = resp.on_hover_cursor(if enabled { CursorIcon::PointingHand } else { CursorIcon::NotAllowed });
+        let resp = resp.on_hover_cursor(if enabled {
+            CursorIcon::PointingHand
+        } else {
+            CursorIcon::NotAllowed
+        });
         match self.tooltip {
             Some(tip) => resp.on_hover_text(tip),
             None => resp,
@@ -286,16 +350,27 @@ impl<'a> Button<'a> {
 /// first). Fixed height: a centred right-to-left layout would otherwise
 /// claim every pixel below.
 pub fn button_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.allocate_ui_with_layout(vec2(ui.available_width(), CONTROL_H), Layout::right_to_left(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        add(ui);
-    });
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), CONTROL_H),
+        Layout::right_to_left(Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            add(ui);
+        },
+    );
 }
 
 /// `IconButton`: a square button with one icon, 28 px with a 16 px glyph
 /// by default (`box_size` / `icon_size` for dense rows). `pressed` paints
 /// the `aria-pressed` state: `accent_soft` fill, accent glyph.
-pub fn icon_button(ui: &mut Ui, icon: Icon, box_size: f32, icon_size: f32, pressed: bool, tooltip: &str) -> Response {
+pub fn icon_button(
+    ui: &mut Ui,
+    icon: Icon,
+    box_size: f32,
+    icon_size: f32,
+    pressed: bool,
+    tooltip: &str,
+) -> Response {
     icon_button_tinted(ui, icon, box_size, icon_size, pressed, tooltip, None)
 }
 
@@ -324,7 +399,15 @@ pub fn icon_button_tinted(
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-pub fn paint_icon_button(ui: &Ui, resp: &Response, rect: Rect, icon: Icon, icon_size: f32, pressed: bool, hover_color: Option<Color32>) {
+pub fn paint_icon_button(
+    ui: &Ui,
+    resp: &Response,
+    rect: Rect,
+    icon: Icon,
+    icon_size: f32,
+    pressed: bool,
+    hover_color: Option<Color32>,
+) {
     if !ui.is_rect_visible(rect) {
         return;
     }
@@ -343,7 +426,11 @@ pub fn paint_icon_button(ui: &Ui, resp: &Response, rect: Rect, icon: Icon, icon_
     } else if down {
         ui.painter().rect_filled(rect, radius::MD, t.surface3);
     } else if hovered {
-        ui.painter().rect_filled(rect, radius::MD, hover_color.map_or(t.surface2, |c| alpha(c, 0.12)));
+        ui.painter().rect_filled(
+            rect,
+            radius::MD,
+            hover_color.map_or(t.surface2, |c| alpha(c, 0.12)),
+        );
     }
     icon.paint(ui, rect, icon_size, color);
     focus_ring(ui, resp, rect);
@@ -367,7 +454,17 @@ pub struct IconBtn<'a> {
 
 impl<'a> IconBtn<'a> {
     pub fn new(icon: Icon, label: String, tooltip: &'a str) -> Self {
-        Self { icon, icon_size: 14.0, label, tooltip, tone: None, hover_tone: None, hover_bg: None, enabled: true, visible: true }
+        Self {
+            icon,
+            icon_size: 14.0,
+            label,
+            tooltip,
+            tone: None,
+            hover_tone: None,
+            hover_bg: None,
+            enabled: true,
+            visible: true,
+        }
     }
 
     pub fn icon_size(mut self, px: f32) -> Self {
@@ -399,21 +496,38 @@ impl<'a> IconBtn<'a> {
     pub fn show(&self, ui: &mut Ui, rect: Rect, id: Id) -> Response {
         let tk = tokens(ui.ctx());
         let enabled = self.enabled;
-        let resp = ui.interact(rect, id, if enabled { Sense::click() } else { Sense::hover() });
+        let resp = ui.interact(
+            rect,
+            id,
+            if enabled {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &self.label));
         let hovered = enabled && resp.hovered();
         if (self.visible || resp.has_focus() || hovered) && ui.is_rect_visible(rect) {
             if hovered {
-                ui.painter().rect_filled(rect, radius::MD, self.hover_bg.unwrap_or(tk.surface2));
+                ui.painter()
+                    .rect_filled(rect, radius::MD, self.hover_bg.unwrap_or(tk.surface2));
             }
-            let mut color = if hovered { self.hover_tone.or(self.tone).unwrap_or(tk.fg) } else { self.tone.unwrap_or(tk.muted) };
+            let mut color = if hovered {
+                self.hover_tone.or(self.tone).unwrap_or(tk.fg)
+            } else {
+                self.tone.unwrap_or(tk.muted)
+            };
             if !enabled {
                 color = alpha(color, 0.4);
             }
             self.icon.paint(ui, rect, self.icon_size, color);
             focus_ring(ui, &resp, rect);
         }
-        let resp = resp.on_hover_cursor(if enabled { CursorIcon::PointingHand } else { CursorIcon::NotAllowed });
+        let resp = resp.on_hover_cursor(if enabled {
+            CursorIcon::PointingHand
+        } else {
+            CursorIcon::NotAllowed
+        });
         resp.on_hover_text(self.tooltip)
     }
 }
@@ -423,7 +537,12 @@ impl<'a> IconBtn<'a> {
 /// focus" is the keyboard case.
 pub fn focus_ring(ui: &Ui, resp: &Response, rect: Rect) {
     if resp.has_focus() {
-        ui.painter().rect_stroke(rect.expand(2.0), radius::MD + 2.0, Stroke::new(2.0, tokens(ui.ctx()).accent), StrokeKind::Outside);
+        ui.painter().rect_stroke(
+            rect.expand(2.0),
+            radius::MD + 2.0,
+            Stroke::new(2.0, tokens(ui.ctx()).accent),
+            StrokeKind::Outside,
+        );
     }
 }
 
@@ -451,11 +570,17 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         };
         ui.painter().rect_filled(rect, radius::PILL, track);
         if !*on {
-            ui.painter().rect_stroke(rect, radius::PILL, Stroke::new(1.0, t.border_strong), StrokeKind::Inside);
+            ui.painter().rect_stroke(
+                rect,
+                radius::PILL,
+                Stroke::new(1.0, t.border_strong),
+                StrokeKind::Inside,
+            );
         }
         let cx = egui::lerp((rect.left() + 10.0)..=(rect.right() - 10.0), how_on);
         let knob = if *on { t.on_accent } else { t.muted };
-        ui.painter().circle_filled(Pos2::new(cx, rect.center().y), 7.0, knob);
+        ui.painter()
+            .circle_filled(Pos2::new(cx, rect.center().y), 7.0, knob);
         focus_ring(ui, &resp, rect);
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)
@@ -472,7 +597,12 @@ pub struct Segment<'a, T> {
 
 impl<'a, T> Segment<'a, T> {
     pub fn text(value: T, text: &'a str) -> Self {
-        Self { value, icon: None, text: Some(text), label: text }
+        Self {
+            value,
+            icon: None,
+            text: Some(text),
+            label: text,
+        }
     }
 
     pub fn with_icon(mut self, icon: Icon) -> Self {
@@ -483,51 +613,102 @@ impl<'a, T> Segment<'a, T> {
 
 /// A pill group of exclusive options; the selected one is lifted onto
 /// `surface`. 28 px tall. Returns true when the choice changed.
-pub fn segmented<T: PartialEq + Clone>(ui: &mut Ui, id: Id, value: &mut T, items: &[Segment<'_, T>]) -> bool {
+pub fn segmented<T: PartialEq + Clone>(
+    ui: &mut Ui,
+    id: Id,
+    value: &mut T,
+    items: &[Segment<'_, T>],
+) -> bool {
     let t = tokens(ui.ctx());
     const PAD: f32 = 2.0;
     const ITEM_H: f32 = 24.0;
     let widths: Vec<f32> = items
         .iter()
         .map(|s| {
-            let text_w = s.text.map_or(0.0, |x| ui.painter().layout_no_wrap(x.to_string(), font(size::SM), t.fg).size().x);
+            let text_w = s.text.map_or(0.0, |x| {
+                ui.painter()
+                    .layout_no_wrap(x.to_string(), font(size::SM), t.fg)
+                    .size()
+                    .x
+            });
             let icon_w = if s.icon.is_some() { 14.0 } else { 0.0 };
-            let gap = if s.icon.is_some() && s.text.is_some() { 6.0 } else { 0.0 };
-            if s.text.is_some() { text_w + icon_w + gap + 20.0 } else { ITEM_H + 4.0 }
+            let gap = if s.icon.is_some() && s.text.is_some() {
+                6.0
+            } else {
+                0.0
+            };
+            if s.text.is_some() {
+                text_w + icon_w + gap + 20.0
+            } else {
+                ITEM_H + 4.0
+            }
         })
         .collect();
-    let total: f32 = widths.iter().sum::<f32>() + PAD * 2.0 + PAD * (items.len().saturating_sub(1)) as f32;
+    let total: f32 =
+        widths.iter().sum::<f32>() + PAD * 2.0 + PAD * (items.len().saturating_sub(1)) as f32;
     let (group, _) = ui.allocate_exact_size(vec2(total, ITEM_H + 2.0 * PAD), Sense::hover());
-    ui.painter().rect_filled(group, radius::MD + 1.0, t.surface2);
+    ui.painter()
+        .rect_filled(group, radius::MD + 1.0, t.surface2);
     let mut changed = false;
     let mut x = group.left() + PAD;
     for (seg, w) in items.iter().zip(widths) {
         let r = Rect::from_min_size(Pos2::new(x, group.top() + PAD), vec2(w, ITEM_H));
         x += w + PAD;
         let on = *value == seg.value;
-        let resp = ui.interact(r, id.with(seg.label), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        let resp = ui
+            .interact(r, id.with(seg.label), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
         let hovered = resp.hovered();
         if on {
             ui.painter().rect_filled(r, radius::MD - 1.0, t.surface);
-            ui.painter().rect_stroke(r, radius::MD - 1.0, Stroke::new(1.0, t.border), StrokeKind::Inside);
+            ui.painter().rect_stroke(
+                r,
+                radius::MD - 1.0,
+                Stroke::new(1.0, t.border),
+                StrokeKind::Inside,
+            );
         } else if hovered {
             ui.painter().rect_filled(r, radius::MD - 1.0, t.surface3);
         }
         let color = if on || hovered { t.fg } else { t.muted };
         let icon_w = if seg.icon.is_some() { 14.0 } else { 0.0 };
-        let gap = if seg.icon.is_some() && seg.text.is_some() { 6.0 } else { 0.0 };
-        let text_w = seg.text.map_or(0.0, |x| ui.painter().layout_no_wrap(x.to_string(), font(size::SM), t.fg).size().x);
+        let gap = if seg.icon.is_some() && seg.text.is_some() {
+            6.0
+        } else {
+            0.0
+        };
+        let text_w = seg.text.map_or(0.0, |x| {
+            ui.painter()
+                .layout_no_wrap(x.to_string(), font(size::SM), t.fg)
+                .size()
+                .x
+        });
         let mut cx = r.center().x - (icon_w + gap + text_w) / 2.0;
         if let Some(icon) = seg.icon {
-            icon.paint(ui, Rect::from_center_size(Pos2::new(cx + 7.0, r.center().y), Vec2::splat(14.0)), 14.0, if on { t.accent } else { color });
+            icon.paint(
+                ui,
+                Rect::from_center_size(Pos2::new(cx + 7.0, r.center().y), Vec2::splat(14.0)),
+                14.0,
+                if on { t.accent } else { color },
+            );
             cx += icon_w + gap;
         }
         if let Some(text) = seg.text {
-            paint_text(ui, Rect::from_min_max(Pos2::new(cx, r.top()), r.right_bottom()), text, font(size::SM), color);
+            paint_text(
+                ui,
+                Rect::from_min_max(Pos2::new(cx, r.top()), r.right_bottom()),
+                text,
+                font(size::SM),
+                color,
+            );
         }
         focus_ring(ui, &resp, r);
         a11y_selected(&resp, egui::Role::Button, on, seg.label);
-        let resp = if seg.text.is_none() { resp.on_hover_text(seg.label) } else { resp };
+        let resp = if seg.text.is_none() {
+            resp.on_hover_text(seg.label)
+        } else {
+            resp
+        };
         if resp.clicked() && !on {
             *value = seg.value.clone();
             changed = true;
@@ -543,12 +724,24 @@ pub fn toggle_group(ui: &mut Ui, id: Id, items: &[(Icon, bool, &str)]) -> Option
     const PAD: f32 = 2.0;
     const ITEM: f32 = 24.0;
     let n = items.len() as f32;
-    let (group, _) = ui.allocate_exact_size(vec2(n * (ITEM + 4.0) + PAD * (n + 1.0), ITEM + 2.0 * PAD), Sense::hover());
-    ui.painter().rect_filled(group, radius::MD + 1.0, t.surface2);
+    let (group, _) = ui.allocate_exact_size(
+        vec2(n * (ITEM + 4.0) + PAD * (n + 1.0), ITEM + 2.0 * PAD),
+        Sense::hover(),
+    );
+    ui.painter()
+        .rect_filled(group, radius::MD + 1.0, t.surface2);
     let mut clicked = None;
     for (i, (icon, on, label)) in items.iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(group.left() + PAD + i as f32 * (ITEM + 4.0 + PAD), group.top() + PAD), vec2(ITEM + 4.0, ITEM));
-        let resp = ui.interact(r, id.with(i), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        let r = Rect::from_min_size(
+            Pos2::new(
+                group.left() + PAD + i as f32 * (ITEM + 4.0 + PAD),
+                group.top() + PAD,
+            ),
+            vec2(ITEM + 4.0, ITEM),
+        );
+        let resp = ui
+            .interact(r, id.with(i), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
         let hovered = resp.hovered();
         if *on {
             ui.painter().rect_filled(r, radius::MD - 1.0, t.accent_soft);
@@ -587,7 +780,13 @@ pub fn chip(ui: &mut Ui, text: &str, color: Option<Color32>, mono: bool) -> Resp
 }
 
 /// A clickable [`chip`] named `label` for AccessKit.
-pub fn chip_button(ui: &mut Ui, text: &str, color: Option<Color32>, mono: bool, label: &str) -> Response {
+pub fn chip_button(
+    ui: &mut Ui,
+    text: &str,
+    color: Option<Color32>,
+    mono: bool,
+    label: &str,
+) -> Response {
     let w = chip_width(ui, text, mono);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::click());
     if ui.is_rect_visible(rect) {
@@ -599,14 +798,33 @@ pub fn chip_button(ui: &mut Ui, text: &str, color: Option<Color32>, mono: bool, 
 }
 
 pub fn chip_width(ui: &Ui, text: &str, mono: bool) -> f32 {
-    let f = if mono { style::mono(size::XS) } else { font(size::XS) };
-    ui.painter().layout_no_wrap(text.to_string(), f, Color32::WHITE).size().x + 14.0
+    let f = if mono {
+        style::mono(size::XS)
+    } else {
+        font(size::XS)
+    };
+    ui.painter()
+        .layout_no_wrap(text.to_string(), f, Color32::WHITE)
+        .size()
+        .x
+        + 14.0
 }
 
 /// Paint a chip into `rect` (18 px tall).
-pub fn paint_chip(ui: &Ui, rect: Rect, text: &str, color: Option<Color32>, mono: bool, hovered: bool) {
+pub fn paint_chip(
+    ui: &Ui,
+    rect: Rect,
+    text: &str,
+    color: Option<Color32>,
+    mono: bool,
+    hovered: bool,
+) {
     let t = tokens(ui.ctx());
-    let f = if mono { style::mono(size::XS) } else { font(size::XS) };
+    let f = if mono {
+        style::mono(size::XS)
+    } else {
+        font(size::XS)
+    };
     let fg = color.unwrap_or(t.muted);
     let g = ui.painter().layout_no_wrap(text.to_string(), f, fg);
     let fill = match (color, hovered) {
@@ -616,13 +834,18 @@ pub fn paint_chip(ui: &Ui, rect: Rect, text: &str, color: Option<Color32>, mono:
         (None, false) => t.surface2,
     };
     ui.painter().rect_filled(rect, radius::PILL, fill);
-    ui.painter().galley_with_override_text_color(Pos2::new(rect.left() + 7.0, rect.center().y - g.size().y / 2.0), g, fg);
+    ui.painter().galley_with_override_text_color(
+        Pos2::new(rect.left() + 7.0, rect.center().y - g.size().y / 2.0),
+        g,
+        fg,
+    );
 }
 
 /// A rounded `accent_soft` tile with a centred glyph (dialog headers,
 /// the unlock card, confirm dialogs).
 pub fn icon_tile(ui: &Ui, rect: Rect, icon: Icon, color: Color32, icon_size: f32) {
-    ui.painter().rect_filled(rect, radius::LG, alpha(color, 0.14));
+    ui.painter()
+        .rect_filled(rect, radius::LG, alpha(color, 0.14));
     icon.paint(ui, rect, icon_size, color);
 }
 
@@ -631,7 +854,10 @@ pub fn icon_tile(ui: &Ui, rect: Rect, icon: Icon, color: Color32, icon_size: f32
 /// forwards rows and nav items all use it.
 pub fn row_fill(ui: &Ui, rect: Rect, hovered: bool, selected: bool) {
     let t = tokens(ui.ctx());
-    let pill = Rect::from_min_max(Pos2::new(rect.left() + ROW_INSET, rect.top() + 1.0), Pos2::new(rect.right() - ROW_INSET, rect.bottom() - 1.0));
+    let pill = Rect::from_min_max(
+        Pos2::new(rect.left() + ROW_INSET, rect.top() + 1.0),
+        Pos2::new(rect.right() - ROW_INSET, rect.bottom() - 1.0),
+    );
     if selected {
         ui.painter().rect_filled(pill, radius::MD, t.accent_soft);
     } else if hovered {
@@ -641,7 +867,12 @@ pub fn row_fill(ui: &Ui, rect: Rect, hovered: bool, selected: bool) {
 
 /// A side rail of sections (settings, the session dialog): 32 px rows with
 /// a pill selection, 16 px icons, 13 px text. `Role::Tab` for AccessKit.
-pub fn nav_rail<T: PartialEq + Copy>(ui: &mut Ui, width: f32, items: &[(T, &str, Icon)], current: &mut T) {
+pub fn nav_rail<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    width: f32,
+    items: &[(T, &str, Icon)],
+    current: &mut T,
+) {
     let t = tokens(ui.ctx());
     ui.spacing_mut().item_spacing.y = 2.0;
     for (value, label, icon) in items {
@@ -656,8 +887,25 @@ pub fn nav_rail<T: PartialEq + Copy>(ui: &mut Ui, width: f32, items: &[(T, &str,
         } else {
             (t.muted, t.fg2)
         };
-        icon.paint(ui, Rect::from_center_size(Pos2::new(rect.left() + ROW_INSET + 10.0 + 8.0, rect.center().y), Vec2::splat(16.0)), 16.0, icon_c);
-        paint_text(ui, Rect::from_min_max(Pos2::new(rect.left() + ROW_INSET + 10.0 + 16.0 + 10.0, rect.top()), Pos2::new(rect.right() - ROW_INSET, rect.bottom())), label, font(size::BASE), text_c);
+        icon.paint(
+            ui,
+            Rect::from_center_size(
+                Pos2::new(rect.left() + ROW_INSET + 10.0 + 8.0, rect.center().y),
+                Vec2::splat(16.0),
+            ),
+            16.0,
+            icon_c,
+        );
+        paint_text(
+            ui,
+            Rect::from_min_max(
+                Pos2::new(rect.left() + ROW_INSET + 10.0 + 16.0 + 10.0, rect.top()),
+                Pos2::new(rect.right() - ROW_INSET, rect.bottom()),
+            ),
+            label,
+            font(size::BASE),
+            text_c,
+        );
         focus_ring(ui, &resp, rect.shrink2(vec2(ROW_INSET, 1.0)));
         a11y_selected(&resp, egui::Role::Tab, on, label);
         if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() {
@@ -673,7 +921,12 @@ pub fn status_dot(ui: &Ui, center: Pos2, status: TabStatus, icon_size: f32) {
     let t = tokens(ui.ctx());
     let color = match status {
         TabStatus::Error => {
-            Icon::AlertCircle.paint(ui, Rect::from_center_size(center, Vec2::splat(icon_size)), icon_size, t.danger);
+            Icon::AlertCircle.paint(
+                ui,
+                Rect::from_center_size(center, Vec2::splat(icon_size)),
+                icon_size,
+                t.danger,
+            );
             return;
         }
         TabStatus::Connected => t.success,
@@ -695,17 +948,36 @@ pub fn pulse(ctx: &egui::Context) -> f32 {
 
 /// An empty pane: icon, title, body and an optional action button. Returns
 /// the action button's response, if any.
-pub fn empty_state(ui: &mut Ui, icon: Icon, title: &str, body: &str, action: Option<(&str, bool)>, compact: bool) -> Option<Response> {
+pub fn empty_state(
+    ui: &mut Ui,
+    icon: Icon,
+    title: &str,
+    body: &str,
+    action: Option<(&str, bool)>,
+    compact: bool,
+) -> Option<Response> {
     let t = tokens(ui.ctx());
     let mut out = None;
     ui.vertical_centered(|ui| {
         let icon_size = if compact { 24.0 } else { 32.0 };
-        let content_h = icon_size + 10.0 + 20.0 + if body.is_empty() { 0.0 } else { 36.0 } + if action.is_some() { 44.0 } else { 0.0 };
-        let pad = if compact { 24.0 } else { ((ui.available_height() - content_h) / 2.0).max(40.0) };
+        let content_h = icon_size
+            + 10.0
+            + 20.0
+            + if body.is_empty() { 0.0 } else { 36.0 }
+            + if action.is_some() { 44.0 } else { 0.0 };
+        let pad = if compact {
+            24.0
+        } else {
+            ((ui.available_height() - content_h) / 2.0).max(40.0)
+        };
         ui.add_space(pad);
         icon.show(ui, icon_size, t.muted);
         ui.add_space(10.0);
-        ui.label(RichText::new(title).font(font_semibold(size::MD)).color(t.fg));
+        ui.label(
+            RichText::new(title)
+                .font(font_semibold(size::MD))
+                .color(t.fg),
+        );
         if !body.is_empty() {
             ui.add_space(4.0);
             ui.allocate_ui(vec2(280.0, 40.0), |ui| {
@@ -729,7 +1001,13 @@ pub enum DialogHead<'a> {
     None,
     /// The one header (56 px): an optional icon tile, a 16 px title, an
     /// optional mono subtitle and a ✕ button.
-    Full { icon: Option<Icon>, icon_color: Color32, title: &'a str, subtitle: Option<&'a str>, mono: bool },
+    Full {
+        icon: Option<Icon>,
+        icon_color: Color32,
+        title: &'a str,
+        subtitle: Option<&'a str>,
+        mono: bool,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -774,7 +1052,11 @@ pub const DIALOG_PAD: i8 = 24;
 /// The dialog card frame (surface, strong border, 12 px radius, dialog
 /// shadow), for dialogs that lay their body out by hand.
 pub fn dialog_frame(t: &style::Tokens) -> Frame {
-    Frame::new().fill(t.surface).stroke(Stroke::new(1.0, t.border_strong)).corner_radius(CornerRadius::same(radius::XL as u8)).shadow(style::dialog_shadow())
+    Frame::new()
+        .fill(t.surface)
+        .stroke(Stroke::new(1.0, t.border_strong))
+        .corner_radius(CornerRadius::same(radius::XL as u8))
+        .shadow(style::dialog_shadow())
 }
 
 /// Paint the standard header into `rect` (hairline below, icon tile,
@@ -782,30 +1064,74 @@ pub fn dialog_frame(t: &style::Tokens) -> Frame {
 /// themselves by hand (settings, the session editor) share it with
 /// [`Dialog`].
 #[allow(clippy::too_many_arguments)]
-pub fn dialog_header(ui: &mut Ui, id: Id, rect: Rect, icon: Option<Icon>, icon_color: Color32, title: &str, subtitle: Option<&str>, mono: bool, busy: bool) -> bool {
+pub fn dialog_header(
+    ui: &mut Ui,
+    id: Id,
+    rect: Rect,
+    icon: Option<Icon>,
+    icon_color: Color32,
+    title: &str,
+    subtitle: Option<&str>,
+    mono: bool,
+    busy: bool,
+) -> bool {
     let t = tokens(ui.ctx());
-    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, t.border));
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0, t.border),
+    );
     let inner = rect.shrink2(vec2(20.0, 0.0));
     let mut text_l = inner.left();
     if let Some(icon) = icon {
-        let tile = Rect::from_center_size(Pos2::new(inner.left() + 14.0, inner.center().y), Vec2::splat(28.0));
+        let tile = Rect::from_center_size(
+            Pos2::new(inner.left() + 14.0, inner.center().y),
+            Vec2::splat(28.0),
+        );
         icon_tile(ui, tile, icon, icon_color, 16.0);
         text_l = tile.right() + 12.0;
     }
-    let x_r = Rect::from_center_size(Pos2::new(inner.right() - ICON_BTN / 2.0 + 4.0, inner.center().y), Vec2::splat(ICON_BTN));
-    let text_r = Rect::from_min_max(Pos2::new(text_l, inner.top()), Pos2::new(x_r.left() - 12.0, inner.bottom()));
-    let title_text = RichText::new(title).font(font_semibold(size::LG)).color(t.fg);
+    let x_r = Rect::from_center_size(
+        Pos2::new(inner.right() - ICON_BTN / 2.0 + 4.0, inner.center().y),
+        Vec2::splat(ICON_BTN),
+    );
+    let text_r = Rect::from_min_max(
+        Pos2::new(text_l, inner.top()),
+        Pos2::new(x_r.left() - 12.0, inner.bottom()),
+    );
+    let title_text = RichText::new(title)
+        .font(font_semibold(size::LG))
+        .color(t.fg);
     match subtitle {
         Some(sub) => {
-            let top = Rect::from_min_max(text_r.min, Pos2::new(text_r.right(), text_r.center().y + 1.0));
-            let bottom = Rect::from_min_max(Pos2::new(text_r.left(), text_r.center().y + 1.0), text_r.max);
+            let top = Rect::from_min_max(
+                text_r.min,
+                Pos2::new(text_r.right(), text_r.center().y + 1.0),
+            );
+            let bottom = Rect::from_min_max(
+                Pos2::new(text_r.left(), text_r.center().y + 1.0),
+                text_r.max,
+            );
             title_label(ui, top, title_text, Align::BOTTOM);
-            let sub_font = if mono { style::mono(size::SM) } else { font(size::SM) };
-            title_label(ui, bottom, RichText::new(sub).font(sub_font).color(t.muted), Align::TOP);
+            let sub_font = if mono {
+                style::mono(size::SM)
+            } else {
+                font(size::SM)
+            };
+            title_label(
+                ui,
+                bottom,
+                RichText::new(sub).font(sub_font).color(t.muted),
+                Align::TOP,
+            );
         }
         None => title_label(ui, text_r, title_text, Align::Center),
     }
-    let x = ui.interact(x_r, id.with("close"), if busy { Sense::hover() } else { Sense::click() });
+    let x = ui.interact(
+        x_r,
+        id.with("close"),
+        if busy { Sense::hover() } else { Sense::click() },
+    );
     paint_icon_button(ui, &x, x_r, Icon::X, 16.0, false, None);
     a11y(&x, egui::Role::Button, "Close dialog");
     x.on_hover_cursor(CursorIcon::PointingHand).clicked()
@@ -815,13 +1141,17 @@ pub fn dialog_header(ui: &mut Ui, id: Id, rect: Rect, icon: Option<Icon>, icon_c
 /// (horizontal padding `pad`).
 pub fn dialog_footer(ui: &mut Ui, rect: Rect, pad: f32, add: impl FnOnce(&mut Ui)) {
     let t = tokens(ui.ctx());
-    ui.painter().hline(rect.x_range(), rect.top() + 0.5, Stroke::new(1.0, t.border));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(pad, (rect.height() - CONTROL_H) / 2.0))), |ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            add(ui);
-        });
-    });
+    ui.painter()
+        .hline(rect.x_range(), rect.top() + 0.5, Stroke::new(1.0, t.border));
+    ui.scope_builder(
+        egui::UiBuilder::new().max_rect(rect.shrink2(vec2(pad, (rect.height() - CONTROL_H) / 2.0))),
+        |ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                add(ui);
+            });
+        },
+    );
 }
 
 /// The dialog card (fixed width, at most 90 % of the window high): the
@@ -839,7 +1169,15 @@ pub struct Dialog<'a> {
 
 impl<'a> Dialog<'a> {
     pub fn new(id: Id, width: f32) -> Self {
-        Self { id, width, head: DialogHead::None, footer: DialogFooter::None, padding: DIALOG_PAD, row_gap: None, busy: false }
+        Self {
+            id,
+            width,
+            head: DialogHead::None,
+            footer: DialogFooter::None,
+            padding: DIALOG_PAD,
+            row_gap: None,
+            busy: false,
+        }
     }
 
     /// The backup / restore / sync / import dialogs: 16 px between rows
@@ -849,8 +1187,20 @@ impl<'a> Dialog<'a> {
     }
 
     /// The header; a subtitle is shown in the mono font (paths, hosts).
-    pub fn header(mut self, icon: impl Into<Option<Icon>>, icon_color: Color32, title: &'a str, subtitle: Option<&'a str>) -> Self {
-        self.head = DialogHead::Full { icon: icon.into(), icon_color, title, subtitle, mono: true };
+    pub fn header(
+        mut self,
+        icon: impl Into<Option<Icon>>,
+        icon_color: Color32,
+        title: &'a str,
+        subtitle: Option<&'a str>,
+    ) -> Self {
+        self.head = DialogHead::Full {
+            icon: icon.into(),
+            icon_color,
+            title,
+            subtitle,
+            mono: true,
+        };
         self
     }
 
@@ -881,7 +1231,12 @@ impl<'a> Dialog<'a> {
 
     /// Show with separate body and footer closures (a `Strip` footer when
     /// `footer` is given).
-    pub fn show_split(mut self, ctx: &egui::Context, body: impl FnOnce(&mut Ui), mut footer: Option<&mut dyn FnMut(&mut Ui)>) -> DialogOut {
+    pub fn show_split(
+        mut self,
+        ctx: &egui::Context,
+        body: impl FnOnce(&mut Ui),
+        mut footer: Option<&mut dyn FnMut(&mut Ui)>,
+    ) -> DialogOut {
         if footer.is_some() && self.footer == DialogFooter::None {
             self.footer = DialogFooter::Strip;
         }
@@ -910,87 +1265,125 @@ impl<'a> Dialog<'a> {
         let id = self.id;
         let frame = dialog_frame(t);
         let mut close = false;
-        let resp = egui::Modal::new(id).backdrop_color(Color32::from_black_alpha(128)).frame(frame).show(ctx, |ui| {
-            ui.set_width(width);
-            let default_gap = ui.spacing().item_spacing.y;
-            ui.spacing_mut().item_spacing.y = 0.0;
-            let head_h = match self.head {
-                DialogHead::None => 0.0,
-                DialogHead::Full { icon, icon_color, title, subtitle, mono } => {
-                    let (hrect, _) = ui.allocate_exact_size(vec2(width, DIALOG_HEAD_H), Sense::hover());
-                    if dialog_header(ui, id, hrect, icon, icon_color, title, subtitle, mono, self.busy) {
-                        close = true;
-                    }
-                    DIALOG_HEAD_H
-                }
-            };
-            // Body. A Modal lays out in last frame's size and a ScrollArea
-            // never grows past the space it is offered, so a body that fits
-            // is laid out plainly (the card follows its height); only one
-            // taller than `max_body` (judged on last frame's height)
-            // scrolls, at that height.
-            let foot_h = if self.footer == DialogFooter::Strip { DIALOG_FOOTER_H } else { 0.0 };
-            let max_body = (screen.height() * 0.9 - head_h - foot_h).max(120.0);
-            let content_h_id = id.with("content-h");
-            let last_h: f32 = ui.ctx().data(|d| d.get_temp(content_h_id)).unwrap_or(0.0);
-            let pad = f32::from(self.padding);
-            let mut body = |ui: &mut Ui| {
-                Frame::new()
-                    .inner_margin(Margin::same(self.padding))
-                    .show(ui, |ui| {
-                        ui.set_width(width - 2.0 * pad);
-                        ui.spacing_mut().item_spacing.y = self.row_gap.unwrap_or(default_gap);
-                        add(ui, DialogPart::Body);
-                        if self.footer == DialogFooter::Inline {
-                            ui.add_space(4.0);
-                            ui.allocate_ui_with_layout(vec2(width - 2.0 * pad, CONTROL_H), Layout::right_to_left(Align::Center), |ui| {
-                                ui.spacing_mut().item_spacing.x = 8.0;
-                                add(ui, DialogPart::Footer);
-                            });
+        let resp = egui::Modal::new(id)
+            .backdrop_color(Color32::from_black_alpha(128))
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.set_width(width);
+                let default_gap = ui.spacing().item_spacing.y;
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let head_h = match self.head {
+                    DialogHead::None => 0.0,
+                    DialogHead::Full {
+                        icon,
+                        icon_color,
+                        title,
+                        subtitle,
+                        mono,
+                    } => {
+                        let (hrect, _) =
+                            ui.allocate_exact_size(vec2(width, DIALOG_HEAD_H), Sense::hover());
+                        if dialog_header(
+                            ui, id, hrect, icon, icon_color, title, subtitle, mono, self.busy,
+                        ) {
+                            close = true;
                         }
-                    })
-                    .response
-                    .rect
-                    .height()
-            };
-            let content_h = if last_h <= max_body {
-                body(ui)
-            } else {
-                egui::ScrollArea::vertical()
-                    .id_salt(id.with("body"))
-                    .max_height(max_body)
-                    .min_scrolled_height(max_body)
-                    .auto_shrink(false)
-                    .show(ui, |ui| body(ui))
-                    .inner
-            };
-            if content_h != last_h {
-                ui.ctx().data_mut(|d| d.insert_temp(content_h_id, content_h));
-                ui.ctx().request_repaint();
-            }
-            if self.footer == DialogFooter::Strip {
-                let (strip, _) = ui.allocate_exact_size(vec2(width, DIALOG_FOOTER_H), Sense::hover());
-                dialog_footer(ui, strip, pad, |ui| add(ui, DialogPart::Footer));
-            }
-        });
+                        DIALOG_HEAD_H
+                    }
+                };
+                // Body. A Modal lays out in last frame's size and a ScrollArea
+                // never grows past the space it is offered, so a body that fits
+                // is laid out plainly (the card follows its height); only one
+                // taller than `max_body` (judged on last frame's height)
+                // scrolls, at that height.
+                let foot_h = if self.footer == DialogFooter::Strip {
+                    DIALOG_FOOTER_H
+                } else {
+                    0.0
+                };
+                let max_body = (screen.height() * 0.9 - head_h - foot_h).max(120.0);
+                let content_h_id = id.with("content-h");
+                let last_h: f32 = ui.ctx().data(|d| d.get_temp(content_h_id)).unwrap_or(0.0);
+                let pad = f32::from(self.padding);
+                let mut body = |ui: &mut Ui| {
+                    Frame::new()
+                        .inner_margin(Margin::same(self.padding))
+                        .show(ui, |ui| {
+                            ui.set_width(width - 2.0 * pad);
+                            ui.spacing_mut().item_spacing.y = self.row_gap.unwrap_or(default_gap);
+                            add(ui, DialogPart::Body);
+                            if self.footer == DialogFooter::Inline {
+                                ui.add_space(4.0);
+                                ui.allocate_ui_with_layout(
+                                    vec2(width - 2.0 * pad, CONTROL_H),
+                                    Layout::right_to_left(Align::Center),
+                                    |ui| {
+                                        ui.spacing_mut().item_spacing.x = 8.0;
+                                        add(ui, DialogPart::Footer);
+                                    },
+                                );
+                            }
+                        })
+                        .response
+                        .rect
+                        .height()
+                };
+                let content_h = if last_h <= max_body {
+                    body(ui)
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt(id.with("body"))
+                        .max_height(max_body)
+                        .min_scrolled_height(max_body)
+                        .auto_shrink(false)
+                        .show(ui, |ui| body(ui))
+                        .inner
+                };
+                if content_h != last_h {
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(content_h_id, content_h));
+                    ui.ctx().request_repaint();
+                }
+                if self.footer == DialogFooter::Strip {
+                    let (strip, _) =
+                        ui.allocate_exact_size(vec2(width, DIALOG_FOOTER_H), Sense::hover());
+                    dialog_footer(ui, strip, pad, |ui| add(ui, DialogPart::Footer));
+                }
+            });
         let backdrop = resp.backdrop_response.clicked();
         let close = close || resp.response.should_close();
-        let escape = resp.is_top_modal && !resp.any_popup_open && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
-        DialogOut { backdrop, escape, close }
+        let escape = resp.is_top_modal
+            && !resp.any_popup_open
+            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
+        DialogOut {
+            backdrop,
+            escape,
+            close,
+        }
     }
 }
 
 /// A truncating label in `rect` (full text for AccessKit and on hover).
 /// A child Ui, so the parent's cursor stays below the header.
 fn title_label(ui: &mut Ui, rect: Rect, text: RichText, valign: Align) {
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(valign)));
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(Layout::left_to_right(valign)),
+    );
     child.add(egui::Label::new(text).truncate());
 }
 
 /// [`Dialog`] without a header: the compact confirm card. Body padded
 /// 24 px, `footer` (if any) in a strip with right-aligned buttons, laid
 /// out right to left (add the primary button first).
-pub fn dialog(ctx: &egui::Context, id: Id, width: f32, body: impl FnOnce(&mut Ui), footer: Option<&mut dyn FnMut(&mut Ui)>) -> DialogOut {
+pub fn dialog(
+    ctx: &egui::Context,
+    id: Id,
+    width: f32,
+    body: impl FnOnce(&mut Ui),
+    footer: Option<&mut dyn FnMut(&mut Ui)>,
+) -> DialogOut {
     Dialog::new(id, width).show_split(ctx, body, footer)
 }
 
@@ -1005,9 +1398,16 @@ pub fn dialog_heading(ui: &mut Ui, icon: Icon, icon_color: Color32, title: &str,
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             ui.add_space(1.0);
-            ui.label(RichText::new(title).font(font_semibold(size::MD)).color(t.fg));
+            ui.label(
+                RichText::new(title)
+                    .font(font_semibold(size::MD))
+                    .color(t.fg),
+            );
             if !body.is_empty() {
-                ui.add(egui::Label::new(RichText::new(body).font(font(size::BASE)).color(t.fg2)).wrap());
+                ui.add(
+                    egui::Label::new(RichText::new(body).font(font(size::BASE)).color(t.fg2))
+                        .wrap(),
+                );
             }
         });
     });
@@ -1026,13 +1426,29 @@ pub fn input_frame(ui: &Ui, rect: Rect, focused: bool, error: bool) {
         t.border_strong
     };
     if focused || error {
-        ui.painter().rect_stroke(rect.expand(3.0), radius::MD + 3.0, Stroke::new(3.0, alpha(border, 0.18)), StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            rect.expand(3.0),
+            radius::MD + 3.0,
+            Stroke::new(3.0, alpha(border, 0.18)),
+            StrokeKind::Inside,
+        );
     }
-    ui.painter().rect_stroke(rect, radius::MD, Stroke::new(1.0, border), StrokeKind::Inside);
+    ui.painter().rect_stroke(
+        rect,
+        radius::MD,
+        Stroke::new(1.0, border),
+        StrokeKind::Inside,
+    );
 }
 
 /// A text input: `surface2` field, 32 px, radius 6, accent focus ring.
-pub fn text_input(ui: &mut Ui, value: &mut String, hint: &str, width: f32, password: bool) -> Response {
+pub fn text_input(
+    ui: &mut Ui,
+    value: &mut String,
+    hint: &str,
+    width: f32,
+    password: bool,
+) -> Response {
     let t = tokens(ui.ctx());
     let edit = egui::TextEdit::singleline(value)
         .hint_text(RichText::new(hint).color(t.muted))
@@ -1064,7 +1480,10 @@ pub fn error_strip(ui: &mut Ui, text: &str) {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 Icon::AlertCircle.show(ui, 14.0, t.danger);
                 // Wrap long messages (a label in a row does not by default).
-                ui.add(egui::Label::new(RichText::new(text).font(font(size::SM)).color(t.danger)).wrap());
+                ui.add(
+                    egui::Label::new(RichText::new(text).font(font(size::SM)).color(t.danger))
+                        .wrap(),
+                );
             });
         });
 }
@@ -1091,11 +1510,29 @@ pub enum MenuEntry<A> {
 
 impl<A> MenuEntry<A> {
     pub fn item(label: impl Into<String>, action: A) -> Self {
-        Self::Item { label: label.into(), action, enabled: true, danger: false, hint: None, icon: None, shortcut: None, checked: false }
+        Self::Item {
+            label: label.into(),
+            action,
+            enabled: true,
+            danger: false,
+            hint: None,
+            icon: None,
+            shortcut: None,
+            checked: false,
+        }
     }
 
     pub fn danger(label: impl Into<String>, action: A) -> Self {
-        Self::Item { label: label.into(), action, enabled: true, danger: true, hint: None, icon: None, shortcut: None, checked: false }
+        Self::Item {
+            label: label.into(),
+            action,
+            enabled: true,
+            danger: true,
+            hint: None,
+            icon: None,
+            shortcut: None,
+            checked: false,
+        }
     }
 
     pub fn enabled(mut self, on: bool) -> Self {
@@ -1140,7 +1577,11 @@ const MENU_PAD: f32 = 6.0;
 
 impl<A: Clone> Menu<A> {
     pub fn new(pos: Pos2, entries: Vec<MenuEntry<A>>) -> Self {
-        Self { pos, entries, just_opened: true }
+        Self {
+            pos,
+            entries,
+            just_opened: true,
+        }
     }
 
     pub fn show(&mut self, ctx: &egui::Context, id: Id) -> MenuResult<A> {
@@ -1152,7 +1593,12 @@ impl<A: Clone> Menu<A> {
             .corner_radius(CornerRadius::same(radius::LG as u8))
             .inner_margin(Margin::same(MENU_PAD as i8))
             .shadow(style::popup_shadow());
-        let any_icon = self.entries.iter().any(|e| matches!(e, MenuEntry::Item { icon: Some(_), .. } | MenuEntry::Item { checked: true, .. }));
+        let any_icon = self.entries.iter().any(|e| {
+            matches!(
+                e,
+                MenuEntry::Item { icon: Some(_), .. } | MenuEntry::Item { checked: true, .. }
+            )
+        });
         let lead = if any_icon { 16.0 + 10.0 } else { 0.0 };
         // An Area offers the whole screen as available width; size the menu
         // from its widest row instead (min 200 px).
@@ -1160,64 +1606,140 @@ impl<A: Clone> Menu<A> {
             self.entries
                 .iter()
                 .filter_map(|e| match e {
-                    MenuEntry::Item { label, shortcut, .. } => {
-                        let text = f.layout_no_wrap(label.clone(), font(size::BASE), t.fg).size().x;
-                        let sc = shortcut.map_or(0.0, |s| 16.0 + f.layout_no_wrap(s.to_string(), font(size::XS), t.muted).size().x);
+                    MenuEntry::Item {
+                        label, shortcut, ..
+                    } => {
+                        let text = f
+                            .layout_no_wrap(label.clone(), font(size::BASE), t.fg)
+                            .size()
+                            .x;
+                        let sc = shortcut.map_or(0.0, |s| {
+                            16.0 + f
+                                .layout_no_wrap(s.to_string(), font(size::XS), t.muted)
+                                .size()
+                                .x
+                        });
                         Some(12.0 + lead + text + sc + 12.0)
                     }
                     MenuEntry::Separator => None,
                 })
                 .fold(200.0_f32, f32::max)
         });
-        let area = egui::Area::new(id).order(Order::Foreground).fixed_pos(self.pos).constrain(true).show(ctx, |ui| {
-            frame.show(ui, |ui| {
-                ui.set_width(width);
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for entry in &self.entries {
-                    match entry {
-                        MenuEntry::Separator => {
-                            let (r, _) = ui.allocate_exact_size(vec2(width, 9.0), Sense::hover());
-                            ui.painter().hline((r.left() + 6.0)..=(r.right() - 6.0), r.center().y, Stroke::new(1.0, t.border));
-                        }
-                        MenuEntry::Item { label, action, enabled, danger, hint, icon, shortcut, checked } => {
-                            let (r, resp) = ui.add_enabled_ui(*enabled, |ui| ui.allocate_exact_size(vec2(width, MENU_ITEM_H), Sense::click())).inner;
-                            let mut color = if *danger { t.danger } else { t.fg };
-                            let mut icon_color = if *danger { t.danger } else { t.muted };
-                            if !enabled {
-                                color = alpha(color, 0.4);
-                                icon_color = alpha(icon_color, 0.4);
-                            } else if resp.hovered() {
-                                ui.painter().rect_filled(r, radius::MD - 1.0, if *danger { alpha(t.danger, 0.12) } else { t.surface2 });
-                                icon_color = color;
+        let area = egui::Area::new(id)
+            .order(Order::Foreground)
+            .fixed_pos(self.pos)
+            .constrain(true)
+            .show(ctx, |ui| {
+                frame.show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for entry in &self.entries {
+                        match entry {
+                            MenuEntry::Separator => {
+                                let (r, _) =
+                                    ui.allocate_exact_size(vec2(width, 9.0), Sense::hover());
+                                ui.painter().hline(
+                                    (r.left() + 6.0)..=(r.right() - 6.0),
+                                    r.center().y,
+                                    Stroke::new(1.0, t.border),
+                                );
                             }
-                            let mut x = r.left() + 12.0;
-                            if *checked {
-                                Icon::Check.paint(ui, Rect::from_center_size(Pos2::new(x + 8.0, r.center().y), Vec2::splat(16.0)), 14.0, t.accent);
-                            } else if let Some(icon) = icon {
-                                icon.paint(ui, Rect::from_center_size(Pos2::new(x + 8.0, r.center().y), Vec2::splat(16.0)), 16.0, icon_color);
-                            }
-                            x += lead;
-                            let mut right = r.right() - 12.0;
-                            if let Some(s) = shortcut {
-                                let g = ui.painter().layout_no_wrap(s.to_string(), font(size::XS), t.muted);
-                                right -= g.size().x;
-                                ui.painter().galley_with_override_text_color(Pos2::new(right, r.center().y - g.size().y / 2.0), g, alpha(t.muted, if *enabled { 1.0 } else { 0.4 }));
-                                right -= 12.0;
-                            }
-                            paint_text(ui, Rect::from_min_max(Pos2::new(x, r.top()), Pos2::new(right, r.bottom())), label, font(size::BASE), color);
-                            a11y(&resp, egui::Role::MenuItem, label);
-                            let resp = match hint {
-                                Some(h) => resp.on_disabled_hover_text(*h),
-                                None => resp,
-                            };
-                            if *enabled && resp.clicked() {
-                                chosen = Some(action.clone());
+                            MenuEntry::Item {
+                                label,
+                                action,
+                                enabled,
+                                danger,
+                                hint,
+                                icon,
+                                shortcut,
+                                checked,
+                            } => {
+                                let (r, resp) = ui
+                                    .add_enabled_ui(*enabled, |ui| {
+                                        ui.allocate_exact_size(
+                                            vec2(width, MENU_ITEM_H),
+                                            Sense::click(),
+                                        )
+                                    })
+                                    .inner;
+                                let mut color = if *danger { t.danger } else { t.fg };
+                                let mut icon_color = if *danger { t.danger } else { t.muted };
+                                if !enabled {
+                                    color = alpha(color, 0.4);
+                                    icon_color = alpha(icon_color, 0.4);
+                                } else if resp.hovered() {
+                                    ui.painter().rect_filled(
+                                        r,
+                                        radius::MD - 1.0,
+                                        if *danger {
+                                            alpha(t.danger, 0.12)
+                                        } else {
+                                            t.surface2
+                                        },
+                                    );
+                                    icon_color = color;
+                                }
+                                let mut x = r.left() + 12.0;
+                                if *checked {
+                                    Icon::Check.paint(
+                                        ui,
+                                        Rect::from_center_size(
+                                            Pos2::new(x + 8.0, r.center().y),
+                                            Vec2::splat(16.0),
+                                        ),
+                                        14.0,
+                                        t.accent,
+                                    );
+                                } else if let Some(icon) = icon {
+                                    icon.paint(
+                                        ui,
+                                        Rect::from_center_size(
+                                            Pos2::new(x + 8.0, r.center().y),
+                                            Vec2::splat(16.0),
+                                        ),
+                                        16.0,
+                                        icon_color,
+                                    );
+                                }
+                                x += lead;
+                                let mut right = r.right() - 12.0;
+                                if let Some(s) = shortcut {
+                                    let g = ui.painter().layout_no_wrap(
+                                        s.to_string(),
+                                        font(size::XS),
+                                        t.muted,
+                                    );
+                                    right -= g.size().x;
+                                    ui.painter().galley_with_override_text_color(
+                                        Pos2::new(right, r.center().y - g.size().y / 2.0),
+                                        g,
+                                        alpha(t.muted, if *enabled { 1.0 } else { 0.4 }),
+                                    );
+                                    right -= 12.0;
+                                }
+                                paint_text(
+                                    ui,
+                                    Rect::from_min_max(
+                                        Pos2::new(x, r.top()),
+                                        Pos2::new(right, r.bottom()),
+                                    ),
+                                    label,
+                                    font(size::BASE),
+                                    color,
+                                );
+                                a11y(&resp, egui::Role::MenuItem, label);
+                                let resp = match hint {
+                                    Some(h) => resp.on_disabled_hover_text(*h),
+                                    None => resp,
+                                };
+                                if *enabled && resp.clicked() {
+                                    chosen = Some(action.clone());
+                                }
                             }
                         }
                     }
-                }
+                });
             });
-        });
         if let Some(a) = chosen {
             return MenuResult::Chosen(a);
         }
@@ -1226,7 +1748,10 @@ impl<A: Clone> Menu<A> {
         }
         if !std::mem::take(&mut self.just_opened) {
             let outside = ctx.input(|i| {
-                i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p))
+                i.pointer.any_pressed()
+                    && i.pointer
+                        .interact_pos()
+                        .is_some_and(|p| !area.response.rect.contains(p))
             });
             if outside {
                 return MenuResult::Closed;
@@ -1262,11 +1787,23 @@ pub struct Bounds {
 /// resizes, double-click restores the default, and when focused (click
 /// it, or Tab) ←/→ step 16 px (Shift: 64), Home restores the default and
 /// End goes to the maximum.
-pub fn resize_strip(ui: &mut Ui, id: Id, pane: Rect, width: &mut f32, bounds: Bounds, label: &str) -> ResizeOut {
+pub fn resize_strip(
+    ui: &mut Ui,
+    id: Id,
+    pane: Rect,
+    width: &mut f32,
+    bounds: Bounds,
+    label: &str,
+) -> ResizeOut {
     let Bounds { min, max, default } = bounds;
     let t = tokens(ui.ctx());
-    let strip = Rect::from_min_max(Pos2::new(pane.right() - 4.0, pane.top()), pane.right_bottom());
-    let resp = ui.interact(strip, id, Sense::click_and_drag()).on_hover_cursor(CursorIcon::ResizeHorizontal);
+    let strip = Rect::from_min_max(
+        Pos2::new(pane.right() - 4.0, pane.top()),
+        pane.right_bottom(),
+    );
+    let resp = ui
+        .interact(strip, id, Sense::click_and_drag())
+        .on_hover_cursor(CursorIcon::ResizeHorizontal);
     a11y(&resp, egui::Role::Splitter, label);
     let resp = resp.on_hover_text(format!("{label} · Drag to resize · Double-click to reset"));
     let mut out = ResizeOut::default();
@@ -1299,7 +1836,11 @@ pub fn resize_strip(ui: &mut Ui, id: Id, pane: Rect, width: &mut f32, bounds: Bo
     }
     if resp.has_focus() {
         let (step, home, end) = ui.ctx().input(|i| {
-            let step = if i.modifiers.shift { KEY_STEP_LARGE } else { KEY_STEP };
+            let step = if i.modifiers.shift {
+                KEY_STEP_LARGE
+            } else {
+                KEY_STEP
+            };
             let mut d = 0.0;
             if i.key_pressed(Key::ArrowLeft) {
                 d -= step;
@@ -1326,11 +1867,19 @@ pub fn resize_strip(ui: &mut Ui, id: Id, pane: Rect, width: &mut f32, bounds: Bo
     }
     let active = resp.dragged();
     if active || resp.hovered() || resp.has_focus() {
-        ui.painter().rect_filled(strip, 0.0, alpha(t.accent, if active { 0.6 } else { 0.4 }));
+        ui.painter()
+            .rect_filled(strip, 0.0, alpha(t.accent, if active { 0.6 } else { 0.4 }));
         ui.painter().rect_filled(
-            Rect::from_min_max(Pos2::new(strip.right() - 2.0, strip.top()), strip.right_bottom()),
+            Rect::from_min_max(
+                Pos2::new(strip.right() - 2.0, strip.top()),
+                strip.right_bottom(),
+            ),
             0.0,
-            if active { t.accent } else { alpha(t.accent, 0.6) },
+            if active {
+                t.accent
+            } else {
+                alpha(t.accent, 0.6)
+            },
         );
     }
     out
@@ -1339,8 +1888,14 @@ pub fn resize_strip(ui: &mut Ui, id: Id, pane: Rect, width: &mut f32, bounds: Bo
 // ---------------------------------------------------------------- misc
 
 /// Truncate `text` with an ellipsis to fit `max_width` at `font_id`.
-pub fn elide(ui: &Ui, text: &str, font_id: egui::FontId, max_width: f32) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font_id, tokens(ui.ctx()).fg);
+pub fn elide(
+    ui: &Ui,
+    text: &str,
+    font_id: egui::FontId,
+    max_width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job =
+        egui::text::LayoutJob::simple_singleline(text.to_string(), font_id, tokens(ui.ctx()).fg);
     job.wrap = egui::text::TextWrapping::truncate_at_width(max_width.max(0.0));
     ui.painter().layout_job(job)
 }
@@ -1348,7 +1903,9 @@ pub fn elide(ui: &Ui, text: &str, font_id: egui::FontId, max_width: f32) -> std:
 /// Paint `text` left-aligned and vertically centred in `rect`, elided.
 pub fn paint_text(ui: &Ui, rect: Rect, text: &str, font_id: egui::FontId, color: Color32) -> Rect {
     let g = elide(ui, text, font_id, rect.width());
-    let pos = Align2::LEFT_CENTER.align_size_within_rect(g.size(), rect).min;
+    let pos = Align2::LEFT_CENTER
+        .align_size_within_rect(g.size(), rect)
+        .min;
     let r = Rect::from_min_size(pos, g.size());
     ui.painter().galley_with_override_text_color(pos, g, color);
     r

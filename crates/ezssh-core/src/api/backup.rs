@@ -8,14 +8,14 @@
 
 use std::collections::HashMap;
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use zeroize::Zeroize;
 
-use crate::backup::{self, Bundle, CredentialEntry, SessionEntry, SettingEntry};
 use crate::api::require_unlocked;
+use crate::backup::{self, Bundle, CredentialEntry, SessionEntry, SettingEntry};
 use crate::db;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
@@ -28,34 +28,34 @@ const MAX_BACKUP_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
 #[derive(Debug, Serialize, Default)]
 pub struct BackupSummary {
-    pub folders:      usize,
-    pub sessions:     usize,
-    pub credentials:  usize,
-    pub known_hosts:  usize,
-    pub settings:     usize,
+    pub folders: usize,
+    pub sessions: usize,
+    pub credentials: usize,
+    pub known_hosts: usize,
+    pub settings: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct BackupPreview {
-    pub created_at:    String,
-    pub app_version:   String,
-    pub folders:       Vec<db::folders::Folder>,
-    pub sessions:      Vec<SessionPreview>,
-    pub credentials:   Vec<CredentialPreview>,
-    pub known_hosts:   Vec<KnownHostPreview>,
+    pub created_at: String,
+    pub app_version: String,
+    pub folders: Vec<db::folders::Folder>,
+    pub sessions: Vec<SessionPreview>,
+    pub credentials: Vec<CredentialPreview>,
+    pub known_hosts: Vec<KnownHostPreview>,
     pub setting_count: usize,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SessionPreview {
-    pub id:           i64,
-    pub folder_id:    Option<i64>,
-    pub name:         String,
-    pub host:         String,
-    pub port:         i64,
-    pub username:     String,
+    pub id: i64,
+    pub folder_id: Option<i64>,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
     pub session_kind: String,
-    pub auth_type:    String,
+    pub auth_type: String,
     /// Present when the session references a shared credential (a key) in
     /// the same backup. The selection UI uses this to warn when a session
     /// is selected but its credential isn't. `None` for password sessions:
@@ -67,8 +67,8 @@ pub struct SessionPreview {
 
 #[derive(Debug, Serialize)]
 pub struct CredentialPreview {
-    pub id:    i64,
-    pub kind:  String,
+    pub id: i64,
+    pub kind: String,
     pub label: String,
 }
 
@@ -82,27 +82,27 @@ pub struct KnownHostPreview {
 #[derive(Debug, Deserialize, Default)]
 pub struct SelectionSpec {
     #[serde(default)]
-    pub folder_ids:       Vec<i64>,
+    pub folder_ids: Vec<i64>,
     #[serde(default)]
-    pub session_ids:      Vec<i64>,
+    pub session_ids: Vec<i64>,
     #[serde(default)]
-    pub credential_ids:   Vec<i64>,
+    pub credential_ids: Vec<i64>,
     #[serde(default)]
-    pub known_hosts:      Vec<(String, i64)>,
+    pub known_hosts: Vec<(String, i64)>,
     #[serde(default)]
     pub include_settings: bool,
 }
 
 #[derive(Debug, Serialize, Default)]
 pub struct RestoreSummary {
-    pub folders_created:      usize,
-    pub sessions_created:     usize,
-    pub credentials_created:  usize,
+    pub folders_created: usize,
+    pub sessions_created: usize,
+    pub credentials_created: usize,
     pub known_hosts_upserted: usize,
-    pub settings_applied:     usize,
+    pub settings_applied: usize,
     /// Names that were renamed to avoid a collision (label / folder /
     /// session name). Populated so the UI can show "imported as:" list.
-    pub renamed:              Vec<String>,
+    pub renamed: Vec<String>,
 }
 
 // ===== export ============================================================
@@ -159,16 +159,16 @@ async fn backup_create_inner(
         .collect();
 
     let summary = BackupSummary {
-        folders:     folders.len(),
-        sessions:    sessions.len(),
+        folders: folders.len(),
+        sessions: sessions.len(),
         credentials: credentials.len(),
         known_hosts: known_hosts.len(),
-        settings:    settings_entries.len(),
+        settings: settings_entries.len(),
     };
 
     let bundle = Bundle {
-        version:     backup::BACKUP_VERSION,
-        created_at:  Utc::now().to_rfc3339(),
+        version: backup::BACKUP_VERSION,
+        created_at: Utc::now().to_rfc3339(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         folders,
         sessions,
@@ -210,24 +210,28 @@ async fn backup_preview_inner(
     let bundle = backup::decrypt_bundle_blocking(bytes, passphrase).await?;
 
     Ok(BackupPreview {
-        created_at:    bundle.created_at.clone(),
-        app_version:   bundle.app_version.clone(),
-        folders:       bundle.folders.clone(),
+        created_at: bundle.created_at.clone(),
+        app_version: bundle.app_version.clone(),
+        folders: bundle.folders.clone(),
         sessions: bundle
             .sessions
             .iter()
             .map(|e| {
                 let password = session_password(&bundle, &e.session);
                 SessionPreview {
-                    id:           e.session.id,
-                    folder_id:    e.session.folder_id,
-                    name:         e.session.name.clone(),
-                    host:         e.session.host.clone(),
-                    port:         e.session.port,
-                    username:     e.session.username.clone(),
+                    id: e.session.id,
+                    folder_id: e.session.folder_id,
+                    name: e.session.name.clone(),
+                    host: e.session.host.clone(),
+                    port: e.session.port,
+                    username: e.session.username.clone(),
                     session_kind: e.session.session_kind.clone(),
-                    auth_type:    e.session.auth_type.clone(),
-                    credential_id: if e.session.auth_type == "password" { None } else { e.session.credential_id },
+                    auth_type: e.session.auth_type.clone(),
+                    credential_id: if e.session.auth_type == "password" {
+                        None
+                    } else {
+                        e.session.credential_id
+                    },
                     has_password: password.is_some(),
                 }
             })
@@ -237,8 +241,8 @@ async fn backup_preview_inner(
             .iter()
             .filter(|c| c.kind != "password")
             .map(|c| CredentialPreview {
-                id:    c.id,
-                kind:  c.kind.clone(),
+                id: c.id,
+                kind: c.kind.clone(),
                 label: c.label.clone(),
             })
             .collect(),
@@ -310,14 +314,8 @@ async fn backup_restore_inner(
             vault::encrypt_with(&vs, &pt)?
         };
         let final_label = unique_name(&entry.label, &existing_labels, &mut result.renamed);
-        let new_id = db::credentials::insert(
-            &state.db,
-            &entry.kind,
-            &final_label,
-            &nonce,
-            &ct,
-        )
-        .await?;
+        let new_id =
+            db::credentials::insert(&state.db, &entry.kind, &final_label, &nonce, &ct).await?;
         cred_id_map.insert(entry.id, new_id);
         result.credentials_created += 1;
     }
@@ -343,8 +341,9 @@ async fn backup_restore_inner(
         for f in pending.drain(..) {
             let ready = match f.parent_id {
                 None => true,
-                Some(pid) => folder_id_map.contains_key(&pid)
-                    || !selection.folder_ids.contains(&pid),
+                Some(pid) => {
+                    folder_id_map.contains_key(&pid) || !selection.folder_ids.contains(&pid)
+                }
             };
             if !ready {
                 still_pending.push(f);
@@ -388,10 +387,10 @@ async fn backup_restore_inner(
         let is_password = entry.session.auth_type == "password";
         let password = match session_password(&bundle, &entry.session) {
             Some(c) if is_password => {
-                let pt = zeroize::Zeroizing::new(
-                    B64.decode(&c.secret_b64)
-                        .map_err(|_| AppError::Validation("credential plaintext not base64".into()))?,
-                );
+                let pt =
+                    zeroize::Zeroizing::new(B64.decode(&c.secret_b64).map_err(|_| {
+                        AppError::Validation("credential plaintext not base64".into())
+                    })?);
                 let vs = state.vault.read().await;
                 let (nonce, ciphertext) = vault::encrypt_with(&vs, &pt)?;
                 db::sessions::PasswordOp::Set { nonce, ciphertext }
@@ -401,7 +400,10 @@ async fn backup_restore_inner(
         let remapped_cred = if is_password {
             None
         } else {
-            entry.session.credential_id.and_then(|c| cred_id_map.get(&c).copied())
+            entry
+                .session
+                .credential_id
+                .and_then(|c| cred_id_map.get(&c).copied())
         };
         let remapped_pass = entry
             .session
@@ -461,7 +463,11 @@ async fn backup_restore_inner(
         // Older bundles carried the sync target and its vault-wrapped
         // secrets; those are this device's business (see
         // `backup::setting_is_portable`).
-        for s in bundle.settings.iter().filter(|s| backup::setting_is_portable(&s.key)) {
+        for s in bundle
+            .settings
+            .iter()
+            .filter(|s| backup::setting_is_portable(&s.key))
+        {
             db::settings::set(&state.db, &s.key, &s.value).await?;
             result.settings_applied += 1;
         }
@@ -473,12 +479,18 @@ async fn backup_restore_inner(
 
 /// The password entry a password session uses: its own row, or (bundles
 /// from before passwords moved onto sessions) the shared row it names.
-fn session_password<'a>(bundle: &'a Bundle, s: &db::sessions::Session) -> Option<&'a CredentialEntry> {
+fn session_password<'a>(
+    bundle: &'a Bundle,
+    s: &db::sessions::Session,
+) -> Option<&'a CredentialEntry> {
     if s.auth_type != "password" {
         return None;
     }
     let id = s.credential_id?;
-    bundle.credentials.iter().find(|c| c.id == id && c.kind == "password")
+    bundle
+        .credentials
+        .iter()
+        .find(|c| c.id == id && c.kind == "password")
 }
 
 /// Append " (N)" suffixes until the candidate doesn't collide. Tracks

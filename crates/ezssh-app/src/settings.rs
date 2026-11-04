@@ -30,10 +30,22 @@ impl Value {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
-    Bool { default: bool },
-    Int { default: i64, min: i64, max: i64 },
-    Str { default: &'static str, max_len: usize },
-    Enum { default: &'static str, values: &'static [&'static str] },
+    Bool {
+        default: bool,
+    },
+    Int {
+        default: i64,
+        min: i64,
+        max: i64,
+    },
+    Str {
+        default: &'static str,
+        max_len: usize,
+    },
+    Enum {
+        default: &'static str,
+        values: &'static [&'static str],
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -47,7 +59,9 @@ impl Spec {
         match self.kind {
             Kind::Bool { default } => Value::Bool(default),
             Kind::Int { default, .. } => Value::Int(default),
-            Kind::Str { default, .. } | Kind::Enum { default, .. } => Value::Str(default.to_string()),
+            Kind::Str { default, .. } | Kind::Enum { default, .. } => {
+                Value::Str(default.to_string())
+            }
         }
     }
 
@@ -67,12 +81,16 @@ impl Spec {
                 Ok(n) if (min..=max).contains(&n) => n,
                 _ => default,
             }),
-            Kind::Str { default, max_len } => {
-                Value::Str(if raw.chars().count() <= max_len { raw.to_string() } else { default.to_string() })
-            }
-            Kind::Enum { default, values } => {
-                Value::Str(if values.contains(&raw) { raw.to_string() } else { default.to_string() })
-            }
+            Kind::Str { default, max_len } => Value::Str(if raw.chars().count() <= max_len {
+                raw.to_string()
+            } else {
+                default.to_string()
+            }),
+            Kind::Enum { default, values } => Value::Str(if values.contains(&raw) {
+                raw.to_string()
+            } else {
+                default.to_string()
+            }),
         }
     }
 
@@ -82,35 +100,144 @@ impl Spec {
         match (self.kind, value) {
             (Kind::Bool { .. }, v @ Value::Bool(_)) => Some(v),
             (Kind::Int { min, max, .. }, Value::Int(n)) => Some(Value::Int(n.clamp(min, max))),
-            (Kind::Str { max_len, .. }, Value::Str(s)) => Some(Value::Str(s.chars().take(max_len).collect())),
-            (Kind::Enum { values, .. }, Value::Str(s)) => values.contains(&s.as_str()).then_some(Value::Str(s)),
+            (Kind::Str { max_len, .. }, Value::Str(s)) => {
+                Some(Value::Str(s.chars().take(max_len).collect()))
+            }
+            (Kind::Enum { values, .. }, Value::Str(s)) => {
+                values.contains(&s.as_str()).then_some(Value::Str(s))
+            }
             _ => None,
         }
     }
 }
 
 pub const SPEC: &[Spec] = &[
-    Spec { key: "terminal.scrollback", kind: Kind::Int { default: 5000, min: 0, max: 100_000 } },
-    Spec { key: "terminal.fontSize", kind: Kind::Int { default: 13, min: 8, max: 48 } },
-    Spec { key: "terminal.fontFamily", kind: Kind::Str { default: "", max_len: 200 } },
-    Spec { key: "terminal.cursorStyle", kind: Kind::Enum { default: "block", values: &["block", "underline", "bar"] } },
-    Spec { key: "terminal.cursorBlink", kind: Kind::Bool { default: true } },
-    Spec { key: "terminal.copyOnSelect", kind: Kind::Bool { default: false } },
-    Spec { key: "terminal.rightClick", kind: Kind::Enum { default: "menu", values: &["menu", "paste"] } },
-    Spec { key: "terminal.warnMultilinePaste", kind: Kind::Bool { default: true } },
-    Spec { key: "terminal.osc52Clipboard", kind: Kind::Bool { default: true } },
-    Spec { key: "terminal.bell", kind: Kind::Enum { default: "none", values: &["none", "visual", "sound"] } },
-    Spec { key: "sessions.confirmCloseLive", kind: Kind::Bool { default: true } },
-    Spec { key: "sessions.confirmExit", kind: Kind::Bool { default: true } },
-    Spec { key: "sessions.autoOpenSftp", kind: Kind::Bool { default: false } },
-    Spec { key: "sessions.keepaliveSecs", kind: Kind::Int { default: 60, min: 0, max: 7200 } },
-    Spec { key: "sessions.connectTimeoutSecs", kind: Kind::Int { default: 15, min: 1, max: 600 } },
-    Spec { key: "appearance.tabLabel", kind: Kind::Enum { default: "name", values: &["name", "userhost"] } },
-    Spec { key: "terminal.palette", kind: Kind::Enum { default: ezssh_term::palette::DEFAULT_PALETTE, values: PALETTE_IDS } },
-    Spec { key: "updates.checkOnLaunch", kind: Kind::Bool { default: true } },
-    Spec { key: "updates.preRelease", kind: Kind::Bool { default: false } },
-    Spec { key: "updates.intervalDays", kind: Kind::Int { default: 30, min: 1, max: 365 } },
-    Spec { key: "security.idleLockMinutes", kind: Kind::Int { default: 0, min: 0, max: 1440 } },
+    Spec {
+        key: "terminal.scrollback",
+        kind: Kind::Int {
+            default: 5000,
+            min: 0,
+            max: 100_000,
+        },
+    },
+    Spec {
+        key: "terminal.fontSize",
+        kind: Kind::Int {
+            default: 13,
+            min: 8,
+            max: 48,
+        },
+    },
+    Spec {
+        key: "terminal.fontFamily",
+        kind: Kind::Str {
+            default: "",
+            max_len: 200,
+        },
+    },
+    Spec {
+        key: "terminal.cursorStyle",
+        kind: Kind::Enum {
+            default: "block",
+            values: &["block", "underline", "bar"],
+        },
+    },
+    Spec {
+        key: "terminal.cursorBlink",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
+        key: "terminal.copyOnSelect",
+        kind: Kind::Bool { default: false },
+    },
+    Spec {
+        key: "terminal.rightClick",
+        kind: Kind::Enum {
+            default: "menu",
+            values: &["menu", "paste"],
+        },
+    },
+    Spec {
+        key: "terminal.warnMultilinePaste",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
+        key: "terminal.osc52Clipboard",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
+        key: "terminal.bell",
+        kind: Kind::Enum {
+            default: "none",
+            values: &["none", "visual", "sound"],
+        },
+    },
+    Spec {
+        key: "sessions.confirmCloseLive",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
+        key: "sessions.confirmExit",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
+        key: "sessions.autoOpenSftp",
+        kind: Kind::Bool { default: false },
+    },
+    Spec {
+        key: "sessions.keepaliveSecs",
+        kind: Kind::Int {
+            default: 60,
+            min: 0,
+            max: 7200,
+        },
+    },
+    Spec {
+        key: "sessions.connectTimeoutSecs",
+        kind: Kind::Int {
+            default: 15,
+            min: 1,
+            max: 600,
+        },
+    },
+    Spec {
+        key: "appearance.tabLabel",
+        kind: Kind::Enum {
+            default: "name",
+            values: &["name", "userhost"],
+        },
+    },
+    Spec {
+        key: "terminal.palette",
+        kind: Kind::Enum {
+            default: ezssh_term::palette::DEFAULT_PALETTE,
+            values: PALETTE_IDS,
+        },
+    },
+    Spec {
+        key: "updates.checkOnLaunch",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
+        key: "updates.preRelease",
+        kind: Kind::Bool { default: false },
+    },
+    Spec {
+        key: "updates.intervalDays",
+        kind: Kind::Int {
+            default: 30,
+            min: 1,
+            max: 365,
+        },
+    },
+    Spec {
+        key: "security.idleLockMinutes",
+        kind: Kind::Int {
+            default: 0,
+            min: 0,
+            max: 1440,
+        },
+    },
 ];
 
 /// Palette ids in `ezssh_term::palette::PALETTES` order.
@@ -136,7 +263,9 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { values: SPEC.iter().map(|s| (s.key, s.default_value())).collect() }
+        Self {
+            values: SPEC.iter().map(|s| (s.key, s.default_value())).collect(),
+        }
     }
 }
 
@@ -144,8 +273,14 @@ impl Settings {
     /// Build from the stored rows (`settings_list`). Unknown keys (e.g.
     /// `theme`, sync state) are ignored.
     pub fn from_rows(rows: &[(String, String)]) -> Self {
-        let stored: HashMap<&str, &str> = rows.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-        Self { values: SPEC.iter().map(|s| (s.key, s.parse(stored.get(s.key).copied()))).collect() }
+        let stored: HashMap<&str, &str> =
+            rows.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        Self {
+            values: SPEC
+                .iter()
+                .map(|s| (s.key, s.parse(stored.get(s.key).copied())))
+                .collect(),
+        }
     }
 
     pub fn get(&self, key: &str) -> &Value {
@@ -187,7 +322,10 @@ impl Settings {
             tracing::warn!(key, ?value, "settings: value rejected");
             return None;
         };
-        let prev = self.values.insert(spec.key, clean.clone()).unwrap_or_else(|| spec.default_value());
+        let prev = self
+            .values
+            .insert(spec.key, clean.clone())
+            .unwrap_or_else(|| spec.default_value());
         (prev != clean).then_some((prev, clean))
     }
 
@@ -220,10 +358,22 @@ mod tests {
 
     #[test]
     fn parses_booleans_strictly() {
-        assert_eq!(parse("terminal.copyOnSelect", Some("true")), Value::Bool(true));
-        assert_eq!(parse("terminal.copyOnSelect", Some("false")), Value::Bool(false));
-        assert_eq!(parse("terminal.copyOnSelect", Some("yes")), Value::Bool(false));
-        assert_eq!(parse("terminal.osc52Clipboard", Some("0")), Value::Bool(true));
+        assert_eq!(
+            parse("terminal.copyOnSelect", Some("true")),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            parse("terminal.copyOnSelect", Some("false")),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            parse("terminal.copyOnSelect", Some("yes")),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            parse("terminal.osc52Clipboard", Some("0")),
+            Value::Bool(true)
+        );
     }
 
     #[test]
@@ -236,9 +386,18 @@ mod tests {
 
     #[test]
     fn rejects_unknown_enum_values() {
-        assert_eq!(parse("terminal.rightClick", Some("paste")), Value::Str("paste".into()));
-        assert_eq!(parse("terminal.rightClick", Some("middle")), Value::Str("menu".into()));
-        assert_eq!(parse("terminal.palette", Some("no-such-palette")), Value::Str(ezssh_term::palette::DEFAULT_PALETTE.into()));
+        assert_eq!(
+            parse("terminal.rightClick", Some("paste")),
+            Value::Str("paste".into())
+        );
+        assert_eq!(
+            parse("terminal.rightClick", Some("middle")),
+            Value::Str("menu".into())
+        );
+        assert_eq!(
+            parse("terminal.palette", Some("no-such-palette")),
+            Value::Str(ezssh_term::palette::DEFAULT_PALETTE.into())
+        );
     }
 
     #[test]
@@ -250,14 +409,29 @@ mod tests {
 
     #[test]
     fn normalize_returns_none_for_unrepresentable_input() {
-        assert_eq!(spec("terminal.fontSize").unwrap().normalize(Value::Str("x".into())), None);
-        assert_eq!(spec("terminal.bell").unwrap().normalize(Value::Str("loud".into())), None);
+        assert_eq!(
+            spec("terminal.fontSize")
+                .unwrap()
+                .normalize(Value::Str("x".into())),
+            None
+        );
+        assert_eq!(
+            spec("terminal.bell")
+                .unwrap()
+                .normalize(Value::Str("loud".into())),
+            None
+        );
     }
 
     #[test]
     fn normalize_truncates_over_long_strings() {
         let long = "x".repeat(500);
-        assert_eq!(spec("terminal.fontFamily").unwrap().normalize(Value::Str(long)), Some(Value::Str("x".repeat(200))));
+        assert_eq!(
+            spec("terminal.fontFamily")
+                .unwrap()
+                .normalize(Value::Str(long)),
+            Some(Value::Str("x".repeat(200)))
+        );
     }
 
     #[test]
@@ -291,15 +465,34 @@ mod tests {
     #[test]
     fn set_reports_changes_and_rollback_respects_newer_writes() {
         let mut s = Settings::default();
-        assert_eq!(s.set("terminal.bell", Value::Str("visual".into())), Some((Value::Str("none".into()), Value::Str("visual".into()))));
-        assert_eq!(s.set("terminal.bell", Value::Str("visual".into())), None, "equal value is no change");
-        assert_eq!(s.set("terminal.bell", Value::Str("loud".into())), None, "rejected");
+        assert_eq!(
+            s.set("terminal.bell", Value::Str("visual".into())),
+            Some((Value::Str("none".into()), Value::Str("visual".into())))
+        );
+        assert_eq!(
+            s.set("terminal.bell", Value::Str("visual".into())),
+            None,
+            "equal value is no change"
+        );
+        assert_eq!(
+            s.set("terminal.bell", Value::Str("loud".into())),
+            None,
+            "rejected"
+        );
         assert_eq!(s.set("no.such.key", Value::Bool(true)), None);
         // A failed write rolls back only if nothing newer landed.
         s.set("terminal.bell", Value::Str("sound".into()));
-        assert!(!s.rollback("terminal.bell", &Value::Str("visual".into()), Value::Str("none".into())));
+        assert!(!s.rollback(
+            "terminal.bell",
+            &Value::Str("visual".into()),
+            Value::Str("none".into())
+        ));
         assert_eq!(s.str("terminal.bell"), "sound");
-        assert!(s.rollback("terminal.bell", &Value::Str("sound".into()), Value::Str("none".into())));
+        assert!(s.rollback(
+            "terminal.bell",
+            &Value::Str("sound".into()),
+            Value::Str("none".into())
+        ));
         assert_eq!(s.str("terminal.bell"), "none");
     }
 }

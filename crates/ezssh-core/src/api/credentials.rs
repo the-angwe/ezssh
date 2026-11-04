@@ -54,9 +54,7 @@ pub async fn credential_create(
     })
 }
 
-pub async fn credential_list_detailed(
-    state: &AppState,
-) -> Result<Vec<CredentialDetail>> {
+pub async fn credential_list_detailed(state: &AppState) -> Result<Vec<CredentialDetail>> {
     require_unlocked(state).await?;
     credentials::list_detailed(&state.db).await
 }

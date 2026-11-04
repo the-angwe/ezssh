@@ -42,8 +42,11 @@ pub struct KeyFiles {
 /// leaves it unencrypted (only sensible for tests).
 pub fn keygen(password: Option<String>) -> Result<KeyFiles> {
     let kp = match password {
-        Some(pw) if pw.is_empty() => bail!("an empty password would prompt; pass None for an unencrypted key"),
-        Some(pw) => KeyPair::generate_encrypted_keypair(Some(pw)).context("generating an encrypted key pair")?,
+        Some(pw) if pw.is_empty() => {
+            bail!("an empty password would prompt; pass None for an unencrypted key")
+        }
+        Some(pw) => KeyPair::generate_encrypted_keypair(Some(pw))
+            .context("generating an encrypted key pair")?,
         None => KeyPair::generate_unencrypted_keypair().context("generating a key pair")?,
     };
     let secret = kp
@@ -51,7 +54,11 @@ pub fn keygen(password: Option<String>) -> Result<KeyFiles> {
         .to_box(Some("ezSsh update signing key"))
         .context("encoding the secret key")?
         .into_string();
-    let public = kp.pk.to_box().context("encoding the public key")?.into_string();
+    let public = kp
+        .pk
+        .to_box()
+        .context("encoding the public key")?
+        .into_string();
     Ok(KeyFiles { secret, public })
 }
 
@@ -67,7 +74,9 @@ fn unwrap_b64(text: &str) -> Result<String> {
     if trimmed.starts_with("untrusted comment:") {
         return Ok(format!("{trimmed}\n"));
     }
-    let bytes = B64.decode(trimmed).context("neither a minisign file nor base64 of one")?;
+    let bytes = B64
+        .decode(trimmed)
+        .context("neither a minisign file nor base64 of one")?;
     String::from_utf8(bytes).context("the base64 does not hold text")
 }
 
@@ -77,7 +86,9 @@ pub fn load_secret_key(text: &str, password: Option<String>) -> Result<SecretKey
     let raw = unwrap_b64(text)?;
     let boxed = SecretKeyBox::from_string(&raw).context("parsing the secret key")?;
     match password.filter(|p| !p.is_empty()) {
-        Some(pw) => boxed.into_secret_key(Some(pw)).context("decrypting the secret key (wrong password?)"),
+        Some(pw) => boxed
+            .into_secret_key(Some(pw))
+            .context("decrypting the secret key (wrong password?)"),
         None => boxed
             .into_unencrypted_secret_key()
             .context("the secret key is encrypted: set its password"),
@@ -99,14 +110,26 @@ pub fn trusted_comment(timestamp: u64, file_name: &str, version: &str) -> String
 
 /// Sign `data` (an installer named `file_name` of release `version`) and
 /// return the one-line base64 signature.
-pub fn sign(sk: &SecretKey, data: impl Read, file_name: &str, version: &str, timestamp: u64) -> Result<String> {
+pub fn sign(
+    sk: &SecretKey,
+    data: impl Read,
+    file_name: &str,
+    version: &str,
+    timestamp: u64,
+) -> Result<String> {
     if file_name.contains(['\t', '\n', '\r']) {
         bail!("file name {file_name:?} cannot go into a trusted comment");
     }
     let pk = PublicKey::from_secret_key(sk).context("deriving the public key")?;
     let comment = trusted_comment(timestamp, file_name, version);
-    let sig = minisign::sign(Some(&pk), sk, data, Some(&comment), Some("signature from ezSsh update key"))
-        .with_context(|| format!("signing {file_name}"))?;
+    let sig = minisign::sign(
+        Some(&pk),
+        sk,
+        data,
+        Some(&comment),
+        Some("signature from ezSsh update key"),
+    )
+    .with_context(|| format!("signing {file_name}"))?;
     Ok(B64.encode(sig.into_string().as_bytes()))
 }
 
@@ -160,7 +183,10 @@ pub fn targets_for(file_name: &str) -> Vec<String> {
     ];
     let Some(arch) = ARCHES
         .iter()
-        .find(|(token, _)| stem.strip_suffix(token).is_some_and(|head| head.ends_with('_')))
+        .find(|(token, _)| {
+            stem.strip_suffix(token)
+                .is_some_and(|head| head.ends_with('_'))
+        })
         .map(|(_, arch)| *arch)
     else {
         return Vec::new();
@@ -239,7 +265,9 @@ pub fn rfc3339(unix: u64) -> String {
 
 /// The version a trusted comment was signed for.
 pub fn signed_version(trusted_comment: &str) -> Option<&str> {
-    trusted_comment.split('\t').find_map(|f| f.strip_prefix("version:"))
+    trusted_comment
+        .split('\t')
+        .find_map(|f| f.strip_prefix("version:"))
 }
 
 /// Check that a release version is plain `MAJOR.MINOR.PATCH[-pre]` and
@@ -248,7 +276,11 @@ pub fn normalise_version(v: &str) -> Result<String> {
     let v = v.trim().trim_start_matches('v');
     let core = v.split(['-', '+']).next().unwrap_or("");
     let parts: Vec<&str> = core.split('.').collect();
-    if parts.len() != 3 || parts.iter().any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit())) {
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()))
+    {
         return Err(anyhow!("{v:?} is not a MAJOR.MINOR.PATCH version"));
     }
     Ok(v.to_string())
@@ -261,13 +293,28 @@ mod tests {
 
     #[test]
     fn targets_from_cargo_packager_names() {
-        assert_eq!(targets_for("ezssh_1.15.0_x64-setup.exe"), ["windows-x86_64-nsis", "windows-x86_64"]);
-        assert_eq!(targets_for("ezssh_1.15.0_x64_en-US.msi"), ["windows-x86_64-msi"]);
-        assert_eq!(targets_for("ezssh_1.15.0_x86_64.AppImage"), ["linux-x86_64-appimage", "linux-x86_64"]);
-        assert_eq!(targets_for("ezssh_1.15.0_aarch64.AppImage"), ["linux-aarch64-appimage", "linux-aarch64"]);
+        assert_eq!(
+            targets_for("ezssh_1.15.0_x64-setup.exe"),
+            ["windows-x86_64-nsis", "windows-x86_64"]
+        );
+        assert_eq!(
+            targets_for("ezssh_1.15.0_x64_en-US.msi"),
+            ["windows-x86_64-msi"]
+        );
+        assert_eq!(
+            targets_for("ezssh_1.15.0_x86_64.AppImage"),
+            ["linux-x86_64-appimage", "linux-x86_64"]
+        );
+        assert_eq!(
+            targets_for("ezssh_1.15.0_aarch64.AppImage"),
+            ["linux-aarch64-appimage", "linux-aarch64"]
+        );
         assert_eq!(targets_for("ezssh_1.15.0_amd64.deb"), ["linux-x86_64-deb"]);
         assert_eq!(targets_for("ezssh_1.15.0_arm64.deb"), ["linux-aarch64-deb"]);
-        assert_eq!(targets_for("ezssh_1.15.0_aarch64.app.tar.gz"), ["darwin-aarch64-app", "darwin-aarch64"]);
+        assert_eq!(
+            targets_for("ezssh_1.15.0_aarch64.app.tar.gz"),
+            ["darwin-aarch64-app", "darwin-aarch64"]
+        );
         assert!(targets_for("ezSsh_1.15.0_linux-amd64-portable.tar.xz").is_empty());
         assert!(targets_for("ezssh_1.15.0_x64-setup.exe.sig").is_empty());
         assert!(targets_for("SHA256SUMS").is_empty());
@@ -277,20 +324,45 @@ mod tests {
     #[test]
     fn manifest_has_default_and_installer_keys_and_refuses_clashes() {
         let assets = [
-            Signed { file_name: "ezssh_1.15.0_x64-setup.exe".into(), signature: "S1".into() },
-            Signed { file_name: "ezssh_1.15.0_x64_en-US.msi".into(), signature: "S2".into() },
-            Signed { file_name: "ezssh_1.15.0_amd64.deb".into(), signature: "S3".into() },
+            Signed {
+                file_name: "ezssh_1.15.0_x64-setup.exe".into(),
+                signature: "S1".into(),
+            },
+            Signed {
+                file_name: "ezssh_1.15.0_x64_en-US.msi".into(),
+                signature: "S2".into(),
+            },
+            Signed {
+                file_name: "ezssh_1.15.0_amd64.deb".into(),
+                signature: "S3".into(),
+            },
         ];
-        let m = manifest("1.15.0", "notes", "2026-11-02T10:00:00Z", "https://x/dl/", &assets).unwrap();
+        let m = manifest(
+            "1.15.0",
+            "notes",
+            "2026-11-02T10:00:00Z",
+            "https://x/dl/",
+            &assets,
+        )
+        .unwrap();
         assert_eq!(m["version"], "1.15.0");
-        assert_eq!(m["platforms"]["windows-x86_64"]["url"], "https://x/dl/ezssh_1.15.0_x64-setup.exe");
+        assert_eq!(
+            m["platforms"]["windows-x86_64"]["url"],
+            "https://x/dl/ezssh_1.15.0_x64-setup.exe"
+        );
         assert_eq!(m["platforms"]["windows-x86_64-msi"]["signature"], "S2");
         assert_eq!(m["platforms"]["linux-x86_64-deb"]["signature"], "S3");
         assert!(m["platforms"].get("linux-x86_64").is_none());
 
         let clash = [
-            Signed { file_name: "a_1_x86_64.AppImage".into(), signature: "A".into() },
-            Signed { file_name: "b_1_amd64.AppImage".into(), signature: "B".into() },
+            Signed {
+                file_name: "a_1_x86_64.AppImage".into(),
+                signature: "A".into(),
+            },
+            Signed {
+                file_name: "b_1_amd64.AppImage".into(),
+                signature: "B".into(),
+            },
         ];
         assert!(manifest("1", "", "", "u", &clash).is_err());
         assert!(manifest("1", "", "", "u", &[]).is_err());
@@ -304,10 +376,20 @@ mod tests {
         let sk2 = load_secret_key(&B64.encode(keys.secret.as_bytes()), None).unwrap();
         let pk = load_public_key(&public_key_line(&keys.public)).unwrap();
         let data = b"installer bytes".to_vec();
-        let sig = sign(&sk, Cursor::new(&data), "ezssh_1.2.3_amd64.deb", "1.2.3", 1_700_000_000).unwrap();
+        let sig = sign(
+            &sk,
+            Cursor::new(&data),
+            "ezssh_1.2.3_amd64.deb",
+            "1.2.3",
+            1_700_000_000,
+        )
+        .unwrap();
         assert!(!sig.contains('\n'));
         let comment = verify(&pk, Cursor::new(&data), &sig).unwrap();
-        assert_eq!(comment, "timestamp:1700000000\tfile:ezssh_1.2.3_amd64.deb\tversion:1.2.3");
+        assert_eq!(
+            comment,
+            "timestamp:1700000000\tfile:ezssh_1.2.3_amd64.deb\tversion:1.2.3"
+        );
         assert_eq!(signed_version(&comment), Some("1.2.3"));
         // Tampered data or another key fail.
         assert!(verify(&pk, Cursor::new(b"other".to_vec()), &sig).is_err());
@@ -323,7 +405,8 @@ mod tests {
         let keys = keygen(None).unwrap();
         let sk = load_secret_key(&keys.secret, None).unwrap();
         let sig = sign(&sk, Cursor::new(b"abc".to_vec()), "f", "9.9.9", 5).unwrap();
-        let pk_text = String::from_utf8(B64.decode(public_key_line(&keys.public)).unwrap()).unwrap();
+        let pk_text =
+            String::from_utf8(B64.decode(public_key_line(&keys.public)).unwrap()).unwrap();
         let sig_text = String::from_utf8(B64.decode(sig).unwrap()).unwrap();
         let pk = VPk::decode(&pk_text).unwrap();
         let s = VSig::decode(&sig_text).unwrap();

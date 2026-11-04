@@ -24,9 +24,7 @@ pub mod xserver;
 /// `vault_init`, `vault_unlock`, `vault_lock`) are exempt, as is the narrow
 /// whitelist in `settings_get` that allows the unlock screen to load the
 /// theme before the user authenticates.
-pub async fn require_unlocked(
-    state: &crate::state::AppState,
-) -> crate::error::Result<()> {
+pub async fn require_unlocked(state: &crate::state::AppState) -> crate::error::Result<()> {
     if !state.vault.read().await.is_unlocked() {
         return Err(crate::error::AppError::VaultLocked);
     }

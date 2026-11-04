@@ -65,4 +65,3 @@ migrations/       sqlx migrations
 - Fix warnings properly — remove unused code, don't `#[allow(...)]` past them.
 - Async everywhere (tokio); no blocking calls on the UI thread or in async tasks (use `spawn_blocking`).
 - Read struct definitions before writing code that uses them.
-- Don't run `cargo fmt --all`; keep the existing formatting.

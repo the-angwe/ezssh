@@ -20,7 +20,11 @@ pub enum Theme {
 impl Theme {
     /// Parse the stored `theme` value; anything but `light` is dark.
     pub fn from_setting(s: Option<&str>) -> Self {
-        if s == Some("light") { Self::Light } else { Self::Dark }
+        if s == Some("light") {
+            Self::Light
+        } else {
+            Self::Dark
+        }
     }
 
     pub fn as_setting(self) -> &'static str {
@@ -124,7 +128,11 @@ pub fn tokens_for(theme: Theme) -> &'static Tokens {
 
 /// Tokens of the theme the context is showing.
 pub fn tokens(ctx: &egui::Context) -> &'static Tokens {
-    tokens_for(if ctx.global_style().visuals.dark_mode { Theme::Dark } else { Theme::Light })
+    tokens_for(if ctx.global_style().visuals.dark_mode {
+        Theme::Dark
+    } else {
+        Theme::Light
+    })
 }
 
 /// `c` at `alpha` (0–1) opacity. `c` is taken as opaque (its own alpha is
@@ -201,18 +209,32 @@ pub fn mono(size: f32) -> FontId {
 
 /// The dialog shadow (`0 16 48 @ 50 %`).
 pub fn dialog_shadow() -> egui::Shadow {
-    egui::Shadow { offset: [0, 16], blur: 48, spread: 0, color: Color32::from_black_alpha(128) }
+    egui::Shadow {
+        offset: [0, 16],
+        blur: 48,
+        spread: 0,
+        color: Color32::from_black_alpha(128),
+    }
 }
 
 /// The menu / toast / cascade-frame shadow (`0 8 24 @ 40 %`).
 pub fn popup_shadow() -> egui::Shadow {
-    egui::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(100) }
+    egui::Shadow {
+        offset: [0, 8],
+        blur: 24,
+        spread: 0,
+        color: Color32::from_black_alpha(100),
+    }
 }
 
 /// Install the theme's visuals and the type scale into `ctx`.
 pub fn apply(ctx: &egui::Context, theme: Theme) {
     let t = tokens_for(theme);
-    let mut visuals = if theme == Theme::Dark { Visuals::dark() } else { Visuals::light() };
+    let mut visuals = if theme == Theme::Dark {
+        Visuals::dark()
+    } else {
+        Visuals::light()
+    };
     let r = CornerRadius::same(radius::MD as u8);
     visuals.override_text_color = None;
     visuals.panel_fill = t.surface;
@@ -261,15 +283,29 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     w.open.fg_stroke = Stroke::new(1.0, t.fg);
     w.open.corner_radius = r;
 
-    ctx.set_visuals_of(if theme == Theme::Dark { egui::Theme::Dark } else { egui::Theme::Light }, visuals);
-    ctx.set_theme(if theme == Theme::Dark { egui::Theme::Dark } else { egui::Theme::Light });
+    ctx.set_visuals_of(
+        if theme == Theme::Dark {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        },
+        visuals,
+    );
+    ctx.set_theme(if theme == Theme::Dark {
+        egui::Theme::Dark
+    } else {
+        egui::Theme::Light
+    });
     ctx.all_styles_mut(|style| {
         style.text_styles = [
             (TextStyle::Small, font(size::XS)),
             (TextStyle::Body, font(size::BASE)),
             (TextStyle::Button, font(size::BASE)),
             (TextStyle::Heading, font_semibold(size::LG)),
-            (TextStyle::Monospace, FontId::new(size::SM, FontFamily::Monospace)),
+            (
+                TextStyle::Monospace,
+                FontId::new(size::SM, FontFamily::Monospace),
+            ),
         ]
         .into();
         let s = &mut style.spacing;
@@ -315,7 +351,11 @@ mod tests {
     fn luminance(c: Color32) -> f32 {
         let lin = |v: u8| {
             let v = v as f32 / 255.0;
-            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
         };
         let [r, g, b, _] = c.to_srgba_unmultiplied();
         0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
@@ -335,15 +375,35 @@ mod tests {
         for t in [&DARK, &LIGHT] {
             for bg in [t.bg, t.surface, t.surface2, t.surface3] {
                 for fg in [t.fg, t.fg2] {
-                    assert!(contrast(fg, bg) >= 4.5, "{fg:?} on {bg:?}: {:.2}", contrast(fg, bg));
+                    assert!(
+                        contrast(fg, bg) >= 4.5,
+                        "{fg:?} on {bg:?}: {:.2}",
+                        contrast(fg, bg)
+                    );
                 }
             }
             for bg in [t.bg, t.surface] {
-                assert!(contrast(t.muted, bg) >= 4.5, "muted on {bg:?}: {:.2}", contrast(t.muted, bg));
+                assert!(
+                    contrast(t.muted, bg) >= 4.5,
+                    "muted on {bg:?}: {:.2}",
+                    contrast(t.muted, bg)
+                );
             }
-            assert!(contrast(t.on_accent, t.accent) >= 4.5, "primary button {:?}", contrast(t.on_accent, t.accent));
-            assert!(contrast(t.accent, t.surface) >= 4.0, "accent text {:?}", contrast(t.accent, t.surface));
-            assert!(contrast(t.danger, t.surface) >= 4.0, "danger text {:?}", contrast(t.danger, t.surface));
+            assert!(
+                contrast(t.on_accent, t.accent) >= 4.5,
+                "primary button {:?}",
+                contrast(t.on_accent, t.accent)
+            );
+            assert!(
+                contrast(t.accent, t.surface) >= 4.0,
+                "accent text {:?}",
+                contrast(t.accent, t.surface)
+            );
+            assert!(
+                contrast(t.danger, t.surface) >= 4.0,
+                "danger text {:?}",
+                contrast(t.danger, t.surface)
+            );
         }
     }
 }

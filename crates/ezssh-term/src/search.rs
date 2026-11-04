@@ -33,8 +33,16 @@ pub fn escape(query: &str) -> String {
 /// (insensitive unless the pattern has an upper-case letter); the inline
 /// flag overrides that so the toggle means what it says.
 pub fn pattern(query: &str, case_sensitive: bool, regex: bool) -> String {
-    let body = if regex { query.to_string() } else { escape(query) };
-    if case_sensitive { format!("(?-i){body}") } else { format!("(?i){body}") }
+    let body = if regex {
+        query.to_string()
+    } else {
+        escape(query)
+    };
+    if case_sensitive {
+        format!("(?-i){body}")
+    } else {
+        format!("(?i){body}")
+    }
 }
 
 #[derive(Default)]
@@ -68,7 +76,10 @@ impl std::fmt::Debug for Find {
 
 impl Find {
     pub fn new() -> Self {
-        Self { focus_input: true, ..Self::default() }
+        Self {
+            focus_input: true,
+            ..Self::default()
+        }
     }
 
     /// `(1-based index, count)` for the counter.
@@ -102,7 +113,10 @@ impl Find {
     /// Recount the matches. Returns the previous current match's start so
     /// the caller can stay near it.
     fn recount<T>(&mut self, term: &Term<T>, feed_gen: u64) -> Option<Point> {
-        let previous = self.current.and_then(|i| self.matches.get(i)).map(|m| *m.start());
+        let previous = self
+            .current
+            .and_then(|i| self.matches.get(i))
+            .map(|m| *m.start());
         self.counted_at = Some(feed_gen);
         self.matches.clear();
         self.truncated = false;
@@ -141,7 +155,9 @@ impl Find {
     /// would otherwise stall the reader on big buffers.
     pub fn step<T: EventListener>(&mut self, term: &mut Term<T>, forward: bool, feed_gen: u64) {
         let previous = if self.counted_at == Some(feed_gen) && self.compiled.is_some() {
-            self.current.and_then(|i| self.matches.get(i)).map(|m| *m.start())
+            self.current
+                .and_then(|i| self.matches.get(i))
+                .map(|m| *m.start())
         } else {
             self.recount(term, feed_gen)
         };
@@ -158,8 +174,16 @@ impl Find {
                     n - 1
                 }
             }
-            Some(p) if forward => self.matches.iter().position(|m| *m.start() > p).unwrap_or(0),
-            Some(p) => self.matches.iter().rposition(|m| *m.start() < p).unwrap_or(n - 1),
+            Some(p) if forward => self
+                .matches
+                .iter()
+                .position(|m| *m.start() > p)
+                .unwrap_or(0),
+            Some(p) => self
+                .matches
+                .iter()
+                .rposition(|m| *m.start() < p)
+                .unwrap_or(n - 1),
         });
         self.select(term);
     }
@@ -186,14 +210,24 @@ mod tests {
     use crate::terminal::GridSize;
 
     fn term_with(text: &str) -> Term<VoidListener> {
-        let mut t = Term::new(Config::default(), &GridSize { columns: 40, lines: 5 }, VoidListener);
+        let mut t = Term::new(
+            Config::default(),
+            &GridSize {
+                columns: 40,
+                lines: 5,
+            },
+            VoidListener,
+        );
         let mut p: Processor = Processor::new();
         p.advance(&mut t, text.replace('\n', "\r\n").as_bytes());
         t
     }
 
     fn texts(f: &Find, t: &Term<VoidListener>) -> Vec<String> {
-        f.matches.iter().map(|m| t.bounds_to_string(*m.start(), *m.end())).collect()
+        f.matches
+            .iter()
+            .map(|m| t.bounds_to_string(*m.start(), *m.end()))
+            .collect()
     }
 
     #[test]

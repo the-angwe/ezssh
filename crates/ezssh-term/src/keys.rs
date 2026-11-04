@@ -43,10 +43,20 @@ pub struct Mods {
 }
 
 impl Mods {
-    pub const NONE: Mods = Mods { shift: false, alt: false, ctrl: false, super_: false };
+    pub const NONE: Mods = Mods {
+        shift: false,
+        alt: false,
+        ctrl: false,
+        super_: false,
+    };
 
     pub fn from_egui(m: egui::Modifiers) -> Self {
-        Mods { shift: m.shift, alt: m.alt, ctrl: m.ctrl, super_: m.mac_cmd }
+        Mods {
+            shift: m.shift,
+            alt: m.alt,
+            ctrl: m.ctrl,
+            super_: m.mac_cmd,
+        }
     }
 
     /// xterm / kitty modifier parameter: 1 + bit set.
@@ -186,7 +196,13 @@ impl Key {
 /// the keyboard layout applied), if known. Returns `None` when the event
 /// sends nothing (releases outside kitty event-type mode, text keys that
 /// the text event will deliver).
-pub fn encode(key: Key, mods: Mods, action: Action, text: Option<&str>, modes: Modes) -> Option<Vec<u8>> {
+pub fn encode(
+    key: Key,
+    mods: Mods,
+    action: Action,
+    text: Option<&str>,
+    modes: Modes,
+) -> Option<Vec<u8>> {
     if modes.kitty != 0 {
         return encode_kitty(key, mods, action, text, modes);
     }
@@ -280,7 +296,11 @@ fn encode_legacy(key: Key, mods: Mods, text: Option<&str>, modes: Modes) -> Opti
             // Plain or shifted text: delivered by the text event.
             None
         }
-        Key::Enter => Some(esc_prefix(if modes.newline_mode { b"\r\n".to_vec() } else { b"\r".to_vec() })),
+        Key::Enter => Some(esc_prefix(if modes.newline_mode {
+            b"\r\n".to_vec()
+        } else {
+            b"\r".to_vec()
+        })),
         Key::Tab if mods.shift => Some(csi("Z")),
         Key::Tab => Some(esc_prefix(b"\t".to_vec())),
         Key::Backspace if mods.ctrl => Some(esc_prefix(vec![0x08])),
@@ -297,10 +317,18 @@ fn encode_legacy(key: Key, mods: Mods, text: Option<&str>, modes: Modes) -> Opti
                 });
             }
             if key == Key::F(3) {
-                return Some(if mods.any() { csi(&format!("1;{m}R")) } else { b"\x1bOR".to_vec() });
+                return Some(if mods.any() {
+                    csi(&format!("1;{m}R"))
+                } else {
+                    b"\x1bOR".to_vec()
+                });
             }
             if let Some(n) = tilde_key(key, false) {
-                return Some(if mods.any() { csi(&format!("{n};{m}~")) } else { csi(&format!("{n}~")) });
+                return Some(if mods.any() {
+                    csi(&format!("{n};{m}~"))
+                } else {
+                    csi(&format!("{n}~"))
+                });
             }
             if let Key::F(n @ 13..=20) = key {
                 // xterm: F13–F20 are Shift+F1–F8 style codes; send the
@@ -312,7 +340,13 @@ fn encode_legacy(key: Key, mods: Mods, text: Option<&str>, modes: Modes) -> Opti
     }
 }
 
-fn encode_kitty(key: Key, mods: Mods, action: Action, text: Option<&str>, modes: Modes) -> Option<Vec<u8>> {
+fn encode_kitty(
+    key: Key,
+    mods: Mods,
+    action: Action,
+    text: Option<&str>,
+    modes: Modes,
+) -> Option<Vec<u8>> {
     let flags = modes.kitty;
     let all_as_esc = flags & KITTY_ALL_AS_ESC != 0;
     let event_types = flags & KITTY_EVENT_TYPES != 0;
@@ -362,7 +396,11 @@ fn encode_kitty(key: Key, mods: Mods, action: Action, text: Option<&str>, modes:
     }
     if let Some(n) = tilde_key(key, true) {
         let mf = mods_field(false);
-        return Some(if mf.is_empty() { csi(&format!("{n}~")) } else { csi(&format!("{n};{mf}~")) });
+        return Some(if mf.is_empty() {
+            csi(&format!("{n}~"))
+        } else {
+            csi(&format!("{n};{mf}~"))
+        });
     }
 
     let code: u32 = match key {
@@ -393,7 +431,12 @@ fn encode_kitty(key: Key, mods: Mods, action: Action, text: Option<&str>, modes:
 
     let assoc = if flags & KITTY_ASSOC_TEXT != 0 && all_as_esc && action != Action::Release {
         text.filter(|t| !t.is_empty() && !t.chars().any(char::is_control))
-            .map(|t| t.chars().map(|c| (c as u32).to_string()).collect::<Vec<_>>().join(":"))
+            .map(|t| {
+                t.chars()
+                    .map(|c| (c as u32).to_string())
+                    .collect::<Vec<_>>()
+                    .join(":")
+            })
     } else {
         None
     };
@@ -421,12 +464,36 @@ mod tests {
     }
 
     fn kitty(key: Key, mods: Mods, flags: u8) -> Option<Vec<u8>> {
-        encode(key, mods, Action::Press, None, Modes { kitty: flags, ..Default::default() })
+        encode(
+            key,
+            mods,
+            Action::Press,
+            None,
+            Modes {
+                kitty: flags,
+                ..Default::default()
+            },
+        )
     }
 
-    const CTRL: Mods = Mods { shift: false, alt: false, ctrl: true, super_: false };
-    const ALT: Mods = Mods { shift: false, alt: true, ctrl: false, super_: false };
-    const SHIFT: Mods = Mods { shift: true, alt: false, ctrl: false, super_: false };
+    const CTRL: Mods = Mods {
+        shift: false,
+        alt: false,
+        ctrl: true,
+        super_: false,
+    };
+    const ALT: Mods = Mods {
+        shift: false,
+        alt: true,
+        ctrl: false,
+        super_: false,
+    };
+    const SHIFT: Mods = Mods {
+        shift: true,
+        alt: false,
+        ctrl: false,
+        super_: false,
+    };
 
     #[test]
     fn legacy_control_bytes() {
@@ -434,7 +501,10 @@ mod tests {
         assert_eq!(legacy(Key::Char('a'), CTRL), Some(vec![1]));
         assert_eq!(legacy(Key::Char(' '), CTRL), Some(vec![0]));
         assert_eq!(legacy(Key::Char('['), CTRL), Some(vec![0x1b]));
-        assert_eq!(legacy(Key::Char('x'), Mods { alt: true, ..CTRL }), Some(vec![0x1b, 0x18]));
+        assert_eq!(
+            legacy(Key::Char('x'), Mods { alt: true, ..CTRL }),
+            Some(vec![0x1b, 0x18])
+        );
     }
 
     #[test]
@@ -452,8 +522,14 @@ mod tests {
     #[test]
     fn legacy_cursor_keys_and_app_mode() {
         assert_eq!(legacy(Key::Up, Mods::NONE), Some(b"\x1b[A".to_vec()));
-        let app = Modes { app_cursor: true, ..Default::default() };
-        assert_eq!(encode(Key::Up, Mods::NONE, Action::Press, None, app), Some(b"\x1bOA".to_vec()));
+        let app = Modes {
+            app_cursor: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            encode(Key::Up, Mods::NONE, Action::Press, None, app),
+            Some(b"\x1bOA".to_vec())
+        );
         assert_eq!(legacy(Key::Right, CTRL), Some(b"\x1b[1;5C".to_vec()));
         assert_eq!(legacy(Key::Home, SHIFT), Some(b"\x1b[1;2H".to_vec()));
     }
@@ -475,13 +551,22 @@ mod tests {
         assert_eq!(legacy(Key::Tab, SHIFT), Some(b"\x1b[Z".to_vec()));
         assert_eq!(legacy(Key::Backspace, Mods::NONE), Some(vec![0x7f]));
         assert_eq!(legacy(Key::Backspace, CTRL), Some(vec![0x08]));
-        let nl = Modes { newline_mode: true, ..Default::default() };
-        assert_eq!(encode(Key::Enter, Mods::NONE, Action::Press, None, nl), Some(b"\r\n".to_vec()));
+        let nl = Modes {
+            newline_mode: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            encode(Key::Enter, Mods::NONE, Action::Press, None, nl),
+            Some(b"\r\n".to_vec())
+        );
     }
 
     #[test]
     fn legacy_ignores_release() {
-        assert_eq!(encode(Key::Up, Mods::NONE, Action::Release, None, Modes::default()), None);
+        assert_eq!(
+            encode(Key::Up, Mods::NONE, Action::Release, None, Modes::default()),
+            None
+        );
     }
 
     #[test]
@@ -490,9 +575,15 @@ mod tests {
         // Shift+Enter is the reason Claude Code asks for the protocol.
         assert_eq!(kitty(Key::Enter, SHIFT, d), Some(b"\x1b[13;2u".to_vec()));
         assert_eq!(kitty(Key::Enter, Mods::NONE, d), Some(b"\r".to_vec()));
-        assert_eq!(kitty(Key::Escape, Mods::NONE, d), Some(b"\x1b[27u".to_vec()));
+        assert_eq!(
+            kitty(Key::Escape, Mods::NONE, d),
+            Some(b"\x1b[27u".to_vec())
+        );
         assert_eq!(kitty(Key::Char('c'), CTRL, d), Some(b"\x1b[99;5u".to_vec()));
-        assert_eq!(kitty(Key::Char('i'), CTRL, d), Some(b"\x1b[105;5u".to_vec()));
+        assert_eq!(
+            kitty(Key::Char('i'), CTRL, d),
+            Some(b"\x1b[105;5u".to_vec())
+        );
         assert_eq!(kitty(Key::Char('a'), Mods::NONE, d), None);
         assert_eq!(kitty(Key::Char('a'), SHIFT, d), None);
         assert_eq!(kitty(Key::Tab, SHIFT, d), Some(b"\x1b[9;2u".to_vec()));
@@ -505,32 +596,78 @@ mod tests {
     #[test]
     fn kitty_event_types() {
         let f = KITTY_DISAMBIGUATE | KITTY_EVENT_TYPES;
-        let m = Modes { kitty: f, ..Default::default() };
-        assert_eq!(encode(Key::Char('c'), CTRL, Action::Release, None, m), Some(b"\x1b[99;5:3u".to_vec()));
-        assert_eq!(encode(Key::Escape, Mods::NONE, Action::Repeat, None, m), Some(b"\x1b[27;1:2u".to_vec()));
-        assert_eq!(encode(Key::Up, Mods::NONE, Action::Release, None, m), Some(b"\x1b[1;1:3A".to_vec()));
+        let m = Modes {
+            kitty: f,
+            ..Default::default()
+        };
+        assert_eq!(
+            encode(Key::Char('c'), CTRL, Action::Release, None, m),
+            Some(b"\x1b[99;5:3u".to_vec())
+        );
+        assert_eq!(
+            encode(Key::Escape, Mods::NONE, Action::Repeat, None, m),
+            Some(b"\x1b[27;1:2u".to_vec())
+        );
+        assert_eq!(
+            encode(Key::Up, Mods::NONE, Action::Release, None, m),
+            Some(b"\x1b[1;1:3A".to_vec())
+        );
         // Plain Enter release is not reported without "all keys as escapes".
-        assert_eq!(encode(Key::Enter, Mods::NONE, Action::Release, None, m), None);
+        assert_eq!(
+            encode(Key::Enter, Mods::NONE, Action::Release, None, m),
+            None
+        );
     }
 
     #[test]
     fn kitty_all_keys_with_alternates_and_text() {
         let f = KITTY_DISAMBIGUATE | KITTY_ALL_AS_ESC | KITTY_ALTERNATE | KITTY_ASSOC_TEXT;
-        let m = Modes { kitty: f, ..Default::default() };
-        assert_eq!(encode(Key::Char('a'), Mods::NONE, Action::Press, Some("a"), m), Some(b"\x1b[97;1;97u".to_vec()));
-        assert_eq!(encode(Key::Char('a'), SHIFT, Action::Press, Some("A"), m), Some(b"\x1b[97:65;2;65u".to_vec()));
-        assert_eq!(encode(Key::Enter, Mods::NONE, Action::Press, None, m), Some(b"\x1b[13u".to_vec()));
-        let plain = Modes { kitty: KITTY_DISAMBIGUATE | KITTY_ALL_AS_ESC, ..Default::default() };
-        assert_eq!(encode(Key::Char('a'), Mods::NONE, Action::Press, Some("a"), plain), Some(b"\x1b[97u".to_vec()));
+        let m = Modes {
+            kitty: f,
+            ..Default::default()
+        };
+        assert_eq!(
+            encode(Key::Char('a'), Mods::NONE, Action::Press, Some("a"), m),
+            Some(b"\x1b[97;1;97u".to_vec())
+        );
+        assert_eq!(
+            encode(Key::Char('a'), SHIFT, Action::Press, Some("A"), m),
+            Some(b"\x1b[97:65;2;65u".to_vec())
+        );
+        assert_eq!(
+            encode(Key::Enter, Mods::NONE, Action::Press, None, m),
+            Some(b"\x1b[13u".to_vec())
+        );
+        let plain = Modes {
+            kitty: KITTY_DISAMBIGUATE | KITTY_ALL_AS_ESC,
+            ..Default::default()
+        };
+        assert_eq!(
+            encode(Key::Char('a'), Mods::NONE, Action::Press, Some("a"), plain),
+            Some(b"\x1b[97u".to_vec())
+        );
     }
 
     /// What xterm.js (`common/input/Keyboard.ts`) sends for these keys, so
     /// remote key bindings made for xterm-compatible terminals keep working.
     #[test]
     fn xterm_js_legacy_table() {
-        const CS: Mods = Mods { shift: true, alt: false, ctrl: true, super_: false };
-        const AS: Mods = Mods { shift: true, alt: true, ctrl: false, super_: false };
-        let app = Modes { app_cursor: true, ..Default::default() };
+        const CS: Mods = Mods {
+            shift: true,
+            alt: false,
+            ctrl: true,
+            super_: false,
+        };
+        const AS: Mods = Mods {
+            shift: true,
+            alt: true,
+            ctrl: false,
+            super_: false,
+        };
+        let app = Modes {
+            app_cursor: true,
+            ..Default::default()
+        };
         let cases: &[(Key, Mods, Modes, &[u8])] = &[
             (Key::Down, Mods::NONE, Modes::default(), b"\x1b[B"),
             (Key::Left, ALT, Modes::default(), b"\x1b[1;3D"),
@@ -584,7 +721,12 @@ mod tests {
             };
             let got = encode(key, mods, Action::Press, text.as_deref(), modes);
             if got.as_deref() != Some(want) {
-                bad.push(format!("{key:?} {mods:?} app={}: want {:?} got {:?}", modes.app_cursor, want.escape_ascii().to_string(), got.map(|g| g.escape_ascii().to_string())));
+                bad.push(format!(
+                    "{key:?} {mods:?} app={}: want {:?} got {:?}",
+                    modes.app_cursor,
+                    want.escape_ascii().to_string(),
+                    got.map(|g| g.escape_ascii().to_string())
+                ));
             }
         }
         assert!(bad.is_empty(), "{}", bad.join("\n"));

@@ -56,14 +56,22 @@ impl TransferRegistry {
 
     pub fn register(&self, transfer_id: u64) -> CancelFlag {
         let flag = CancelFlag::default();
-        self.inner.lock().expect("transfer registry poisoned").insert(transfer_id, flag.clone());
+        self.inner
+            .lock()
+            .expect("transfer registry poisoned")
+            .insert(transfer_id, flag.clone());
         flag
     }
 
     /// Ask `transfer_id` to stop. False when it already ended (or never
     /// existed).
     pub fn cancel(&self, transfer_id: u64) -> bool {
-        match self.inner.lock().expect("transfer registry poisoned").get(&transfer_id) {
+        match self
+            .inner
+            .lock()
+            .expect("transfer registry poisoned")
+            .get(&transfer_id)
+        {
             Some(f) => {
                 f.store(true, Ordering::Relaxed);
                 true
@@ -73,13 +81,20 @@ impl TransferRegistry {
     }
 
     pub fn finish(&self, transfer_id: u64) {
-        self.inner.lock().expect("transfer registry poisoned").remove(&transfer_id);
+        self.inner
+            .lock()
+            .expect("transfer registry poisoned")
+            .remove(&transfer_id);
     }
 }
 
 /// `Err(TransferCancelled)` once the flag is set.
 pub(crate) fn check(cancel: &AtomicBool) -> Result<()> {
-    if cancel.load(Ordering::Relaxed) { Err(AppError::TransferCancelled) } else { Ok(()) }
+    if cancel.load(Ordering::Relaxed) {
+        Err(AppError::TransferCancelled)
+    } else {
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------- events
@@ -93,7 +108,11 @@ pub(crate) struct Ticker<'a> {
 
 impl<'a> Ticker<'a> {
     pub(crate) fn new(events: &'a Events, transfer_id: u64) -> Self {
-        Self { events, transfer_id, last: Instant::now() }
+        Self {
+            events,
+            transfer_id,
+            last: Instant::now(),
+        }
     }
 
     pub(crate) fn tick(&mut self, sent: u64, total: u64) {
@@ -111,7 +130,13 @@ impl<'a> Ticker<'a> {
 
 /// The final event of a transfer that went through.
 pub(crate) fn emit_done(events: &Events, transfer_id: u64, sent: u64, total: u64) {
-    events.emit(Event::Transfer(TransferProgress { transfer_id, bytes_sent: sent, total_bytes: total, done: true, ..Default::default() }));
+    events.emit(Event::Transfer(TransferProgress {
+        transfer_id,
+        bytes_sent: sent,
+        total_bytes: total,
+        done: true,
+        ..Default::default()
+    }));
 }
 
 /// The final event of a transfer that failed or was cancelled, at any
@@ -179,43 +204,56 @@ pub async fn upload(
     };
 
     let result: Result<()> = handle
-        .with_session(async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
-            // It may have waited for the session lock behind other transfers.
-            check(cancel)?;
-            let mut w = s.create(remote_path).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
-            let mut sent: u64 = 0;
-            let mut buf = vec![0u8; CHUNK];
-            let mut ticker = Ticker::new(events, transfer_id);
-            let copied: Result<()> = async {
-                loop {
-                    check(cancel)?;
-                    let n = local.read(&mut buf).await?;
-                    if n == 0 {
-                        break;
-                    }
-                    w.write_all(&buf[..n]).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
-                    sent += n as u64;
-                    ticker.tick(sent, total);
-                }
-                w.shutdown().await.map_err(|e| AppError::Sftp(format!("close: {e}")))
-            }
-            .await;
-            match copied {
-                Ok(()) => {
-                    emit_done(events, transfer_id, sent, total);
-                    Ok(())
-                }
-                Err(e) => {
-                    if matches!(e, AppError::TransferCancelled) {
-                        drop(w);
-                        if let Err(re) = s.remove_file(remote_path).await {
-                            tracing::warn!(transfer_id, remote = remote_path, "cancelled upload: removing the partial file failed: {re}");
+        .with_session(
+            async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
+                // It may have waited for the session lock behind other transfers.
+                check(cancel)?;
+                let mut w = s
+                    .create(remote_path)
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+                let mut sent: u64 = 0;
+                let mut buf = vec![0u8; CHUNK];
+                let mut ticker = Ticker::new(events, transfer_id);
+                let copied: Result<()> = async {
+                    loop {
+                        check(cancel)?;
+                        let n = local.read(&mut buf).await?;
+                        if n == 0 {
+                            break;
                         }
+                        w.write_all(&buf[..n])
+                            .await
+                            .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+                        sent += n as u64;
+                        ticker.tick(sent, total);
                     }
-                    Err(e)
+                    w.shutdown()
+                        .await
+                        .map_err(|e| AppError::Sftp(format!("close: {e}")))
                 }
-            }
-        })
+                .await;
+                match copied {
+                    Ok(()) => {
+                        emit_done(events, transfer_id, sent, total);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        if matches!(e, AppError::TransferCancelled) {
+                            drop(w);
+                            if let Err(re) = s.remove_file(remote_path).await {
+                                tracing::warn!(
+                                    transfer_id,
+                                    remote = remote_path,
+                                    "cancelled upload: removing the partial file failed: {re}"
+                                );
+                            }
+                        }
+                        Err(e)
+                    }
+                }
+            },
+        )
         .await;
 
     if let Err(e) = &result {
@@ -235,7 +273,9 @@ pub async fn download(
     cancel: &AtomicBool,
 ) -> Result<()> {
     let created = match check(cancel) {
-        Ok(()) => tokio::fs::File::create(local_path).await.map_err(AppError::from),
+        Ok(()) => tokio::fs::File::create(local_path)
+            .await
+            .map_err(AppError::from),
         Err(e) => Err(e),
     };
     let mut local = match created {
@@ -251,36 +291,52 @@ pub async fn download(
     let total_seen = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let total_out = total_seen.clone();
     let result: Result<()> = handle
-        .with_session(async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
-            check(cancel)?;
-            let meta = s.metadata(remote_path).await.map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
-            let total = meta.size.unwrap_or(0);
-            total_out.store(total, std::sync::atomic::Ordering::Relaxed);
-            let mut r = s.open(remote_path).await.map_err(|e| AppError::Sftp(format!("open: {e}")))?;
-            let mut received: u64 = 0;
-            let mut buf = vec![0u8; CHUNK];
-            let mut ticker = Ticker::new(events, transfer_id);
-            loop {
+        .with_session(
+            async move |s: &russh_sftp::client::SftpSession| -> Result<()> {
                 check(cancel)?;
-                let n = r.read(&mut buf).await.map_err(|e| AppError::Sftp(format!("read: {e}")))?;
-                if n == 0 {
-                    break;
+                let meta = s
+                    .metadata(remote_path)
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
+                let total = meta.size.unwrap_or(0);
+                total_out.store(total, std::sync::atomic::Ordering::Relaxed);
+                let mut r = s
+                    .open(remote_path)
+                    .await
+                    .map_err(|e| AppError::Sftp(format!("open: {e}")))?;
+                let mut received: u64 = 0;
+                let mut buf = vec![0u8; CHUNK];
+                let mut ticker = Ticker::new(events, transfer_id);
+                loop {
+                    check(cancel)?;
+                    let n = r
+                        .read(&mut buf)
+                        .await
+                        .map_err(|e| AppError::Sftp(format!("read: {e}")))?;
+                    if n == 0 {
+                        break;
+                    }
+                    local.write_all(&buf[..n]).await?;
+                    received += n as u64;
+                    ticker.tick(received, total);
                 }
-                local.write_all(&buf[..n]).await?;
-                received += n as u64;
-                ticker.tick(received, total);
-            }
-            local.flush().await?;
-            emit_done(events, transfer_id, received, total);
-            Ok(())
-        })
+                local.flush().await?;
+                emit_done(events, transfer_id, received, total);
+                Ok(())
+            },
+        )
         .await;
 
     if let Err(e) = &result {
         if matches!(e, AppError::TransferCancelled) {
             remove_partial_local(transfer_id, local_path).await;
         }
-        emit_end(events, transfer_id, total_seen.load(std::sync::atomic::Ordering::Relaxed), e);
+        emit_end(
+            events,
+            transfer_id,
+            total_seen.load(std::sync::atomic::Ordering::Relaxed),
+            e,
+        );
     }
     result
 }

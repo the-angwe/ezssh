@@ -9,7 +9,10 @@
 
 use std::collections::HashMap;
 
-use egui::{Align, Color32, Id, Layout, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, UiBuilder, vec2};
+use egui::{
+    Align, Color32, Id, Layout, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, UiBuilder,
+    vec2,
+};
 use ezssh_core::api;
 use ezssh_core::api::forwards::ForwardStartTarget;
 use ezssh_core::db::forwards::{Forward, ForwardInput};
@@ -42,7 +45,10 @@ fn label_of(p: LabelParts<'_>) -> String {
     }
     match p.kind {
         ForwardKind::Dynamic => format!("SOCKS5 @ {}:{}", p.bind_addr, p.bind_port),
-        _ => format!("{}:{} → {}:{}", p.bind_addr, p.bind_port, p.dest_addr, p.dest_port),
+        _ => format!(
+            "{}:{} → {}:{}",
+            p.bind_addr, p.bind_port, p.dest_addr, p.dest_port
+        ),
     }
 }
 
@@ -75,7 +81,10 @@ fn parse_kind(s: &str) -> ForwardKind {
         "remote" => ForwardKind::Remote,
         "dynamic" => ForwardKind::Dynamic,
         other => {
-            tracing::warn!(kind = other, "forwards: unknown kind in the database, shown as local");
+            tracing::warn!(
+                kind = other,
+                "forwards: unknown kind in the database, shown as local"
+            );
             ForwardKind::Local
         }
     }
@@ -128,7 +137,9 @@ fn row_status(rf: Option<&RuntimeForwardSummary>) -> RowStatus {
 /// The message under a row (errors and conflicts only).
 fn row_note(rf: Option<&RuntimeForwardSummary>) -> Option<String> {
     match rf.map(|r| &r.status) {
-        Some(ForwardStatus::Error { message } | ForwardStatus::Conflict { message }) => Some(message.clone()),
+        Some(ForwardStatus::Error { message } | ForwardStatus::Conflict { message }) => {
+            Some(message.clone())
+        }
         _ => None,
     }
 }
@@ -212,7 +223,11 @@ impl ForwardsState {
 
     fn open_dialog(&mut self, mode: Mode) {
         self.next_token += 1;
-        tracing::debug!(mode = mode.name(), token = self.next_token, "forwards: dialog open");
+        tracing::debug!(
+            mode = mode.name(),
+            token = self.next_token,
+            "forwards: dialog open"
+        );
         self.dialog = Some(ForwardDialog::new(mode, self.next_token));
     }
 }
@@ -227,7 +242,10 @@ impl ForwardsState {
 
     /// Labels of the saved forwards of `session_id`, once loaded.
     pub(crate) fn saved_labels(&self, session_id: i64) -> Option<Vec<String>> {
-        self.saved.get(&session_id).filter(|l| l.loaded).map(|l| l.rows.iter().map(saved_label).collect())
+        self.saved
+            .get(&session_id)
+            .filter(|l| l.loaded)
+            .map(|l| l.rows.iter().map(saved_label).collect())
     }
 
     pub(crate) fn dialog_error(&self) -> Option<&str> {
@@ -248,7 +266,10 @@ enum Action {
     Start(i64),
     /// Stop a running saved forward (runtime id).
     Stop(u64),
-    DeleteSaved { session_id: i64, id: i64 },
+    DeleteSaved {
+        session_id: i64,
+        id: i64,
+    },
     EditTab(RuntimeForwardSummary),
     /// Stop a tab-only forward and drop its row (runtime id).
     StopTab(u64),
@@ -263,7 +284,11 @@ fn load_saved(app: &mut App, session_id: i64) {
         move |st| async move { api::forwards::forward_list(&st, session_id).await },
         move |app, r| match r {
             Ok(rows) => {
-                tracing::debug!(session = session_id, n = rows.len(), "forwards: saved loaded");
+                tracing::debug!(
+                    session = session_id,
+                    n = rows.len(),
+                    "forwards: saved loaded"
+                );
                 let list = app.forwards.saved.entry(session_id).or_default();
                 list.rows = rows;
                 list.loaded = true;
@@ -277,7 +302,11 @@ fn load_saved(app: &mut App, session_id: i64) {
 }
 
 fn load_runtime(app: &mut App, connection_id: u64) {
-    app.forwards.runtime.entry(connection_id).or_default().requested = true;
+    app.forwards
+        .runtime
+        .entry(connection_id)
+        .or_default()
+        .requested = true;
     tracing::debug!(connection_id, "forwards: loading runtime forwards");
     app.core.call(
         "forward_runtime_list",
@@ -295,7 +324,8 @@ fn load_runtime(app: &mut App, connection_id: u64) {
             }
             Err(e) => {
                 tracing::warn!(connection_id, "forwards: forward_runtime_list failed: {e}");
-                app.toasts.danger("Could not load running forwards", e.to_string());
+                app.toasts
+                    .danger("Could not load running forwards", e.to_string());
             }
         },
     );
@@ -303,7 +333,11 @@ fn load_runtime(app: &mut App, connection_id: u64) {
 
 /// A core `Event::ForwardStatus`.
 pub fn on_event(app: &mut App, event: ezssh_core::Event) {
-    let ezssh_core::Event::ForwardStatus { connection_id, summary } = event else {
+    let ezssh_core::Event::ForwardStatus {
+        connection_id,
+        summary,
+    } = event
+    else {
         tracing::debug!(?event, "forwards: not a forward event, ignored");
         return;
     };
@@ -317,9 +351,15 @@ pub fn on_event(app: &mut App, event: ezssh_core::Event) {
     // Runtime errors (bind, server reject, auto-start) are async: nobody is
     // waiting on a call, so they get a toast as well as the row note.
     if let ForwardStatus::Error { message } = &summary.status {
-        app.toasts.danger(format!("Forward failed — {}", spec_label(&summary.spec)), message.clone());
+        app.toasts.danger(
+            format!("Forward failed — {}", spec_label(&summary.spec)),
+            message.clone(),
+        );
     }
-    apply_status(&mut app.forwards.runtime.entry(connection_id).or_default().rows, summary);
+    apply_status(
+        &mut app.forwards.runtime.entry(connection_id).or_default().rows,
+        summary,
+    );
 }
 
 // ---------------------------------------------------------------- actions
@@ -331,13 +371,21 @@ fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
     };
     match action {
         Action::AddTab => match connection_id {
-            Some(cid) => app.forwards.open_dialog(Mode::TabCreate { connection_id: cid, session_id }),
+            Some(cid) => app.forwards.open_dialog(Mode::TabCreate {
+                connection_id: cid,
+                session_id,
+            }),
             None => tracing::debug!(?tab, "forwards: add ignored, not connected"),
         },
-        Action::AddSaved(sid) => app.forwards.open_dialog(Mode::SavedCreate { session_id: sid }),
+        Action::AddSaved(sid) => app
+            .forwards
+            .open_dialog(Mode::SavedCreate { session_id: sid }),
         Action::EditSaved(forward) => app.forwards.open_dialog(Mode::SavedEdit { forward }),
         Action::EditTab(existing) => match connection_id {
-            Some(cid) => app.forwards.open_dialog(Mode::TabEdit { connection_id: cid, existing }),
+            Some(cid) => app.forwards.open_dialog(Mode::TabEdit {
+                connection_id: cid,
+                existing,
+            }),
             None => tracing::debug!(?tab, "forwards: edit ignored, not connected"),
         },
         Action::Start(id) => {
@@ -348,7 +396,10 @@ fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
             tracing::debug!(connection_id = cid, id, "forwards: start saved");
             app.core.call(
                 "forward_start",
-                move |st| async move { api::forwards::forward_start(&st, cid, ForwardStartTarget::Persistent { id }).await },
+                move |st| async move {
+                    api::forwards::forward_start(&st, cid, ForwardStartTarget::Persistent { id })
+                        .await
+                },
                 move |app, r| match r {
                     Ok(rf) => upsert(&mut app.forwards.runtime.entry(cid).or_default().rows, rf),
                     Err(e) => {
@@ -364,7 +415,12 @@ fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
                 return;
             };
             let drop_row = matches!(action, Action::StopTab(_));
-            tracing::debug!(connection_id = cid, runtime_id = rid, drop_row, "forwards: stop");
+            tracing::debug!(
+                connection_id = cid,
+                runtime_id = rid,
+                drop_row,
+                "forwards: stop"
+            );
             app.core.call(
                 "forward_stop",
                 move |st| async move { api::forwards::forward_stop(&st, cid, rid).await },
@@ -378,7 +434,11 @@ fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
                     }
                     Ok(()) => {}
                     Err(e) => {
-                        tracing::warn!(connection_id = cid, runtime_id = rid, "forwards: stop failed: {e}");
+                        tracing::warn!(
+                            connection_id = cid,
+                            runtime_id = rid,
+                            "forwards: stop failed: {e}"
+                        );
                         app.toasts.danger("Stop failed", e.to_string());
                     }
                 },
@@ -421,9 +481,18 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
         load_saved(app, session_id);
         // Drop what belongs to closed tabs and old connections.
         let live_tabs: Vec<TabId> = app.tabs.tabs.iter().map(|t| t.id).collect();
-        let live_conns: Vec<u64> = app.tabs.tabs.iter().filter_map(|t| t.connection_id).collect();
-        app.forwards.seen.retain(|k, _| !matches!(k, ViewKey::Pane(id) if !live_tabs.contains(id)));
-        app.forwards.runtime.retain(|cid, _| live_conns.contains(cid));
+        let live_conns: Vec<u64> = app
+            .tabs
+            .tabs
+            .iter()
+            .filter_map(|t| t.connection_id)
+            .collect();
+        app.forwards
+            .seen
+            .retain(|k, _| !matches!(k, ViewKey::Pane(id) if !live_tabs.contains(id)));
+        app.forwards
+            .runtime
+            .retain(|cid, _| live_conns.contains(cid));
     }
     if let Some(cid) = connection_id
         && !app.forwards.runtime.get(&cid).is_some_and(|l| l.requested)
@@ -433,31 +502,71 @@ pub fn pane(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
 
     let tk = tokens(ui.ctx());
     ui.painter().rect_filled(rect, 0.0, tk.surface);
-    ui.painter().vline(rect.right() - 0.5, rect.y_range(), Stroke::new(1.0, tk.border));
+    ui.painter().vline(
+        rect.right() - 0.5,
+        rect.y_range(),
+        Stroke::new(1.0, tk.border),
+    );
     let mut actions: Vec<Action> = Vec::new();
     let mut menu: Option<Menu<Action>> = None;
 
     // Header.
     let header = Rect::from_min_size(rect.min, vec2(rect.width() - 1.0, HEADER_H));
-    ui.painter().hline(header.x_range(), header.bottom() - 0.5, Stroke::new(1.0, tk.border));
-    ui.scope_builder(UiBuilder::new().max_rect(Rect::from_min_max(header.min + vec2(14.0, 0.0), header.max - vec2(8.0, 0.0))).layout(Layout::left_to_right(Align::Center)), |ui| {
-        ui.label(RichText::new("Forwards").font(font_semibold(size::BASE)).color(tk.fg));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let tip = if connection_id.is_some() { "Add forward to this tab" } else { "Connect first to add a forward" };
-            if widgets::Button::ghost("Add").small().icon(Icon::Plus).enabled(connection_id.is_some()).tooltip(tip).label("Add forward").show(ui).clicked() {
-                actions.push(Action::AddTab);
-            }
-        });
-    });
+    ui.painter().hline(
+        header.x_range(),
+        header.bottom() - 0.5,
+        Stroke::new(1.0, tk.border),
+    );
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_max(
+                header.min + vec2(14.0, 0.0),
+                header.max - vec2(8.0, 0.0),
+            ))
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            ui.label(
+                RichText::new("Forwards")
+                    .font(font_semibold(size::BASE))
+                    .color(tk.fg),
+            );
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let tip = if connection_id.is_some() {
+                    "Add forward to this tab"
+                } else {
+                    "Connect first to add a forward"
+                };
+                if widgets::Button::ghost("Add")
+                    .small()
+                    .icon(Icon::Plus)
+                    .enabled(connection_id.is_some())
+                    .tooltip(tip)
+                    .label("Add forward")
+                    .show(ui)
+                    .clicked()
+                {
+                    actions.push(Action::AddTab);
+                }
+            });
+        },
+    );
 
     // Rows.
-    let body = Rect::from_min_max(Pos2::new(rect.left(), header.bottom()), Pos2::new(rect.right() - 1.0, rect.bottom()));
+    let body = Rect::from_min_max(
+        Pos2::new(rect.left(), header.bottom()),
+        Pos2::new(rect.right() - 1.0, rect.bottom()),
+    );
     let saved: &[Forward] = app.forwards.saved.get(&session_id).map_or(&[], |l| &l.rows);
-    let runtime: &[RuntimeForwardSummary] = connection_id.and_then(|c| app.forwards.runtime.get(&c)).map_or(&[], |l| &l.rows);
+    let runtime: &[RuntimeForwardSummary] = connection_id
+        .and_then(|c| app.forwards.runtime.get(&c))
+        .map_or(&[], |l| &l.rows);
     // The last runtime row of a saved forward wins (a retried start
     // leaves its failed attempt behind).
     let by_saved = |id: i64| runtime.iter().rev().find(|r| r.persistent_id == Some(id));
-    let tab_only: Vec<&RuntimeForwardSummary> = runtime.iter().filter(|r| r.persistent_id.is_none()).collect();
+    let tab_only: Vec<&RuntimeForwardSummary> = runtime
+        .iter()
+        .filter(|r| r.persistent_id.is_none())
+        .collect();
     let connected = connection_id.is_some();
     ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
         egui::ScrollArea::vertical().id_salt(("forwards-pane", tab)).auto_shrink(false).show(ui, |ui| {
@@ -555,41 +664,87 @@ struct RowOut {
 
 /// `Row`: status dot, kind icon, mono label, buttons; an error or
 /// conflict note below.
-fn pane_row(ui: &mut Ui, id: Id, kind: ForwardKind, label: &str, status: RowStatus, note: Option<&str>, btns: &[IconBtn<'_>]) -> RowOut {
+fn pane_row(
+    ui: &mut Ui,
+    id: Id,
+    kind: ForwardKind,
+    label: &str,
+    status: RowStatus,
+    note: Option<&str>,
+    btns: &[IconBtn<'_>],
+) -> RowOut {
     let tk = tokens(ui.ctx());
     let width = ui.available_width();
-    let note_color = if status == RowStatus::Conflict { tk.warning } else { tk.danger };
-    let note_g = note.map(|n| ui.painter().layout(n.to_string(), font(size::SM), note_color, width - 24.0 - 28.0));
+    let note_color = if status == RowStatus::Conflict {
+        tk.warning
+    } else {
+        tk.danger
+    };
+    let note_g = note.map(|n| {
+        ui.painter().layout(
+            n.to_string(),
+            font(size::SM),
+            note_color,
+            width - 24.0 - 28.0,
+        )
+    });
     let h = 6.0 + 24.0 + note_g.as_ref().map_or(0.0, |g| 2.0 + g.size().y) + 6.0;
     let (rect, row) = ui.allocate_exact_size(vec2(width, h), Sense::click());
     widgets::a11y(&row, egui::Role::ListItem, label);
-    let mut out = RowOut { clicked: None, menu_at: None };
+    let mut out = RowOut {
+        clicked: None,
+        menu_at: None,
+    };
     if row.secondary_clicked() {
-        out.menu_at = row.interact_pointer_pos().or_else(|| ui.ctx().pointer_latest_pos());
+        out.menu_at = row
+            .interact_pointer_pos()
+            .or_else(|| ui.ctx().pointer_latest_pos());
     }
     let hovered = ui.rect_contains_pointer(rect);
     widgets::row_fill(ui, rect, hovered, false);
-    let line = Rect::from_min_size(Pos2::new(rect.left() + 14.0, rect.top() + 6.0), vec2(width - 28.0, 24.0));
+    let line = Rect::from_min_size(
+        Pos2::new(rect.left() + 14.0, rect.top() + 6.0),
+        vec2(width - 28.0, 24.0),
+    );
     let dot = match status {
         RowStatus::Running => tk.success,
         RowStatus::Error => tk.danger,
         RowStatus::Conflict => tk.warning,
         RowStatus::Idle => alpha(tk.muted, 0.6),
     };
-    ui.painter().circle_filled(Pos2::new(line.left() + 3.0, line.center().y), 3.0, dot);
-    kind_icon(kind).paint(ui, Rect::from_center_size(Pos2::new(line.left() + 21.0, line.center().y), vec2(14.0, 14.0)), 14.0, kind_tone(ui.ctx(), kind));
+    ui.painter()
+        .circle_filled(Pos2::new(line.left() + 3.0, line.center().y), 3.0, dot);
+    kind_icon(kind).paint(
+        ui,
+        Rect::from_center_size(
+            Pos2::new(line.left() + 21.0, line.center().y),
+            vec2(14.0, 14.0),
+        ),
+        14.0,
+        kind_tone(ui.ctx(), kind),
+    );
     let btn_w = 24.0;
     let btns_left = line.right() - btn_w * btns.len() as f32;
-    let text = Rect::from_min_max(Pos2::new(line.left() + 36.0, line.top()), Pos2::new(btns_left - 6.0, line.bottom()));
+    let text = Rect::from_min_max(
+        Pos2::new(line.left() + 36.0, line.top()),
+        Pos2::new(btns_left - 6.0, line.bottom()),
+    );
     widgets::paint_text(ui, text, label, egui::FontId::monospace(size::SM), tk.fg);
     for (i, b) in btns.iter().enumerate() {
-        let r = Rect::from_min_size(Pos2::new(btns_left + btn_w * i as f32, line.top()), vec2(24.0, 24.0));
+        let r = Rect::from_min_size(
+            Pos2::new(btns_left + btn_w * i as f32, line.top()),
+            vec2(24.0, 24.0),
+        );
         if b.show(ui, r, id.with(i)).clicked() {
             out.clicked = Some(i);
         }
     }
     if let Some(g) = note_g {
-        ui.painter().galley(Pos2::new(rect.left() + 14.0 + 28.0, line.bottom() + 2.0), g, note_color);
+        ui.painter().galley(
+            Pos2::new(rect.left() + 14.0 + 28.0, line.bottom() + 2.0),
+            g,
+            note_color,
+        );
     }
     out
 }
@@ -604,10 +759,17 @@ fn pane_row(ui: &mut Ui, id: Id, kind: ForwardKind, label: &str, status: RowStat
 pub fn session_tab(app: &mut App, ui: &mut Ui, session_id: Option<i64>) {
     let tk = tokens(ui.ctx());
     let Some(sid) = session_id else {
-        ui.label(RichText::new("Save the session first to configure forwards.").font(font(size::SM)).color(tk.muted));
+        ui.label(
+            RichText::new("Save the session first to configure forwards.")
+                .font(font(size::SM))
+                .color(tk.muted),
+        );
         return;
     };
-    if app.forwards.mounted(ViewKey::SessionTab(sid), ui.ctx().cumulative_frame_nr()) {
+    if app
+        .forwards
+        .mounted(ViewKey::SessionTab(sid), ui.ctx().cumulative_frame_nr())
+    {
         load_saved(app, sid);
     }
     let mut actions: Vec<Action> = Vec::new();
@@ -616,17 +778,30 @@ pub fn session_tab(app: &mut App, ui: &mut Ui, session_id: Option<i64>) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         if rows.is_empty() {
-            let text = if list.is_some_and(|l| l.loaded) { "No forwards configured for this session." } else { "Loading…" };
+            let text = if list.is_some_and(|l| l.loaded) {
+                "No forwards configured for this session."
+            } else {
+                "Loading…"
+            };
             ui.label(RichText::new(text).font(font(size::SM)).color(tk.muted));
         }
         for r in rows {
             match config_row(ui, r) {
                 Some(0) => actions.push(Action::EditSaved(r.clone())),
-                Some(1) => actions.push(Action::DeleteSaved { session_id: sid, id: r.id }),
+                Some(1) => actions.push(Action::DeleteSaved {
+                    session_id: sid,
+                    id: r.id,
+                }),
                 _ => {}
             }
         }
-        if Button::secondary("Add forward").small().icon(Icon::Plus).label("Add forward").show(ui).clicked() {
+        if Button::secondary("Add forward")
+            .small()
+            .icon(Icon::Plus)
+            .label("Add forward")
+            .show(ui)
+            .clicked()
+        {
             actions.push(Action::AddSaved(sid));
         }
     });
@@ -642,24 +817,53 @@ fn config_row(ui: &mut Ui, r: &Forward) -> Option<usize> {
     let label = saved_label(r);
     let (rect, row) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
     widgets::a11y(&row, egui::Role::ListItem, &label);
-    ui.painter().rect_stroke(rect, crate::style::radius::LG, Stroke::new(1.0, tk.border_strong), StrokeKind::Inside);
+    ui.painter().rect_stroke(
+        rect,
+        crate::style::radius::LG,
+        Stroke::new(1.0, tk.border_strong),
+        StrokeKind::Inside,
+    );
     let inner = rect.shrink2(vec2(10.0, 6.0));
-    kind_icon(parse_kind(&r.kind)).paint(ui, Rect::from_center_size(Pos2::new(inner.left() + 8.0, inner.center().y), vec2(14.0, 14.0)), 14.0, tk.muted);
+    kind_icon(parse_kind(&r.kind)).paint(
+        ui,
+        Rect::from_center_size(
+            Pos2::new(inner.left() + 8.0, inner.center().y),
+            vec2(14.0, 14.0),
+        ),
+        14.0,
+        tk.muted,
+    );
     let btns_left = inner.right() - 56.0;
     let mut text_right = btns_left - 8.0;
     if r.auto_start == 1 {
         let cw = widgets::chip_width(ui, "auto", false);
-        let badge = Rect::from_min_size(Pos2::new(text_right - cw, inner.center().y - 9.0), vec2(cw, 18.0));
+        let badge = Rect::from_min_size(
+            Pos2::new(text_right - cw, inner.center().y - 9.0),
+            vec2(cw, 18.0),
+        );
         widgets::paint_chip(ui, badge, "auto", Some(tk.success), false, false);
         text_right = badge.left() - 8.0;
     }
-    let text = Rect::from_min_max(Pos2::new(inner.left() + 24.0, inner.top()), Pos2::new(text_right, inner.bottom()));
+    let text = Rect::from_min_max(
+        Pos2::new(inner.left() + 24.0, inner.top()),
+        Pos2::new(text_right, inner.bottom()),
+    );
     widgets::paint_text(ui, text, &label, egui::FontId::monospace(size::SM), tk.fg);
     let mut clicked = None;
-    for (i, (icon, verb)) in [(Icon::Pencil, "Edit"), (Icon::Trash, "Delete")].into_iter().enumerate() {
-        let b = Rect::from_min_size(Pos2::new(btns_left + 28.0 * i as f32, inner.center().y - 14.0), vec2(28.0, 28.0));
+    for (i, (icon, verb)) in [(Icon::Pencil, "Edit"), (Icon::Trash, "Delete")]
+        .into_iter()
+        .enumerate()
+    {
+        let b = Rect::from_min_size(
+            Pos2::new(btns_left + 28.0 * i as f32, inner.center().y - 14.0),
+            vec2(28.0, 28.0),
+        );
         let id = Id::unique(("forward-config-btn", r.id, i));
-        if IconBtn::new(icon, format!("{verb} {label}"), verb).icon_size(16.0).show(ui, b, id).clicked() {
+        if IconBtn::new(icon, format!("{verb} {label}"), verb)
+            .icon_size(16.0)
+            .show(ui, b, id)
+            .clicked()
+        {
             clicked = Some(i);
         }
     }
@@ -676,9 +880,15 @@ enum Mode {
     SavedEdit { forward: Forward },
     /// The pane's "Add": start on this tab, optionally also save it to the
     /// session.
-    TabCreate { connection_id: u64, session_id: Option<i64> },
+    TabCreate {
+        connection_id: u64,
+        session_id: Option<i64>,
+    },
     /// Edit a running tab-only forward (atomic replace).
-    TabEdit { connection_id: u64, existing: RuntimeForwardSummary },
+    TabEdit {
+        connection_id: u64,
+        existing: RuntimeForwardSummary,
+    },
 }
 
 impl Mode {
@@ -698,7 +908,10 @@ impl Mode {
     /// The session a tab forward may also be saved to.
     fn persist_session(&self) -> Option<i64> {
         match self {
-            Mode::TabCreate { session_id: Some(s), .. } if *s > 0 => Some(*s),
+            Mode::TabCreate {
+                session_id: Some(s),
+                ..
+            } if *s > 0 => Some(*s),
             _ => None,
         }
     }
@@ -800,7 +1013,11 @@ impl ForwardDialog {
             return Err("Bind port must be 1–65535");
         }
         if self.kind == ForwardKind::Dynamic {
-            return Ok(Valid { bind_port: bind_port as u16, dest_addr: String::new(), dest_port: 0 });
+            return Ok(Valid {
+                bind_port: bind_port as u16,
+                dest_addr: String::new(),
+                dest_port: 0,
+            });
         }
         if self.dest_addr.trim().is_empty() {
             return Err("Destination host is required");
@@ -809,7 +1026,11 @@ impl ForwardDialog {
         if !(1..=65535).contains(&dest_port) {
             return Err("Destination port must be 1–65535");
         }
-        Ok(Valid { bind_port: bind_port as u16, dest_addr: self.dest_addr.trim().to_string(), dest_port: dest_port as u16 })
+        Ok(Valid {
+            bind_port: bind_port as u16,
+            dest_addr: self.dest_addr.trim().to_string(),
+            dest_port: dest_port as u16,
+        })
     }
 
     fn input(&self, v: &Valid) -> ForwardInput {
@@ -865,7 +1086,12 @@ fn submit(app: &mut App) {
     };
     d.busy = true;
     let token = d.token;
-    tracing::debug!(mode = d.mode.name(), kind = kind_str(d.kind), persist = d.persist, "forwards: save");
+    tracing::debug!(
+        mode = d.mode.name(),
+        kind = kind_str(d.kind),
+        persist = d.persist,
+        "forwards: save"
+    );
     let input = d.input(&v);
     let spec = d.spec(&v);
     match &d.mode {
@@ -874,7 +1100,17 @@ fn submit(app: &mut App) {
             app.core.call(
                 "forward_create",
                 move |st| async move { api::forwards::forward_create(&st, sid, input).await },
-                move |app, r| finish(app, token, r.map(|f| Saved { persistent: Some(f), ..Saved::default() }).map_err(|e| e.to_string())),
+                move |app, r| {
+                    finish(
+                        app,
+                        token,
+                        r.map(|f| Saved {
+                            persistent: Some(f),
+                            ..Saved::default()
+                        })
+                        .map_err(|e| e.to_string()),
+                    )
+                },
             );
         }
         Mode::SavedEdit { forward } => {
@@ -882,10 +1118,22 @@ fn submit(app: &mut App) {
             app.core.call(
                 "forward_update",
                 move |st| async move { api::forwards::forward_update(&st, id, input).await },
-                move |app, r| finish(app, token, r.map(|f| Saved { persistent: Some(f), ..Saved::default() }).map_err(|e| e.to_string())),
+                move |app, r| {
+                    finish(
+                        app,
+                        token,
+                        r.map(|f| Saved {
+                            persistent: Some(f),
+                            ..Saved::default()
+                        })
+                        .map_err(|e| e.to_string()),
+                    )
+                },
             );
         }
-        Mode::TabCreate { connection_id, .. } if d.persist && d.mode.persist_session().is_some() => {
+        Mode::TabCreate { connection_id, .. }
+            if d.persist && d.mode.persist_session().is_some() =>
+        {
             // Save to the session and start it here: live now, and back
             // on the next connect.
             let (cid, sid) = (*connection_id, d.mode.persist_session().unwrap_or_default());
@@ -893,18 +1141,43 @@ fn submit(app: &mut App) {
                 "forward_create+start",
                 move |st| async move {
                     let created = api::forwards::forward_create(&st, sid, input).await?;
-                    let started = api::forwards::forward_start(&st, cid, ForwardStartTarget::Persistent { id: created.id }).await;
+                    let started = api::forwards::forward_start(
+                        &st,
+                        cid,
+                        ForwardStartTarget::Persistent { id: created.id },
+                    )
+                    .await;
                     Ok::<_, ezssh_core::AppError>((created, started))
                 },
                 move |app, r| match r {
-                    Ok((created, Ok(rf))) => finish(app, token, Ok(Saved { persistent: Some(created), runtime: Some((cid, rf)), replaced: None })),
+                    Ok((created, Ok(rf))) => finish(
+                        app,
+                        token,
+                        Ok(Saved {
+                            persistent: Some(created),
+                            runtime: Some((cid, rf)),
+                            replaced: None,
+                        }),
+                    ),
                     Ok((created, Err(e))) => {
                         // Saved but not started: keep the row (its error
                         // shows in the pane through the status event) and
                         // close, so a second Save cannot duplicate it.
-                        tracing::warn!(connection_id = cid, id = created.id, "forwards: saved but start failed: {e}");
-                        app.toasts.danger("Forward saved, start failed", e.to_string());
-                        finish(app, token, Ok(Saved { persistent: Some(created), ..Saved::default() }));
+                        tracing::warn!(
+                            connection_id = cid,
+                            id = created.id,
+                            "forwards: saved but start failed: {e}"
+                        );
+                        app.toasts
+                            .danger("Forward saved, start failed", e.to_string());
+                        finish(
+                            app,
+                            token,
+                            Ok(Saved {
+                                persistent: Some(created),
+                                ..Saved::default()
+                            }),
+                        );
                     }
                     Err(e) => finish(app, token, Err(e.to_string())),
                 },
@@ -914,11 +1187,27 @@ fn submit(app: &mut App) {
             let cid = *connection_id;
             app.core.call(
                 "forward_start",
-                move |st| async move { api::forwards::forward_start(&st, cid, ForwardStartTarget::Ephemeral { spec }).await },
-                move |app, r| finish(app, token, r.map(|rf| Saved { runtime: Some((cid, rf)), ..Saved::default() }).map_err(|e| e.to_string())),
+                move |st| async move {
+                    api::forwards::forward_start(&st, cid, ForwardStartTarget::Ephemeral { spec })
+                        .await
+                },
+                move |app, r| {
+                    finish(
+                        app,
+                        token,
+                        r.map(|rf| Saved {
+                            runtime: Some((cid, rf)),
+                            ..Saved::default()
+                        })
+                        .map_err(|e| e.to_string()),
+                    )
+                },
             );
         }
-        Mode::TabEdit { connection_id, existing } => {
+        Mode::TabEdit {
+            connection_id,
+            existing,
+        } => {
             // Replace atomically on the core (stop, wait for the bind to be
             // released, start) so re-using the address cannot race.
             let (cid, old) = (*connection_id, existing.runtime_id);
@@ -926,7 +1215,16 @@ fn submit(app: &mut App) {
                 "forward_replace",
                 move |st| async move { api::forwards::forward_replace(&st, cid, old, spec).await },
                 move |app, r| {
-                    finish(app, token, r.map(|rf| Saved { runtime: Some((cid, rf)), replaced: Some(old), ..Saved::default() }).map_err(|e| e.to_string()))
+                    finish(
+                        app,
+                        token,
+                        r.map(|rf| Saved {
+                            runtime: Some((cid, rf)),
+                            replaced: Some(old),
+                            ..Saved::default()
+                        })
+                        .map_err(|e| e.to_string()),
+                    )
                 },
             );
         }
@@ -936,10 +1234,19 @@ fn submit(app: &mut App) {
 /// A save finished: update the lists; close the dialog it came from, or
 /// show the error in it.
 fn finish(app: &mut App, token: u64, r: Result<Saved, String>) {
-    let ours = app.forwards.dialog.as_ref().is_some_and(|d| d.token == token);
+    let ours = app
+        .forwards
+        .dialog
+        .as_ref()
+        .is_some_and(|d| d.token == token);
     match r {
         Ok(s) => {
-            tracing::debug!(token, saved = s.persistent.is_some(), started = s.runtime.is_some(), "forwards: saved");
+            tracing::debug!(
+                token,
+                saved = s.persistent.is_some(),
+                started = s.runtime.is_some(),
+                "forwards: saved"
+            );
             if let Some(f) = s.persistent {
                 let list = app.forwards.saved.entry(f.session_id).or_default();
                 match list.rows.iter().position(|x| x.id == f.id) {
@@ -973,8 +1280,16 @@ fn finish(app: &mut App, token: u64, r: Result<Saved, String>) {
 }
 
 const KIND_TILES: [(ForwardKind, &str, &str); 3] = [
-    (ForwardKind::Local, "Local (-L)", "localhost → remote target"),
-    (ForwardKind::Remote, "Remote (-R)", "remote bind → local target"),
+    (
+        ForwardKind::Local,
+        "Local (-L)",
+        "localhost → remote target",
+    ),
+    (
+        ForwardKind::Remote,
+        "Remote (-R)",
+        "remote bind → local target",
+    ),
     (ForwardKind::Dynamic, "Dynamic (-D)", "local SOCKS5 proxy"),
 ];
 
@@ -1007,70 +1322,115 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     let tk = tokens(ctx);
     let busy = d.busy;
     let (mut save, mut cancel) = (false, false);
-    let title = if d.mode.is_saved() { "Forward (session config)" } else { "Forward (this tab)" };
+    let title = if d.mode.is_saved() {
+        "Forward (session config)"
+    } else {
+        "Forward (this tab)"
+    };
     let focus_name = std::mem::take(&mut d.focus_name);
     let chord = !busy && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-    let out = widgets::Dialog::new(Id::unique("forward-dialog"), 560.0).header(Icon::Network, crate::style::tokens(ctx).accent, title, None).row_gap(12.0).busy(busy).show_split(
-        ctx,
-        |ui| {
-            let w = ui.available_width();
-            let tiles = KIND_TILES.map(|(kind, label, hint)| (kind, kind_icon(kind), label, hint));
-            if let Some(kind) = form::option_cards(ui, &d.kind, &tiles) {
-                d.kind = kind;
-            }
-            form::field(ui, "Name (optional)", None, |ui| {
-                let r = form::input(ui, &mut d.name, InputOpts::new("e.g. Postgres dev")).accessible_name("Name (optional)");
-                if focus_name {
-                    r.request_focus();
+    let out = widgets::Dialog::new(Id::unique("forward-dialog"), 560.0)
+        .header(Icon::Network, crate::style::tokens(ctx).accent, title, None)
+        .row_gap(12.0)
+        .busy(busy)
+        .show_split(
+            ctx,
+            |ui| {
+                let w = ui.available_width();
+                let tiles =
+                    KIND_TILES.map(|(kind, label, hint)| (kind, kind_icon(kind), label, hint));
+                if let Some(kind) = form::option_cards(ui, &d.kind, &tiles) {
+                    d.kind = kind;
                 }
-            });
-            let first_w = w - 120.0 - 8.0;
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                field_at(ui, first_w, "Bind address", |ui| {
-                    form::input(ui, &mut d.bind_addr, InputOpts::new("127.0.0.1").mono().width(first_w)).accessible_name("Bind address");
+                form::field(ui, "Name (optional)", None, |ui| {
+                    let r = form::input(ui, &mut d.name, InputOpts::new("e.g. Postgres dev"))
+                        .accessible_name("Name (optional)");
+                    if focus_name {
+                        r.request_focus();
+                    }
                 });
-                field_at(ui, 120.0, "Bind port", |ui| {
-                    form::input(ui, &mut d.bind_port, InputOpts::new("").width(120.0)).accessible_name("Bind port");
-                });
-            });
-            if d.non_loopback() {
-                form::note(ui, Icon::AlertTriangle, tk.warning, "This forward will be reachable from other machines on your network.");
-            }
-            if d.privileged() {
-                form::hint(ui, "Ports below 1024 require admin/root on most systems.");
-            }
-            if d.kind != ForwardKind::Dynamic {
-                let hint = if d.kind == ForwardKind::Remote { "localhost" } else { "db.internal" };
+                let first_w = w - 120.0 - 8.0;
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    field_at(ui, first_w, "Destination host", |ui| {
-                        form::input(ui, &mut d.dest_addr, InputOpts::new(hint).mono().width(first_w)).accessible_name("Destination host");
+                    field_at(ui, first_w, "Bind address", |ui| {
+                        form::input(
+                            ui,
+                            &mut d.bind_addr,
+                            InputOpts::new("127.0.0.1").mono().width(first_w),
+                        )
+                        .accessible_name("Bind address");
                     });
-                    field_at(ui, 120.0, "Destination port", |ui| {
-                        form::input(ui, &mut d.dest_port, InputOpts::new("").width(120.0)).accessible_name("Destination port");
+                    field_at(ui, 120.0, "Bind port", |ui| {
+                        form::input(ui, &mut d.bind_port, InputOpts::new("").width(120.0))
+                            .accessible_name("Bind port");
                     });
                 });
-            }
-            if d.mode.persist_session().is_some() {
-                form::checkbox(ui, &mut d.persist, "Save to this session (persists across reconnects)", None);
-            }
-            if d.mode.is_saved() || d.persist {
-                form::checkbox(ui, &mut d.auto_start, "Auto-start when the session connects", None);
-            }
-            if let Some(err) = &d.err {
-                widgets::error_strip(ui, err);
-            }
-        },
-        Some(&mut |ui: &mut Ui| {
-            if widgets::Button::primary(if busy { "Saving…" } else { "Save" }).enabled(!busy).show(ui).clicked() {
-                save = true;
-            }
-            if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                cancel = true;
-            }
-        }),
-    );
+                if d.non_loopback() {
+                    form::note(
+                        ui,
+                        Icon::AlertTriangle,
+                        tk.warning,
+                        "This forward will be reachable from other machines on your network.",
+                    );
+                }
+                if d.privileged() {
+                    form::hint(ui, "Ports below 1024 require admin/root on most systems.");
+                }
+                if d.kind != ForwardKind::Dynamic {
+                    let hint = if d.kind == ForwardKind::Remote {
+                        "localhost"
+                    } else {
+                        "db.internal"
+                    };
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        field_at(ui, first_w, "Destination host", |ui| {
+                            form::input(
+                                ui,
+                                &mut d.dest_addr,
+                                InputOpts::new(hint).mono().width(first_w),
+                            )
+                            .accessible_name("Destination host");
+                        });
+                        field_at(ui, 120.0, "Destination port", |ui| {
+                            form::input(ui, &mut d.dest_port, InputOpts::new("").width(120.0))
+                                .accessible_name("Destination port");
+                        });
+                    });
+                }
+                if d.mode.persist_session().is_some() {
+                    form::checkbox(
+                        ui,
+                        &mut d.persist,
+                        "Save to this session (persists across reconnects)",
+                        None,
+                    );
+                }
+                if d.mode.is_saved() || d.persist {
+                    form::checkbox(
+                        ui,
+                        &mut d.auto_start,
+                        "Auto-start when the session connects",
+                        None,
+                    );
+                }
+                if let Some(err) = &d.err {
+                    widgets::error_strip(ui, err);
+                }
+            },
+            Some(&mut |ui: &mut Ui| {
+                if widgets::Button::primary(if busy { "Saving…" } else { "Save" })
+                    .enabled(!busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    save = true;
+                }
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                    cancel = true;
+                }
+            }),
+        );
     if cancel || out.dismissed() {
         tracing::debug!("forwards: dialog closed");
         app.forwards.dialog = None;
@@ -1084,17 +1444,35 @@ mod tests {
     use super::*;
 
     fn spec(kind: ForwardKind, name: &str) -> ForwardSpec {
-        ForwardSpec { name: name.into(), kind, bind_addr: "127.0.0.1".into(), bind_port: 8080, dest_addr: "db".into(), dest_port: 5432 }
+        ForwardSpec {
+            name: name.into(),
+            kind,
+            bind_addr: "127.0.0.1".into(),
+            bind_port: 8080,
+            dest_addr: "db".into(),
+            dest_port: 5432,
+        }
     }
 
     fn rf(id: u64, persistent: Option<i64>, status: ForwardStatus) -> RuntimeForwardSummary {
-        RuntimeForwardSummary { runtime_id: id, persistent_id: persistent, spec: spec(ForwardKind::Local, ""), status }
+        RuntimeForwardSummary {
+            runtime_id: id,
+            persistent_id: persistent,
+            spec: spec(ForwardKind::Local, ""),
+            status,
+        }
     }
 
     #[test]
     fn labels_match_lib_forwards() {
-        assert_eq!(spec_label(&spec(ForwardKind::Local, "")), "127.0.0.1:8080 → db:5432");
-        assert_eq!(spec_label(&spec(ForwardKind::Dynamic, "")), "SOCKS5 @ 127.0.0.1:8080");
+        assert_eq!(
+            spec_label(&spec(ForwardKind::Local, "")),
+            "127.0.0.1:8080 → db:5432"
+        );
+        assert_eq!(
+            spec_label(&spec(ForwardKind::Dynamic, "")),
+            "SOCKS5 @ 127.0.0.1:8080"
+        );
         assert_eq!(spec_label(&spec(ForwardKind::Remote, "pg")), "pg");
     }
 
@@ -1103,10 +1481,25 @@ mod tests {
         let mut rows = Vec::new();
         apply_status(&mut rows, rf(1, Some(7), ForwardStatus::Running));
         apply_status(&mut rows, rf(1, Some(7), ForwardStatus::Running));
-        apply_status(&mut rows, rf(2, None, ForwardStatus::Conflict { message: "taken".into() }));
+        apply_status(
+            &mut rows,
+            rf(
+                2,
+                None,
+                ForwardStatus::Conflict {
+                    message: "taken".into(),
+                },
+            ),
+        );
         assert_eq!(rows.len(), 2, "same runtime id coalesces");
-        assert_eq!(row_status(rows.iter().find(|r| r.runtime_id == 2)), RowStatus::Conflict);
-        assert_eq!(row_note(rows.iter().find(|r| r.runtime_id == 2)).as_deref(), Some("taken"));
+        assert_eq!(
+            row_status(rows.iter().find(|r| r.runtime_id == 2)),
+            RowStatus::Conflict
+        );
+        assert_eq!(
+            row_note(rows.iter().find(|r| r.runtime_id == 2)).as_deref(),
+            Some("taken")
+        );
         // A saved forward's runtime row goes; a tab-only one stays, idle.
         apply_status(&mut rows, rf(1, Some(7), ForwardStatus::Stopped));
         apply_status(&mut rows, rf(2, None, ForwardStatus::Stopped));
@@ -1132,7 +1525,14 @@ mod tests {
         d.dest_port = "70000".into();
         assert_eq!(d.validate(), Err("Destination port must be 1–65535"));
         d.dest_port = "5432".into();
-        assert_eq!(d.validate(), Ok(Valid { bind_port: 80, dest_addr: "db".into(), dest_port: 5432 }));
+        assert_eq!(
+            d.validate(),
+            Ok(Valid {
+                bind_port: 80,
+                dest_addr: "db".into(),
+                dest_port: 5432
+            })
+        );
         // Dynamic ignores (and clears) the destination.
         d.kind = ForwardKind::Dynamic;
         d.dest_port = "x".into();
@@ -1145,8 +1545,22 @@ mod tests {
 
     #[test]
     fn persist_offered_only_for_a_saved_session() {
-        assert_eq!(Mode::TabCreate { connection_id: 1, session_id: Some(4) }.persist_session(), Some(4));
-        assert_eq!(Mode::TabCreate { connection_id: 1, session_id: Some(0) }.persist_session(), None);
+        assert_eq!(
+            Mode::TabCreate {
+                connection_id: 1,
+                session_id: Some(4)
+            }
+            .persist_session(),
+            Some(4)
+        );
+        assert_eq!(
+            Mode::TabCreate {
+                connection_id: 1,
+                session_id: Some(0)
+            }
+            .persist_session(),
+            None
+        );
         assert_eq!(Mode::SavedCreate { session_id: 4 }.persist_session(), None);
     }
 }

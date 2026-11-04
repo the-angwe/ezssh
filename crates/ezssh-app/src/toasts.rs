@@ -49,7 +49,13 @@ impl Toasts {
             _ => tracing::info!(?kind, %title, ?body, "toast"),
         }
         self.next_id += 1;
-        self.items.push(Toast { id: self.next_id, kind, title, body, until: Instant::now() + kind.ttl() });
+        self.items.push(Toast {
+            id: self.next_id,
+            kind,
+            title,
+            body,
+            until: Instant::now() + kind.ttl(),
+        });
     }
 
     pub fn success(&mut self, title: impl Into<String>, body: impl Into<Option<String>>) {
@@ -101,27 +107,57 @@ impl Toasts {
                         .fill(t.surface)
                         .stroke(Stroke::new(1.0, t.border_strong))
                         .corner_radius(CornerRadius::same(radius::LG as u8))
-                        .inner_margin(Margin { left: 12, right: 8, top: 10, bottom: 10 })
+                        .inner_margin(Margin {
+                            left: 12,
+                            right: 8,
+                            top: 10,
+                            bottom: 10,
+                        })
                         .shadow(style::popup_shadow())
                         .show(ui, |ui| {
                             ui.set_width(width - 20.0);
                             ui.horizontal_top(|ui| {
                                 ui.spacing_mut().item_spacing.x = 10.0;
                                 // Kind: a tinted 24 px circle with the glyph.
-                                let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::hover());
-                                ui.painter().circle_filled(r.center(), 12.0, alpha(color, 0.16));
+                                let (r, _) =
+                                    ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::hover());
+                                ui.painter()
+                                    .circle_filled(r.center(), 12.0, alpha(color, 0.16));
                                 icon.paint(ui, r, 14.0, color);
                                 let text_w = ui.available_width() - 24.0 - 10.0;
                                 ui.vertical(|ui| {
                                     ui.set_width(text_w);
                                     ui.spacing_mut().item_spacing.y = 2.0;
                                     ui.add_space(3.0);
-                                    ui.add(egui::Label::new(RichText::new(&toast.title).font(font_semibold(size::BASE)).color(t.fg)).truncate());
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(&toast.title)
+                                                .font(font_semibold(size::BASE))
+                                                .color(t.fg),
+                                        )
+                                        .truncate(),
+                                    );
                                     if let Some(body) = &toast.body {
-                                        ui.add(egui::Label::new(RichText::new(body).font(font(size::SM)).color(t.muted)).wrap());
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(body)
+                                                    .font(font(size::SM))
+                                                    .color(t.muted),
+                                            )
+                                            .wrap(),
+                                        );
                                     }
                                 });
-                                if crate::widgets::icon_button(ui, Icon::X, 24.0, 14.0, false, "Dismiss").clicked() {
+                                if crate::widgets::icon_button(
+                                    ui,
+                                    Icon::X,
+                                    24.0,
+                                    14.0,
+                                    false,
+                                    "Dismiss",
+                                )
+                                .clicked()
+                                {
                                     dismiss = Some(toast.id);
                                 }
                             });
@@ -146,7 +182,11 @@ mod tests {
         let now = Instant::now();
         let next = t.expire(now).unwrap();
         assert!(next <= Duration::from_millis(4000) && next > Duration::from_millis(3900));
-        assert_eq!(t.expire(now + Duration::from_millis(4100)).map(|d| d.as_millis() / 1000), Some(3));
+        assert_eq!(
+            t.expire(now + Duration::from_millis(4100))
+                .map(|d| d.as_millis() / 1000),
+            Some(3)
+        );
         assert_eq!(t.items().len(), 1);
         assert_eq!(t.items()[0].title, "b");
         assert_eq!(t.expire(now + Duration::from_secs(9)), None);

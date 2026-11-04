@@ -1,4 +1,3 @@
-
 use crate::api::require_unlocked;
 use crate::db::settings;
 use crate::error::Result;

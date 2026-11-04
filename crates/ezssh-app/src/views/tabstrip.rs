@@ -42,7 +42,10 @@ pub fn fit_widths(natural: &[f32], avail: f32) -> Vec<f32> {
     if total <= avail || total <= 0.0 {
         return natural.to_vec();
     }
-    natural.iter().map(|w| (w * avail / total).max(TAB_MIN_W)).collect()
+    natural
+        .iter()
+        .map(|w| (w * avail / total).max(TAB_MIN_W))
+        .collect()
 }
 
 /// Drop target for pointer x among tab rects (index, right side).
@@ -55,7 +58,9 @@ pub fn drop_target(xs: &[(f32, f32)], x: f32) -> Option<(usize, bool)> {
     if x >= last.1 {
         return Some((xs.len() - 1, true));
     }
-    xs.iter().position(|(l, r)| x >= *l && x < *r).map(|i| (i, x >= (xs[i].0 + xs[i].1) / 2.0))
+    xs.iter()
+        .position(|(l, r)| x >= *l && x < *r)
+        .map(|i| (i, x >= (xs[i].0 + xs[i].1) / 2.0))
 }
 
 const MODE_ICONS: [(ViewMode, Icon); 6] = [
@@ -72,30 +77,71 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     ui.painter().rect_filled(strip, 0.0, t.surface);
 
     // Right end: the active tab's pane toggles, then Layout ▾.
-    let mut right = ui.new_child(egui::UiBuilder::new().max_rect(strip.shrink2(vec2(8.0, 0.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    let mut right = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(strip.shrink2(vec2(8.0, 0.0)))
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+    );
     right.spacing_mut().item_spacing.x = 8.0;
     let mode = app.tabs.view_mode;
-    let layout_icon = MODE_ICONS.iter().find(|(m, _)| *m == mode).map_or(Icon::LayoutPanelLeft, |(_, i)| *i);
-    let layout_btn = widgets::Button::ghost("Layout").icon(layout_icon).chevron().small().tooltip("View mode (Ctrl+Shift+W cycles)").show(&mut right);
+    let layout_icon = MODE_ICONS
+        .iter()
+        .find(|(m, _)| *m == mode)
+        .map_or(Icon::LayoutPanelLeft, |(_, i)| *i);
+    let layout_btn = widgets::Button::ghost("Layout")
+        .icon(layout_icon)
+        .chevron()
+        .small()
+        .tooltip("View mode (Ctrl+Shift+W cycles)")
+        .show(&mut right);
     if layout_btn.clicked() {
         let entries = MODE_ICONS
             .iter()
-            .map(|(m, icon)| MenuEntry::item(m.label(), *m).icon(*icon).checked(*m == mode))
+            .map(|(m, icon)| {
+                MenuEntry::item(m.label(), *m)
+                    .icon(*icon)
+                    .checked(*m == mode)
+            })
             .collect();
-        app.strip.layout_menu = Some(Menu::new(Pos2::new(layout_btn.rect.right() - 200.0, layout_btn.rect.bottom() + 4.0), entries));
+        app.strip.layout_menu = Some(Menu::new(
+            Pos2::new(
+                layout_btn.rect.right() - 200.0,
+                layout_btn.rect.bottom() + 4.0,
+            ),
+            entries,
+        ));
     }
     let mut toggle_sftp = None;
     let mut toggle_fwd = None;
     if let Some(tab) = app.tabs.active_tab() {
         let mut items: Vec<(Icon, bool, &str, u8)> = Vec::new();
         if tab.has_file_pane() {
-            items.push((Icon::FolderTree, tab.sftp_open, if tab.sftp_open { "Hide file pane" } else { "Show file pane" }, 0));
+            items.push((
+                Icon::FolderTree,
+                tab.sftp_open,
+                if tab.sftp_open {
+                    "Hide file pane"
+                } else {
+                    "Show file pane"
+                },
+                0,
+            ));
         }
         if tab.is_ssh() {
-            items.push((Icon::Network, tab.forwards_open, if tab.forwards_open { "Hide forwards pane" } else { "Show forwards pane" }, 1));
+            items.push((
+                Icon::Network,
+                tab.forwards_open,
+                if tab.forwards_open {
+                    "Hide forwards pane"
+                } else {
+                    "Show forwards pane"
+                },
+                1,
+            ));
         }
         if !items.is_empty() {
-            let shown: Vec<(Icon, bool, &str)> = items.iter().map(|(i, on, l, _)| (*i, *on, *l)).collect();
+            let shown: Vec<(Icon, bool, &str)> =
+                items.iter().map(|(i, on, l, _)| (*i, *on, *l)).collect();
             if let Some(i) = widgets::toggle_group(&mut right, Id::unique("pane-toggles"), &shown) {
                 match items[i].3 {
                     0 => toggle_sftp = Some(tab.id),
@@ -111,26 +157,55 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     // interrupts it below.
     let mut gap: Option<(f32, f32)> = None;
     if app.tabs.tabs.is_empty() {
-        ui.painter().hline(strip.x_range(), strip.bottom() - 0.5, Stroke::new(1.0, t.border));
+        ui.painter().hline(
+            strip.x_range(),
+            strip.bottom() - 0.5,
+            Stroke::new(1.0, t.border),
+        );
         let r = area.shrink2(vec2(14.0, 0.0));
-        Icon::Terminal.paint(ui, Rect::from_center_size(Pos2::new(r.left() + 7.0, r.center().y), vec2(14.0, 14.0)), 14.0, t.muted);
-        widgets::paint_text(ui, r.with_min_x(r.left() + 22.0), "No open tabs — double-click a session in the sidebar", font(size::SM), t.muted);
+        Icon::Terminal.paint(
+            ui,
+            Rect::from_center_size(Pos2::new(r.left() + 7.0, r.center().y), vec2(14.0, 14.0)),
+            14.0,
+            t.muted,
+        );
+        widgets::paint_text(
+            ui,
+            r.with_min_x(r.left() + 22.0),
+            "No open tabs — double-click a session in the sidebar",
+            font(size::SM),
+            t.muted,
+        );
         layout_menu(app, ui.ctx());
         return;
     }
 
     // Natural widths.
     let userhost = app.settings.str("appearance.tabLabel") == "userhost";
-    let labels: Vec<String> = app.tabs.tabs.iter().map(|tab| tab.label(userhost)).collect();
+    let labels: Vec<String> = app
+        .tabs
+        .tabs
+        .iter()
+        .map(|tab| tab.label(userhost))
+        .collect();
     let natural: Vec<f32> = labels
         .iter()
         .map(|label| {
-            let text = ui.painter().layout_no_wrap(label.clone(), font(size::BASE), t.fg).size().x;
+            let text = ui
+                .painter()
+                .layout_no_wrap(label.clone(), font(size::BASE), t.fg)
+                .size()
+                .x;
             (12.0 + 6.0 + 8.0 + text + 8.0 + 20.0 + 8.0).clamp(TAB_MIN_W, TAB_MAX_W)
         })
         .collect();
-    let overflow = fit_widths(&natural, area.width() - 8.0).iter().sum::<f32>() > area.width() - 8.0 + 0.5;
-    let inner = if overflow { area.shrink2(vec2(CHEVRON_W, 0.0)) } else { area.shrink2(vec2(4.0, 0.0)) };
+    let overflow =
+        fit_widths(&natural, area.width() - 8.0).iter().sum::<f32>() > area.width() - 8.0 + 0.5;
+    let inner = if overflow {
+        area.shrink2(vec2(CHEVRON_W, 0.0))
+    } else {
+        area.shrink2(vec2(4.0, 0.0))
+    };
     let widths = fit_widths(&natural, inner.width());
     let content_w: f32 = widths.iter().sum();
     let max_scroll = (content_w - inner.width()).max(0.0);
@@ -151,7 +226,13 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     // Wheel over the strip scrolls it horizontally.
     let strip_resp = ui.interact(area, Id::unique("tab-strip"), Sense::hover());
     if strip_resp.hovered() {
-        let d = ui.ctx().input(|i| if i.smooth_scroll_delta.x != 0.0 { i.smooth_scroll_delta.x } else { i.smooth_scroll_delta.y });
+        let d = ui.ctx().input(|i| {
+            if i.smooth_scroll_delta.x != 0.0 {
+                i.smooth_scroll_delta.x
+            } else {
+                i.smooth_scroll_delta.y
+            }
+        });
         st.scroll -= d;
     }
     st.scroll = st.scroll.clamp(0.0, max_scroll);
@@ -163,19 +244,47 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
             } else {
                 Rect::from_min_max(Pos2::new(area.right() - CHEVRON_W, area.top()), area.max)
             };
-            let enabled = if left_side { st.scroll > 0.0 } else { st.scroll < max_scroll - 1.0 };
-            let resp = ui.interact(r, Id::unique(("tab-chevron", left_side)), if enabled { Sense::click() } else { Sense::hover() });
+            let enabled = if left_side {
+                st.scroll > 0.0
+            } else {
+                st.scroll < max_scroll - 1.0
+            };
+            let resp = ui.interact(
+                r,
+                Id::unique(("tab-chevron", left_side)),
+                if enabled {
+                    Sense::click()
+                } else {
+                    Sense::hover()
+                },
+            );
             let br = Rect::from_center_size(r.center(), vec2(22.0, 22.0));
             if enabled && resp.hovered() {
                 ui.painter().rect_filled(br, radius::MD, t.surface2);
             }
-            icon.paint(ui, br, 14.0, if !enabled { alpha(t.muted, 0.4) } else if resp.hovered() { t.fg } else { t.muted });
-            let label = if left_side { "Scroll tabs left" } else { "Scroll tabs right" };
+            icon.paint(
+                ui,
+                br,
+                14.0,
+                if !enabled {
+                    alpha(t.muted, 0.4)
+                } else if resp.hovered() {
+                    t.fg
+                } else {
+                    t.muted
+                },
+            );
+            let label = if left_side {
+                "Scroll tabs left"
+            } else {
+                "Scroll tabs right"
+            };
             widgets::a11y(&resp, egui::Role::Button, label);
             let resp = resp.on_hover_text(label);
             if resp.clicked() {
                 let step = 120.0_f32.max(inner.width() * 0.6);
-                st.scroll = (st.scroll + if left_side { -step } else { step }).clamp(0.0, max_scroll);
+                st.scroll =
+                    (st.scroll + if left_side { -step } else { step }).clamp(0.0, max_scroll);
             }
         }
     }
@@ -190,12 +299,20 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     let mut close = None;
     let mut menu = None;
     let dragging = st.drag;
-    let top_round = CornerRadius { nw: radius::LG as u8, ne: radius::LG as u8, sw: 0, se: 0 };
+    let top_round = CornerRadius {
+        nw: radius::LG as u8,
+        ne: radius::LG as u8,
+        sw: 0,
+        se: 0,
+    };
     for (i, tab) in app.tabs.tabs.iter().enumerate() {
         let slot = Rect::from_min_size(Pos2::new(x, inner.top()), vec2(widths[i], inner.height()));
         spans.push((slot.left(), slot.right()));
         x += widths[i];
-        let r = Rect::from_min_max(Pos2::new(slot.left() + TAB_GAP / 2.0, slot.bottom() - TAB_H), Pos2::new(slot.right() - TAB_GAP / 2.0, slot.bottom()));
+        let r = Rect::from_min_max(
+            Pos2::new(slot.left() + TAB_GAP / 2.0, slot.bottom() - TAB_H),
+            Pos2::new(slot.right() - TAB_GAP / 2.0, slot.bottom()),
+        );
         let resp = child.interact(r, Id::unique(("tab", tab.id)), Sense::click_and_drag());
         let on = app.tabs.active == Some(tab.id);
         widgets::a11y_selected(&resp, egui::Role::Tab, on, &labels[i]);
@@ -203,9 +320,17 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         if on {
             child.painter().rect_filled(r, top_round, t.bg);
             // The card's sides: hairlines up to the strip's bottom.
-            child.painter().vline(r.left() + 0.5, r.y_range(), Stroke::new(1.0, t.border));
-            child.painter().vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, t.border));
-            child.painter().hline((r.left() + 1.0)..=(r.right() - 1.0), r.top() + 0.5, Stroke::new(1.0, t.border));
+            child
+                .painter()
+                .vline(r.left() + 0.5, r.y_range(), Stroke::new(1.0, t.border));
+            child
+                .painter()
+                .vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, t.border));
+            child.painter().hline(
+                (r.left() + 1.0)..=(r.right() - 1.0),
+                r.top() + 0.5,
+                Stroke::new(1.0, t.border),
+            );
             gap = Some((r.left().max(inner.left()), r.right().min(inner.right())));
         } else if hovered {
             child.painter().rect_filled(r, top_round, t.surface2);
@@ -213,15 +338,32 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         let fade = if dragging == Some(tab.id) { 0.5 } else { 1.0 };
         let mut cx = r.left() + 12.0;
         let cy = r.center().y;
-        if let Some(c) = tab.color.as_deref().and_then(crate::views::sidebar::parse_color) {
+        if let Some(c) = tab
+            .color
+            .as_deref()
+            .and_then(crate::views::sidebar::parse_color)
+        {
             // The session colour: a 2 px edge along the top of the card.
-            child.painter().rect_filled(Rect::from_min_max(Pos2::new(r.left() + 1.0, r.top() + 1.0), Pos2::new(r.right() - 1.0, r.top() + 3.0)), CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, alpha(c, fade));
+            child.painter().rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(r.left() + 1.0, r.top() + 1.0),
+                    Pos2::new(r.right() - 1.0, r.top() + 3.0),
+                ),
+                CornerRadius {
+                    nw: 2,
+                    ne: 2,
+                    sw: 0,
+                    se: 0,
+                },
+                alpha(c, fade),
+            );
         }
         widgets::status_dot(&child, Pos2::new(cx + 3.0, cy), tab.status, 11.0);
         cx += 6.0 + 8.0;
 
         // Close ✕ at the right, shown on the active tab and on hover.
-        let close_r = Rect::from_center_size(Pos2::new(r.right() - 8.0 - 10.0, cy), vec2(20.0, 20.0));
+        let close_r =
+            Rect::from_center_size(Pos2::new(r.right() - 8.0 - 10.0, cy), vec2(20.0, 20.0));
         let b = child.interact(close_r, resp.id.with("close"), Sense::click());
         if on || hovered || b.hovered() {
             widgets::paint_icon_button(&child, &b, close_r, Icon::X, 12.0, false, None);
@@ -231,7 +373,10 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
             close = Some(tab.id);
         }
         let text_color = alpha(if on || hovered { t.fg } else { t.fg2 }, fade);
-        let name_rect = Rect::from_min_max(Pos2::new(cx, r.top()), Pos2::new(close_r.left() - 6.0, r.bottom()));
+        let name_rect = Rect::from_min_max(
+            Pos2::new(cx, r.top()),
+            Pos2::new(close_r.left() - 6.0, r.bottom()),
+        );
         widgets::paint_text(&child, name_rect, &labels[i], font(size::BASE), text_color);
         let resp = resp
             .on_hover_ui(|ui| {
@@ -241,7 +386,11 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
                 }
                 ui.label(tip);
             })
-            .on_hover_cursor(if dragging.is_some() { CursorIcon::Grabbing } else { CursorIcon::PointingHand });
+            .on_hover_cursor(if dragging.is_some() {
+                CursorIcon::Grabbing
+            } else {
+                CursorIcon::PointingHand
+            });
         if resp.clicked() {
             activate = Some(tab.id);
         }
@@ -249,7 +398,10 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
             close = Some(tab.id);
         }
         if resp.secondary_clicked() {
-            menu = Some((tab.id, resp.interact_pointer_pos().unwrap_or(r.left_bottom())));
+            menu = Some((
+                tab.id,
+                resp.interact_pointer_pos().unwrap_or(r.left_bottom()),
+            ));
         }
         if resp.drag_started() {
             st.drag = Some(tab.id);
@@ -259,11 +411,14 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
     let y = strip.bottom() - 0.5;
     match gap {
         Some((l, r)) => {
-            ui.painter().hline(strip.left()..=l, y, Stroke::new(1.0, t.border));
-            ui.painter().hline(r..=strip.right(), y, Stroke::new(1.0, t.border));
+            ui.painter()
+                .hline(strip.left()..=l, y, Stroke::new(1.0, t.border));
+            ui.painter()
+                .hline(r..=strip.right(), y, Stroke::new(1.0, t.border));
         }
         None => {
-            ui.painter().hline(strip.x_range(), y, Stroke::new(1.0, t.border));
+            ui.painter()
+                .hline(strip.x_range(), y, Stroke::new(1.0, t.border));
         }
     }
     // Insertion indicator.
@@ -271,12 +426,22 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         && let Some((l, r)) = spans.get(i)
     {
         let x = if right { *r - 2.0 } else { *l };
-        child.painter().rect_filled(Rect::from_min_size(Pos2::new(x, inner.bottom() - TAB_H), vec2(2.0, TAB_H)), 1.0, t.accent);
+        child.painter().rect_filled(
+            Rect::from_min_size(Pos2::new(x, inner.bottom() - TAB_H), vec2(2.0, TAB_H)),
+            1.0,
+            t.accent,
+        );
     }
 
     // Drag reorder.
     if let Some(src) = st.drag {
-        let (pos, down, escape) = ui.ctx().input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.key_pressed(egui::Key::Escape)));
+        let (pos, down, escape) = ui.ctx().input(|i| {
+            (
+                i.pointer.latest_pos(),
+                i.pointer.primary_down(),
+                i.key_pressed(egui::Key::Escape),
+            )
+        });
         let target = pos.and_then(|p| {
             if p.y < area.top() - STRIP_Y_TOLERANCE || p.y > area.bottom() + STRIP_Y_TOLERANCE {
                 return None;

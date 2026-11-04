@@ -34,12 +34,28 @@ fn release(version: &str, body: &[u8], tamper: bool) -> Release {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut files = HashMap::new();
     files.insert(format!("/dl/{name}"), served);
-    let base = rt.block_on(ezssh_testsrv::http::serve(files.clone())).unwrap();
-    let assets = [ezssh_release::Signed { file_name: name, signature: sig }];
-    let m = ezssh_release::manifest(version, "Faster.\nSafer.", "2026-11-02T10:00:00Z", &format!("{base}/dl"), &assets).unwrap();
+    let base = rt
+        .block_on(ezssh_testsrv::http::serve(files.clone()))
+        .unwrap();
+    let assets = [ezssh_release::Signed {
+        file_name: name,
+        signature: sig,
+    }];
+    let m = ezssh_release::manifest(
+        version,
+        "Faster.\nSafer.",
+        "2026-11-02T10:00:00Z",
+        &format!("{base}/dl"),
+        &assets,
+    )
+    .unwrap();
     files.insert("/latest.json".into(), serde_json::to_vec(&m).unwrap());
     let base = rt.block_on(ezssh_testsrv::http::serve(files)).unwrap();
-    Release { _rt: rt, base, pubkey: ezssh_release::public_key_line(&keys.public) }
+    Release {
+        _rt: rt,
+        base,
+        pubkey: ezssh_release::public_key_line(&keys.public),
+    }
 }
 
 fn config(r: &Release, appimage: &Path) -> Config {
@@ -77,13 +93,19 @@ fn launch_check_install_and_restart() {
     // Settings load → launch check → the dialog opens on its own.
     let until = std::time::Instant::now() + Duration::from_secs(20);
     while h.query_by_label("Install & restart").is_none() {
-        assert!(std::time::Instant::now() < until, "the launch check opened no dialog");
+        assert!(
+            std::time::Instant::now() < until,
+            "the launch check opened no dialog"
+        );
         h.step();
         std::thread::sleep(Duration::from_millis(15));
     }
     assert!(h.query_by_label(NEW).is_some(), "new version shown");
     assert!(h.query_by_label("1.0.0").is_some(), "current version shown");
-    assert!(h.state().layout.last_update_check.is_some(), "check time kept");
+    assert!(
+        h.state().layout.last_update_check.is_some(),
+        "check time kept"
+    );
     assert!(h.state().updater.available.is_some());
     shot(h, "update-available");
 
@@ -92,16 +114,30 @@ fn launch_check_install_and_restart() {
     h.get_by_label("Install & restart").click();
     let until = std::time::Instant::now() + Duration::from_secs(20);
     while !marker.exists() {
-        assert!(std::time::Instant::now() < until, "the new version was not started");
+        assert!(
+            std::time::Instant::now() < until,
+            "the new version was not started"
+        );
         h.step();
         std::thread::sleep(Duration::from_millis(15));
     }
-    assert_eq!(std::fs::read_to_string(&appimage).unwrap(), body, "AppImage replaced");
-    assert_eq!(std::fs::metadata(&appimage).unwrap().permissions().mode() & 0o777, 0o755);
+    assert_eq!(
+        std::fs::read_to_string(&appimage).unwrap(),
+        body,
+        "AppImage replaced"
+    );
+    assert_eq!(
+        std::fs::metadata(&appimage).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
     // Started with the same arguments.
     let until = std::time::Instant::now() + Duration::from_secs(5);
     while std::fs::read_to_string(&marker).unwrap_or_default().trim() != "--flag" {
-        assert!(std::time::Instant::now() < until, "marker: {:?}", std::fs::read_to_string(&marker));
+        assert!(
+            std::time::Instant::now() < until,
+            "marker: {:?}",
+            std::fs::read_to_string(&marker)
+        );
         std::thread::sleep(Duration::from_millis(15));
     }
 }
@@ -121,7 +157,10 @@ fn up_to_date_then_a_tampered_installer_is_refused() {
     assert!(h.query_by_label("Install & restart").is_none());
     h.get_by_label("Check for updates").click();
     let until = std::time::Instant::now() + Duration::from_secs(20);
-    let latest = format!("You\u{2019}re on the latest version (v{}).", env!("CARGO_PKG_VERSION"));
+    let latest = format!(
+        "You\u{2019}re on the latest version (v{}).",
+        env!("CARGO_PKG_VERSION")
+    );
     while h.query_by_label(&latest).is_none() {
         assert!(std::time::Instant::now() < until, "no up-to-date line");
         h.step();
@@ -152,6 +191,10 @@ fn up_to_date_then_a_tampered_installer_is_refused() {
         std::thread::sleep(Duration::from_millis(15));
     }
     shot(h, "update-refused");
-    assert_eq!(std::fs::read(&appimage).unwrap(), b"old", "nothing installed");
+    assert_eq!(
+        std::fs::read(&appimage).unwrap(),
+        b"old",
+        "nothing installed"
+    );
     assert!(h.query_by_label("Check again").is_some());
 }

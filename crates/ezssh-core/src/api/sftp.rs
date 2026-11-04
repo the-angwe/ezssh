@@ -70,12 +70,9 @@ pub async fn sftp_open(state: &AppState, connection_id: u64) -> Result<()> {
     // spawned with WSL metadata. Plain local shells (cmd/pwsh) land
     // here without `wsl_meta` and are rejected.
     if let Some(local) = state.local.get(connection_id).await {
-        let meta = local
-            .wsl_meta
-            .as_ref()
-            .ok_or_else(|| AppError::Validation(
-                "file browser is only available for SSH and WSL sessions".into(),
-            ))?;
+        let meta = local.wsl_meta.as_ref().ok_or_else(|| {
+            AppError::Validation("file browser is only available for SSH and WSL sessions".into())
+        })?;
         let handle = WslFsHandle::new(meta.distro.clone(), meta.user.clone());
         state
             .sftp
@@ -136,11 +133,7 @@ pub async fn sftp_list(
     }
 }
 
-pub async fn sftp_mkdir(
-    state: &AppState,
-    connection_id: u64,
-    path: String,
-) -> Result<()> {
+pub async fn sftp_mkdir(state: &AppState, connection_id: u64, path: String) -> Result<()> {
     super::require_unlocked(state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
     let browser = require_browser(state, connection_id).await?;
@@ -160,11 +153,7 @@ pub async fn sftp_mkdir(
     }
 }
 
-pub async fn sftp_rmdir(
-    state: &AppState,
-    connection_id: u64,
-    path: String,
-) -> Result<()> {
+pub async fn sftp_rmdir(state: &AppState, connection_id: u64, path: String) -> Result<()> {
     super::require_unlocked(state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
     let browser = require_browser(state, connection_id).await?;
@@ -184,11 +173,7 @@ pub async fn sftp_rmdir(
     }
 }
 
-pub async fn sftp_remove(
-    state: &AppState,
-    connection_id: u64,
-    path: String,
-) -> Result<()> {
+pub async fn sftp_remove(state: &AppState, connection_id: u64, path: String) -> Result<()> {
     super::require_unlocked(state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
     let browser = require_browser(state, connection_id).await?;
@@ -234,11 +219,7 @@ pub async fn sftp_rename(
     }
 }
 
-pub async fn sftp_realpath(
-    state: &AppState,
-    connection_id: u64,
-    path: String,
-) -> Result<String> {
+pub async fn sftp_realpath(state: &AppState, connection_id: u64, path: String) -> Result<String> {
     super::require_unlocked(state).await?;
     let path = crate::sftp::normalise_remote_path(&path)?;
     let browser = require_browser(state, connection_id).await?;
@@ -286,8 +267,18 @@ pub async fn sftp_upload(
     local_path: String,
     remote_path: String,
 ) -> Result<TransferTicket> {
-    let mut t = transfer_many(state, connection_id, vec![TransferItem { local_path, remote_path }], Direction::Up).await?;
-    t.pop().ok_or_else(|| AppError::Validation("no transfer started".into()))
+    let mut t = transfer_many(
+        state,
+        connection_id,
+        vec![TransferItem {
+            local_path,
+            remote_path,
+        }],
+        Direction::Up,
+    )
+    .await?;
+    t.pop()
+        .ok_or_else(|| AppError::Validation("no transfer started".into()))
 }
 
 /// Start a streaming download. See `sftp_upload` for the progress-event model.
@@ -297,8 +288,18 @@ pub async fn sftp_download(
     remote_path: String,
     local_path: String,
 ) -> Result<TransferTicket> {
-    let mut t = transfer_many(state, connection_id, vec![TransferItem { local_path, remote_path }], Direction::Down).await?;
-    t.pop().ok_or_else(|| AppError::Validation("no transfer started".into()))
+    let mut t = transfer_many(
+        state,
+        connection_id,
+        vec![TransferItem {
+            local_path,
+            remote_path,
+        }],
+        Direction::Down,
+    )
+    .await?;
+    t.pop()
+        .ok_or_else(|| AppError::Validation("no transfer started".into()))
 }
 
 /// One file of a batch transfer.
@@ -360,18 +361,42 @@ async fn transfer_many(
         })
         .collect();
     let events = state.events.clone();
-    let tickets = jobs.iter().map(|(id, ..)| TransferTicket { transfer_id: *id }).collect();
-    tracing::debug!(connection_id, n = jobs.len(), ?dir, "sftp: transfers queued");
+    let tickets = jobs
+        .iter()
+        .map(|(id, ..)| TransferTicket { transfer_id: *id })
+        .collect();
+    tracing::debug!(
+        connection_id,
+        n = jobs.len(),
+        ?dir,
+        "sftp: transfers queued"
+    );
     tokio::spawn(async move {
         for (id, cancel, local, remote) in jobs {
             let r = match (&*browser, dir) {
-                (FileBrowser::Sftp(h), Direction::Up) => crate::sftp::transfer::upload(&events, h, id, &local, &remote, &cancel).await,
-                (FileBrowser::Sftp(h), Direction::Down) => crate::sftp::transfer::download(&events, h, id, &remote, &local, &cancel).await,
-                (FileBrowser::Wsl(h), Direction::Up) => crate::wslfs::transfer::upload(&events, h, id, &local, &remote, &cancel).await,
-                (FileBrowser::Wsl(h), Direction::Down) => crate::wslfs::transfer::download(&events, h, id, &remote, &local, &cancel).await,
+                (FileBrowser::Sftp(h), Direction::Up) => {
+                    crate::sftp::transfer::upload(&events, h, id, &local, &remote, &cancel).await
+                }
+                (FileBrowser::Sftp(h), Direction::Down) => {
+                    crate::sftp::transfer::download(&events, h, id, &remote, &local, &cancel).await
+                }
+                (FileBrowser::Wsl(h), Direction::Up) => {
+                    crate::wslfs::transfer::upload(&events, h, id, &local, &remote, &cancel).await
+                }
+                (FileBrowser::Wsl(h), Direction::Down) => {
+                    crate::wslfs::transfer::download(&events, h, id, &remote, &local, &cancel).await
+                }
             };
             registry.finish(id);
-            log_failed(id, if matches!(dir, Direction::Up) { "upload" } else { "download" }, r);
+            log_failed(
+                id,
+                if matches!(dir, Direction::Up) {
+                    "upload"
+                } else {
+                    "download"
+                },
+                r,
+            );
         }
     });
     Ok(tickets)
@@ -425,11 +450,17 @@ pub async fn sftp_walk(state: &AppState, connection_id: u64, root: String) -> Re
         };
         seen += list.len();
         if seen > WALK_MAX_ENTRIES {
-            return Err(AppError::Validation(format!("{root} has more than {WALK_MAX_ENTRIES} entries")));
+            return Err(AppError::Validation(format!(
+                "{root} has more than {WALK_MAX_ENTRIES} entries"
+            )));
         }
         let mut subdirs = Vec::new();
         for e in list {
-            let child = if rel.is_empty() { e.name.clone() } else { format!("{rel}/{}", e.name) };
+            let child = if rel.is_empty() {
+                e.name.clone()
+            } else {
+                format!("{rel}/{}", e.name)
+            };
             if e.is_dir && !e.is_symlink {
                 out.dirs.push(child.clone());
                 subdirs.push((e.full_path.clone(), child));

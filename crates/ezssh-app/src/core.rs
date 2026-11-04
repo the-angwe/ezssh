@@ -30,7 +30,10 @@ impl Core {
     /// Start the runtime and open the database at `db_path`. Core events
     /// (connection closed, …) arrive on the returned receiver; each one
     /// wakes the UI.
-    pub fn open(ctx: &egui::Context, db_path: &Path) -> anyhow::Result<(Self, mpsc::Receiver<Event>)> {
+    pub fn open(
+        ctx: &egui::Context,
+        db_path: &Path,
+    ) -> anyhow::Result<(Self, mpsc::Receiver<Event>)> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -46,13 +49,26 @@ impl Core {
             .block_on(AppState::open(db_path, events))
             .with_context(|| format!("opening the database {}", db_path.display()))?;
         let (jobs_tx, jobs_rx) = mpsc::channel();
-        Ok((Self { rt, state: Arc::new(state), jobs_tx, jobs_rx, ctx: ctx.clone() }, events_rx))
+        Ok((
+            Self {
+                rt,
+                state: Arc::new(state),
+                jobs_tx,
+                jobs_rx,
+                ctx: ctx.clone(),
+            },
+            events_rx,
+        ))
     }
 
     /// Run `f(state)` on the runtime; `then(app, result)` runs on the UI
     /// thread once it is done.
-    pub fn call<F, Fut, T>(&self, what: &'static str, f: F, then: impl FnOnce(&mut App, T) + Send + 'static)
-    where
+    pub fn call<F, Fut, T>(
+        &self,
+        what: &'static str,
+        f: F,
+        then: impl FnOnce(&mut App, T) + Send + 'static,
+    ) where
         F: FnOnce(Arc<AppState>) -> Fut,
         Fut: Future<Output = T> + Send + 'static,
         T: Send + 'static,
@@ -64,7 +80,10 @@ impl Core {
         self.rt.spawn(async move {
             let out = fut.await;
             tracing::trace!(what, "core.call done");
-            if tx.send(Box::new(move |app: &mut App| then(app, out))).is_err() {
+            if tx
+                .send(Box::new(move |app: &mut App| then(app, out)))
+                .is_err()
+            {
                 tracing::debug!(what, "core.call: UI gone, result dropped");
                 return;
             }

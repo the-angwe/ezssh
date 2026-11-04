@@ -15,7 +15,9 @@ use ezssh_core::api;
 use ezssh_core::db::sessions::SessionInput;
 use ezssh_term::CursorKind;
 
-use super::session_dialog::{cursor_style, font_family_picker, number_field, swatches, two_columns};
+use super::session_dialog::{
+    cursor_style, font_family_picker, number_field, swatches, two_columns,
+};
 use crate::app::App;
 use crate::font_presets::{self, MAX_FONT_SIZE, MIN_FONT_SIZE};
 use crate::form;
@@ -131,7 +133,8 @@ fn preview(app: &mut App, tab: TabId, shown: &Look, want: &Look) -> Look {
     }
     if cursor {
         let blink = slot.term.options().cursor_blink;
-        slot.term.set_cursor(CursorKind::from_setting(&want.cursor_style), blink);
+        slot.term
+            .set_cursor(CursorKind::from_setting(&want.cursor_style), blink);
         now.cursor_style = want.cursor_style.clone();
     }
     tracing::debug!(tab, ?now, "appearance: preview");
@@ -147,7 +150,9 @@ fn apply_to_tab(app: &mut App, tab: TabId, shown: &Look, look: &Look) {
         t.color = look.color.clone();
     }
     match app.terms.get_mut(&tab) {
-        Some(slot) => slot.term.set_scrollback(look.scrollback_lines.max(0) as usize),
+        Some(slot) => slot
+            .term
+            .set_scrollback(look.scrollback_lines.max(0) as usize),
         None => tracing::warn!(tab, "appearance: no terminal, scrollback not applied"),
     }
     tracing::info!(tab, ?look, "appearance: applied to tab");
@@ -260,7 +265,12 @@ fn save(app: &mut App, tab: TabId, serial: u64, look: Look) {
         return;
     };
     let id = t.session.id;
-    tracing::debug!(tab, session = id, ?look, "appearance: saving to the session");
+    tracing::debug!(
+        tab,
+        session = id,
+        ?look,
+        "appearance: saving to the session"
+    );
     let sent = look.clone();
     app.core.call(
         "session_update(appearance)",
@@ -295,7 +305,11 @@ fn save(app: &mut App, tab: TabId, serial: u64, look: Look) {
             api::sessions::session_update(&st, id, input).await
         },
         move |app, r| {
-            let mine = app.dialogs.appearance.as_ref().is_some_and(|d| d.serial == serial);
+            let mine = app
+                .dialogs
+                .appearance
+                .as_ref()
+                .is_some_and(|d| d.serial == serial);
             match r {
                 Ok(saved) => {
                     tracing::info!(tab, session = id, "appearance: saved to the session");
@@ -310,7 +324,12 @@ fn save(app: &mut App, tab: TabId, serial: u64, look: Look) {
                 }
                 Err(e) => {
                     tracing::warn!(tab, session = id, "appearance: save failed: {e}");
-                    match app.dialogs.appearance.as_mut().filter(|d| d.serial == serial) {
+                    match app
+                        .dialogs
+                        .appearance
+                        .as_mut()
+                        .filter(|d| d.serial == serial)
+                    {
                         Some(d) => {
                             d.busy = false;
                             d.err = Some(e.to_string());
@@ -328,14 +347,32 @@ mod tests {
     use super::*;
 
     fn look() -> Look {
-        Look { color: None, font_family: String::new(), font_size: 14, cursor_style: "block".into(), scrollback_lines: 1000 }
+        Look {
+            color: None,
+            font_family: String::new(),
+            font_size: 14,
+            cursor_style: "block".into(),
+            scrollback_lines: 1000,
+        }
     }
 
     #[test]
     fn validation_matches_the_session_dialog() {
         assert_eq!(validate(&look()), None);
-        assert_eq!(validate(&Look { font_size: 7, ..look() }), Some("Font size must be between 8 and 48"));
-        assert_eq!(validate(&Look { scrollback_lines: -1, ..look() }), Some("Scrollback must be between 0 and 100000"));
+        assert_eq!(
+            validate(&Look {
+                font_size: 7,
+                ..look()
+            }),
+            Some("Font size must be between 8 and 48")
+        );
+        assert_eq!(
+            validate(&Look {
+                scrollback_lines: -1,
+                ..look()
+            }),
+            Some("Scrollback must be between 0 and 100000")
+        );
     }
 
     #[test]

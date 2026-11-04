@@ -41,8 +41,14 @@ pub enum ViewMode {
 }
 
 impl ViewMode {
-    pub const ALL: [ViewMode; 6] =
-        [ViewMode::Tabs, ViewMode::TileH, ViewMode::TileV, ViewMode::TileGrid, ViewMode::Cascade, ViewMode::Auto];
+    pub const ALL: [ViewMode; 6] = [
+        ViewMode::Tabs,
+        ViewMode::TileH,
+        ViewMode::TileV,
+        ViewMode::TileGrid,
+        ViewMode::Cascade,
+        ViewMode::Auto,
+    ];
 
     /// The stored id (`layout.json`; the same values the ezTerm app kept in
     /// `ezterm.viewMode`).
@@ -102,7 +108,15 @@ const DEFAULT_FRAME_H: f32 = 400.0;
 impl CascadeGeom {
     fn staircase(count: usize, z: u64) -> Self {
         let offset = (count % 10) as f32 * STAIRCASE_STEP;
-        Self { x: offset, y: offset, w: DEFAULT_FRAME_W, h: DEFAULT_FRAME_H, z, maximized: false, prev: None }
+        Self {
+            x: offset,
+            y: offset,
+            w: DEFAULT_FRAME_W,
+            h: DEFAULT_FRAME_H,
+            z,
+            maximized: false,
+            prev: None,
+        }
     }
 
     /// Where the frame is drawn in an area of `area_w` × `area_h`: stored
@@ -121,13 +135,29 @@ impl CascadeGeom {
     }
 
     /// Title-bar drag: `start` moved by (dx, dy), kept inside the area.
-    pub fn dragged(start: (f32, f32, f32, f32), dx: f32, dy: f32, area_w: f32, area_h: f32) -> (f32, f32) {
+    pub fn dragged(
+        start: (f32, f32, f32, f32),
+        dx: f32,
+        dy: f32,
+        area_w: f32,
+        area_h: f32,
+    ) -> (f32, f32) {
         let (sx, sy, sw, sh) = start;
-        ((sx + dx).min(area_w - sw).max(0.0), (sy + dy).min(area_h - sh).max(0.0))
+        (
+            (sx + dx).min(area_w - sw).max(0.0),
+            (sy + dy).min(area_h - sh).max(0.0),
+        )
     }
 
     /// Edge / corner resize from `start` by (dx, dy). Returns (x, y, w, h).
-    pub fn resized(start: (f32, f32, f32, f32), edge: Edge, dx: f32, dy: f32, area_w: f32, area_h: f32) -> (f32, f32, f32, f32) {
+    pub fn resized(
+        start: (f32, f32, f32, f32),
+        edge: Edge,
+        dx: f32,
+        dy: f32,
+        area_w: f32,
+        area_h: f32,
+    ) -> (f32, f32, f32, f32) {
         let (sx, sy, sw, sh) = start;
         let (mut x, mut y, mut w, mut h) = start;
         if edge.east() {
@@ -163,7 +193,16 @@ pub enum Edge {
 }
 
 impl Edge {
-    pub const ALL: [Edge; 8] = [Edge::N, Edge::S, Edge::E, Edge::W, Edge::NE, Edge::NW, Edge::SE, Edge::SW];
+    pub const ALL: [Edge; 8] = [
+        Edge::N,
+        Edge::S,
+        Edge::E,
+        Edge::W,
+        Edge::NE,
+        Edge::NW,
+        Edge::SE,
+        Edge::SW,
+    ];
 
     fn north(self) -> bool {
         matches!(self, Edge::N | Edge::NE | Edge::NW)
@@ -255,7 +294,13 @@ pub struct Tabs {
 
 impl Tabs {
     pub fn new(view_mode: ViewMode, tile_grid: TileGrid) -> Self {
-        Self { view_mode, tile_grid, next_z: 1, next_id: 1, ..Self::default() }
+        Self {
+            view_mode,
+            tile_grid,
+            next_z: 1,
+            next_id: 1,
+            ..Self::default()
+        }
     }
 
     pub fn get(&self, id: TabId) -> Option<&Tab> {
@@ -275,7 +320,10 @@ impl Tabs {
     }
 
     pub fn by_connection(&self, connection_id: u64) -> Option<TabId> {
-        self.tabs.iter().find(|t| t.connection_id == Some(connection_id)).map(|t| t.id)
+        self.tabs
+            .iter()
+            .find(|t| t.connection_id == Some(connection_id))
+            .map(|t| t.id)
     }
 
     /// Open a tab for `session`; it becomes active and the sidebar collapses
@@ -284,7 +332,8 @@ impl Tabs {
         let id = self.next_id;
         self.next_id += 1;
         self.next_z += 1;
-        self.cascade.insert(id, CascadeGeom::staircase(self.cascade.len(), self.next_z));
+        self.cascade
+            .insert(id, CascadeGeom::staircase(self.cascade.len(), self.next_z));
         self.tabs.push(Tab {
             id,
             font_family: session.font_family.clone(),
@@ -304,7 +353,13 @@ impl Tabs {
 
     pub fn set_status(&mut self, id: TabId, status: TabStatus, message: Option<String>) {
         if let Some(t) = self.get_mut(id) {
-            tracing::debug!(tab = id, from = t.status.label(), to = status.label(), ?message, "tabs.status");
+            tracing::debug!(
+                tab = id,
+                from = t.status.label(),
+                to = status.label(),
+                ?message,
+                "tabs.status"
+            );
             t.status = status;
             t.message = message;
         }
@@ -391,7 +446,14 @@ impl Tabs {
         if g.maximized
             && let Some((x, y, w, h)) = g.prev.take()
         {
-            *g = CascadeGeom { x, y, w, h, maximized: false, ..*g };
+            *g = CascadeGeom {
+                x,
+                y,
+                w,
+                h,
+                maximized: false,
+                ..*g
+            };
         } else {
             g.prev = Some((g.x, g.y, g.w, g.h));
             g.x = 0.0;
@@ -404,8 +466,10 @@ impl Tabs {
 
     /// Cascade frames bottom to top.
     pub fn z_order(&self) -> Vec<TabId> {
-        let mut ids: Vec<(u64, TabId)> =
-            self.visible().map(|t| (self.cascade.get(&t.id).map_or(0, |g| g.z), t.id)).collect();
+        let mut ids: Vec<(u64, TabId)> = self
+            .visible()
+            .map(|t| (self.cascade.get(&t.id).map_or(0, |g| g.z), t.id))
+            .collect();
         ids.sort();
         ids.into_iter().map(|(_, id)| id).collect()
     }
@@ -445,7 +509,9 @@ mod tests {
 
     fn tabs_with(n: usize) -> (Tabs, Vec<TabId>) {
         let mut t = Tabs::new(ViewMode::Tabs, TileGrid::default());
-        let ids = (0..n).map(|i| t.open(test_session(i as i64, &format!("s{i}"), "ssh"))).collect();
+        let ids = (0..n)
+            .map(|i| t.open(test_session(i as i64, &format!("s{i}"), "ssh")))
+            .collect();
         (t, ids)
     }
 
@@ -474,7 +540,11 @@ mod tests {
         assert_eq!(t.active, Some(ids[2]));
         assert!(!t.cascade.contains_key(&ids[1]) && !t.minimized.contains(&ids[1]));
         t.close(ids[0]);
-        assert_eq!(t.active, Some(ids[2]), "closing an inactive tab keeps the active one");
+        assert_eq!(
+            t.active,
+            Some(ids[2]),
+            "closing an inactive tab keeps the active one"
+        );
     }
 
     #[test]
@@ -502,7 +572,10 @@ mod tests {
             m = m.next();
         }
         assert_eq!(m, ViewMode::Tabs);
-        assert_eq!(seen, ["tabs", "tile-h", "tile-v", "tile-grid", "cascade", "auto"]);
+        assert_eq!(
+            seen,
+            ["tabs", "tile-h", "tile-v", "tile-grid", "cascade", "auto"]
+        );
         for m in ViewMode::ALL {
             assert_eq!(ViewMode::from_id(m.id()), Some(m));
         }
@@ -534,7 +607,10 @@ mod tests {
         t.toggle_maximize(ids[1], 1000.0, 700.0);
         let g = t.cascade[&ids[1]];
         assert!(!g.maximized);
-        assert_eq!((g.x, g.y, g.w, g.h), (before.x, before.y, before.w, before.h));
+        assert_eq!(
+            (g.x, g.y, g.w, g.h),
+            (before.x, before.y, before.w, before.h)
+        );
     }
 
     #[test]
@@ -550,23 +626,55 @@ mod tests {
 
     #[test]
     fn cascade_geometry_clamps() {
-        let g = CascadeGeom { x: 900.0, y: 500.0, w: 640.0, h: 400.0, z: 1, maximized: false, prev: None };
+        let g = CascadeGeom {
+            x: 900.0,
+            y: 500.0,
+            w: 640.0,
+            h: 400.0,
+            z: 1,
+            maximized: false,
+            prev: None,
+        };
         assert_eq!(g.displayed(1000.0, 600.0), (360.0, 200.0, 640.0, 400.0));
         // Area smaller than the frame: frame shrinks to the area (not below the minimums).
         assert_eq!(g.displayed(500.0, 300.0), (0.0, 0.0, 500.0, 300.0));
         assert_eq!(g.displayed(100.0, 50.0), (0.0, 0.0, 200.0, 120.0));
 
         let start = (100.0, 100.0, 300.0, 200.0);
-        assert_eq!(CascadeGeom::dragged(start, -500.0, 50.0, 800.0, 600.0), (0.0, 150.0));
-        assert_eq!(CascadeGeom::dragged(start, 900.0, 900.0, 800.0, 600.0), (500.0, 400.0));
+        assert_eq!(
+            CascadeGeom::dragged(start, -500.0, 50.0, 800.0, 600.0),
+            (0.0, 150.0)
+        );
+        assert_eq!(
+            CascadeGeom::dragged(start, 900.0, 900.0, 800.0, 600.0),
+            (500.0, 400.0)
+        );
 
-        assert_eq!(CascadeGeom::resized(start, Edge::SE, 50.0, 20.0, 800.0, 600.0), (100.0, 100.0, 350.0, 220.0));
-        assert_eq!(CascadeGeom::resized(start, Edge::E, 1000.0, 0.0, 800.0, 600.0), (100.0, 100.0, 700.0, 200.0));
+        assert_eq!(
+            CascadeGeom::resized(start, Edge::SE, 50.0, 20.0, 800.0, 600.0),
+            (100.0, 100.0, 350.0, 220.0)
+        );
+        assert_eq!(
+            CascadeGeom::resized(start, Edge::E, 1000.0, 0.0, 800.0, 600.0),
+            (100.0, 100.0, 700.0, 200.0)
+        );
         // West edge: x and w move opposite, never below the minimum width.
-        assert_eq!(CascadeGeom::resized(start, Edge::W, -40.0, 0.0, 800.0, 600.0), (60.0, 100.0, 340.0, 200.0));
-        assert_eq!(CascadeGeom::resized(start, Edge::W, 250.0, 0.0, 800.0, 600.0), (200.0, 100.0, 200.0, 200.0));
-        assert_eq!(CascadeGeom::resized(start, Edge::NW, -200.0, -200.0, 800.0, 600.0), (0.0, 0.0, 400.0, 300.0));
-        assert_eq!(CascadeGeom::resized(start, Edge::N, 0.0, 150.0, 800.0, 600.0), (100.0, 180.0, 300.0, 120.0));
+        assert_eq!(
+            CascadeGeom::resized(start, Edge::W, -40.0, 0.0, 800.0, 600.0),
+            (60.0, 100.0, 340.0, 200.0)
+        );
+        assert_eq!(
+            CascadeGeom::resized(start, Edge::W, 250.0, 0.0, 800.0, 600.0),
+            (200.0, 100.0, 200.0, 200.0)
+        );
+        assert_eq!(
+            CascadeGeom::resized(start, Edge::NW, -200.0, -200.0, 800.0, 600.0),
+            (0.0, 0.0, 400.0, 300.0)
+        );
+        assert_eq!(
+            CascadeGeom::resized(start, Edge::N, 0.0, 150.0, 800.0, 600.0),
+            (100.0, 180.0, 300.0, 120.0)
+        );
     }
 
     #[test]
@@ -589,12 +697,30 @@ mod tests {
         assert_eq!(tab.summary(), "root@example.org");
         s.port = 2222;
         assert_eq!(session_summary(&s), "root@example.org:2222");
-        let local = Tab { session: Session { host: "/bin/bash".into(), port: 0, username: String::new(), ..test_session(2, "bash", "local") }, ..tab };
+        let local = Tab {
+            session: Session {
+                host: "/bin/bash".into(),
+                port: 0,
+                username: String::new(),
+                ..test_session(2, "bash", "local")
+            },
+            ..tab
+        };
         assert_eq!(local.label(true), "bash", "local shells keep their name");
         assert_eq!(local.summary(), "/bin/bash");
-        let wsl = Session { host: "Ubuntu".into(), port: 0, ..test_session(3, "Ubuntu", "wsl") };
+        let wsl = Session {
+            host: "Ubuntu".into(),
+            port: 0,
+            ..test_session(3, "Ubuntu", "wsl")
+        };
         assert_eq!(session_summary(&wsl), "root@Ubuntu");
-        assert_eq!(session_summary(&Session { username: String::new(), ..wsl }), "Ubuntu");
+        assert_eq!(
+            session_summary(&Session {
+                username: String::new(),
+                ..wsl
+            }),
+            "Ubuntu"
+        );
     }
 
     impl Tabs {

@@ -123,7 +123,13 @@ impl SyncDialog {
     }
 
     fn clear_secrets(&mut self) {
-        for s in [&mut self.local_pass, &mut self.local_pass2, &mut self.s3_secret, &mut self.s3_pass, &mut self.s3_pass2] {
+        for s in [
+            &mut self.local_pass,
+            &mut self.local_pass2,
+            &mut self.s3_secret,
+            &mut self.s3_pass,
+            &mut self.s3_pass2,
+        ] {
             *s = Zeroizing::default();
         }
     }
@@ -152,7 +158,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
     let t = tokens(ctx);
     let enabled = dlg.enabled();
-    let (icon, icon_color) = if enabled { (Icon::Cloud, t.accent) } else { (Icon::CloudOff, t.muted) };
+    let (icon, icon_color) = if enabled {
+        (Icon::Cloud, t.accent)
+    } else {
+        (Icon::CloudOff, t.muted)
+    };
     let busy = dlg.busy;
     let mut act = None;
     let out = Dialog::data(Id::unique("sync-dialog"), 620.0)
@@ -196,8 +206,18 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
         ui.spacing_mut().item_spacing.y = 6.0;
         form::caption(ui, "Target");
         let cards = [
-            (Kind::Local, Icon::FolderOpen, "Local folder", "Dropbox / OneDrive / iCloud / Google Drive sync folder"),
-            (Kind::S3, Icon::Server, "S3-compatible", "AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO, …"),
+            (
+                Kind::Local,
+                Icon::FolderOpen,
+                "Local folder",
+                "Dropbox / OneDrive / iCloud / Google Drive sync folder",
+            ),
+            (
+                Kind::S3,
+                Icon::Server,
+                "S3-compatible",
+                "AWS, Cloudflare R2, Backblaze B2, Wasabi, MinIO, …",
+            ),
         ];
         if let Some(kind) = form::option_cards(ui, &dlg.kind, &cards)
             && dlg.kind != kind
@@ -218,8 +238,18 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     let browse_w = 86.0;
                     let w = ui.available_width() - browse_w - 8.0;
-                    let r = form::input(ui, &mut dlg.path, InputOpts::new(r"C:\Users\you\Dropbox\ezssh").mono().width(w));
-                    if Button::secondary("Browse").icon(Icon::FolderOpen).show(ui).clicked() {
+                    let r = form::input(
+                        ui,
+                        &mut dlg.path,
+                        InputOpts::new(r"C:\Users\you\Dropbox\ezssh")
+                            .mono()
+                            .width(w),
+                    );
+                    if Button::secondary("Browse")
+                        .icon(Icon::FolderOpen)
+                        .show(ui)
+                        .clicked()
+                    {
                         *act = Some(Act::Browse);
                     }
                     r
@@ -230,23 +260,45 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
         }
         Kind::S3 => {
             shared::labeled(ui, "Endpoint URL", |ui| {
-                form::input(ui, &mut dlg.s3_endpoint, InputOpts::new("https://s3.us-east-005.backblazeb2.com").mono())
+                form::input(
+                    ui,
+                    &mut dlg.s3_endpoint,
+                    InputOpts::new("https://s3.us-east-005.backblazeb2.com").mono(),
+                )
             });
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 let w = (ui.available_width() - 8.0) / 2.0;
                 ui.vertical(|ui| {
                     ui.set_width(w);
-                    shared::labeled(ui, "Bucket", |ui| form::input(ui, &mut dlg.s3_bucket, InputOpts::new("ezssh-sync").mono().width(w)));
+                    shared::labeled(ui, "Bucket", |ui| {
+                        form::input(
+                            ui,
+                            &mut dlg.s3_bucket,
+                            InputOpts::new("ezssh-sync").mono().width(w),
+                        )
+                    });
                 });
                 ui.vertical(|ui| {
                     ui.set_width(w);
-                    shared::labeled(ui, "Region", |ui| form::input(ui, &mut dlg.s3_region, InputOpts::new("auto").mono().width(w)));
+                    shared::labeled(ui, "Region", |ui| {
+                        form::input(
+                            ui,
+                            &mut dlg.s3_region,
+                            InputOpts::new("auto").mono().width(w),
+                        )
+                    });
                 });
             });
-            shared::labeled(ui, "Key prefix (optional)", |ui| form::input(ui, &mut dlg.s3_prefix, InputOpts::new("ezssh/").mono()));
-            shared::labeled(ui, "Access key ID", |ui| form::input(ui, &mut dlg.s3_access_key_id, InputOpts::new("").mono()));
-            shared::labeled(ui, "Secret access key", |ui| form::secret(ui, &mut dlg.s3_secret, "", &mut dlg.show, None));
+            shared::labeled(ui, "Key prefix (optional)", |ui| {
+                form::input(ui, &mut dlg.s3_prefix, InputOpts::new("ezssh/").mono())
+            });
+            shared::labeled(ui, "Access key ID", |ui| {
+                form::input(ui, &mut dlg.s3_access_key_id, InputOpts::new("").mono())
+            });
+            shared::labeled(ui, "Secret access key", |ui| {
+                form::secret(ui, &mut dlg.s3_secret, "", &mut dlg.show, None)
+            });
             passphrase_fields(ui, &mut dlg.s3_pass, &mut dlg.s3_pass2, &mut dlg.show);
             form::hint(
                 ui,
@@ -262,18 +314,26 @@ fn body(ui: &mut Ui, dlg: &mut SyncDialog, act: &mut Option<Act>) {
 }
 
 fn passphrase_fields(ui: &mut Ui, pass: &mut String, confirm: &mut String, shown: &mut bool) {
-    shared::labeled(ui, "Sync passphrase (≥ 8 chars — wraps the bundle; distinct from master password)", |ui| {
-        form::secret(ui, pass, "", shown, None)
-    });
+    shared::labeled(
+        ui,
+        "Sync passphrase (≥ 8 chars — wraps the bundle; distinct from master password)",
+        |ui| form::secret(ui, pass, "", shown, None),
+    );
     let s = *shown;
-    shared::labeled(ui, "Confirm passphrase", |ui| shared::password(ui, confirm, s));
+    shared::labeled(ui, "Confirm passphrase", |ui| {
+        shared::password(ui, confirm, s)
+    });
 }
 
 /// The always-present status box (mono, `bg-surface2/30`).
 fn status_strip(ui: &mut Ui, s: &SyncStatus) {
     let t = tokens(ui.ctx());
     let enabled = s.kind != "none";
-    let mono = |text: &str, color| RichText::new(text.to_string()).font(egui::FontId::monospace(size::SM)).color(color);
+    let mono = |text: &str, color| {
+        RichText::new(text.to_string())
+            .font(egui::FontId::monospace(size::SM))
+            .color(color)
+    };
     Frame::new()
         .fill(t.bg)
         .stroke(Stroke::new(1.0, t.border))
@@ -309,7 +369,11 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
             if s.kind == "s3"
                 && let Some(ep) = &s.s3_endpoint
             {
-                line(ui, "Bucket: ", &format!("{}@{ep}", s.s3_bucket.as_deref().unwrap_or("")));
+                line(
+                    ui,
+                    "Bucket: ",
+                    &format!("{}@{ep}", s.s3_bucket.as_deref().unwrap_or("")),
+                );
                 if let Some(p) = &s.s3_prefix {
                     line(ui, "Prefix: ", p);
                 }
@@ -321,7 +385,12 @@ fn status_strip(ui: &mut Ui, s: &SyncStatus) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label(mono("Last sync: ", t.muted));
-                    ui.label(mono(&s.last_success_at.as_deref().map_or_else(|| "—".to_string(), |t| shared::local_time(t, true)), t.fg));
+                    ui.label(mono(
+                        &s.last_success_at
+                            .as_deref()
+                            .map_or_else(|| "—".to_string(), |t| shared::local_time(t, true)),
+                        t.fg,
+                    ));
                     if s.pending {
                         ui.add_space(8.0);
                         ui.label(mono("(writing…)", t.accent));
@@ -343,26 +412,47 @@ fn footer(ui: &mut Ui, dlg: &SyncDialog, act: &mut Option<Act>) {
     let busy = dlg.busy;
     let enabled = dlg.enabled();
     let same_kind = dlg.status.as_ref().is_some_and(|s| s.kind == dlg.kind.id());
-    let label = if enabled && same_kind { "Update & push" } else { "Enable sync" };
-    if widgets::Button::primary(label).enabled(!busy).show(ui).clicked() {
+    let label = if enabled && same_kind {
+        "Update & push"
+    } else {
+        "Enable sync"
+    };
+    if widgets::Button::primary(label)
+        .enabled(!busy)
+        .show(ui)
+        .clicked()
+    {
         *act = Some(Act::Save);
     }
     if busy {
         form::spinner(ui, 12.0);
     }
     if enabled {
-        if Button::secondary("Push now").icon(Icon::RefreshCw).enabled(!busy).show(ui).clicked() {
+        if Button::secondary("Push now")
+            .icon(Icon::RefreshCw)
+            .enabled(!busy)
+            .show(ui)
+            .clicked()
+        {
             *act = Some(Act::Push);
         }
         if dlg.status.as_ref().is_some_and(|s| s.kind == "s3")
-            && Button::secondary("Pull from cloud").icon(Icon::Download).enabled(!busy).show(ui)
+            && Button::secondary("Pull from cloud")
+                .icon(Icon::Download)
+                .enabled(!busy)
+                .show(ui)
                 .on_hover_text("Download the remote bundle and open the Restore dialog")
                 .clicked()
         {
             *act = Some(Act::Pull);
         }
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            if Button::secondary("Disable").tint(t.danger).enabled(!busy).show(ui).clicked() {
+            if Button::secondary("Disable")
+                .tint(t.danger)
+                .enabled(!busy)
+                .show(ui)
+                .clicked()
+            {
                 *act = Some(Act::Disable);
             }
         });
@@ -403,18 +493,23 @@ fn reseed(d: &mut SyncDialog) {
 }
 
 fn browse(app: &App) {
-    app.pick_path(Pick::Folder { title: "Sync folder (Dropbox / OneDrive / iCloud / …)" }, |app, path| {
-        let Some(d) = app.dialogs.sync.as_mut() else {
-            return;
-        };
-        match path {
-            Some(p) => {
-                tracing::debug!(path = %p.display(), "sync: folder chosen");
-                d.path = p.to_string_lossy().into_owned();
+    app.pick_path(
+        Pick::Folder {
+            title: "Sync folder (Dropbox / OneDrive / iCloud / …)",
+        },
+        |app, path| {
+            let Some(d) = app.dialogs.sync.as_mut() else {
+                return;
+            };
+            match path {
+                Some(p) => {
+                    tracing::debug!(path = %p.display(), "sync: folder chosen");
+                    d.path = p.to_string_lossy().into_owned();
+                }
+                None => tracing::debug!("sync: folder dialog cancelled"),
             }
-            None => tracing::debug!("sync: folder dialog cancelled"),
-        }
-    });
+        },
+    );
 }
 
 /// Run a sync call with the dialog busy; `ok` updates the dialog after a
@@ -430,22 +525,26 @@ fn run<T: Send + 'static>(
     dlg.msg = None;
     dlg.busy = true;
     tracing::debug!(what, "sync: calling");
-    app.core.call(what, move |_st| call, move |app, r| match r {
-        Ok(v) => {
-            tracing::debug!(what, "sync: ok");
-            if let Some(d) = app.dialogs.sync.as_mut() {
-                d.busy = false;
+    app.core.call(
+        what,
+        move |_st| call,
+        move |app, r| match r {
+            Ok(v) => {
+                tracing::debug!(what, "sync: ok");
+                if let Some(d) = app.dialogs.sync.as_mut() {
+                    d.busy = false;
+                }
+                ok(app, v);
             }
-            ok(app, v);
-        }
-        Err(e) => {
-            tracing::warn!(what, "sync: failed: {e}");
-            if let Some(d) = app.dialogs.sync.as_mut() {
-                d.busy = false;
-                d.err = Some(e.to_string());
+            Err(e) => {
+                tracing::warn!(what, "sync: failed: {e}");
+                if let Some(d) = app.dialogs.sync.as_mut() {
+                    d.busy = false;
+                    d.err = Some(e.to_string());
+                }
             }
-        }
-    });
+        },
+    );
 }
 
 fn fail(dlg: &mut SyncDialog, msg: &str) {
@@ -464,21 +563,30 @@ fn save_local(app: &mut App, dlg: &mut SyncDialog) {
     let pass = dlg.local_pass.to_string();
     tracing::info!(path = %path, "sync: enabling the local folder target");
     let st = app.core.state.clone();
-    run(app, dlg, "sync_configure_local", async move { api::sync::sync_configure_local(&st, path, pass).await }, |app, ()| {
-        if let Some(d) = app.dialogs.sync.as_mut() {
-            d.local_pass = Zeroizing::default();
-            d.local_pass2 = Zeroizing::default();
-            d.msg = Some("Local-folder sync enabled. Initial push queued.".into());
-            reseed(d);
-        }
-    });
+    run(
+        app,
+        dlg,
+        "sync_configure_local",
+        async move { api::sync::sync_configure_local(&st, path, pass).await },
+        |app, ()| {
+            if let Some(d) = app.dialogs.sync.as_mut() {
+                d.local_pass = Zeroizing::default();
+                d.local_pass2 = Zeroizing::default();
+                d.msg = Some("Local-folder sync enabled. Initial push queued.".into());
+                reseed(d);
+            }
+        },
+    );
 }
 
 fn save_s3(app: &mut App, dlg: &mut SyncDialog) {
     let required = [
         (dlg.s3_endpoint.trim().is_empty(), "Endpoint required"),
         (dlg.s3_bucket.trim().is_empty(), "Bucket required"),
-        (dlg.s3_access_key_id.trim().is_empty(), "Access key ID required"),
+        (
+            dlg.s3_access_key_id.trim().is_empty(),
+            "Access key ID required",
+        ),
         (dlg.s3_secret.is_empty(), "Secret access key required"),
     ];
     if let Some((_, msg)) = required.iter().find(|(missing, _)| *missing) {
@@ -490,7 +598,11 @@ fn save_s3(app: &mut App, dlg: &mut SyncDialog) {
     let region = dlg.s3_region.trim();
     let cfg = S3ConfigInput {
         endpoint: dlg.s3_endpoint.trim().to_string(),
-        region: if region.is_empty() { "auto".into() } else { region.to_string() },
+        region: if region.is_empty() {
+            "auto".into()
+        } else {
+            region.to_string()
+        },
         bucket: dlg.s3_bucket.trim().to_string(),
         prefix: dlg.s3_prefix.trim().to_string(),
         access_key_id: dlg.s3_access_key_id.trim().to_string(),
@@ -499,15 +611,21 @@ fn save_s3(app: &mut App, dlg: &mut SyncDialog) {
     };
     tracing::info!(endpoint = %cfg.endpoint, bucket = %cfg.bucket, region = %cfg.region, "sync: enabling the S3 target");
     let st = app.core.state.clone();
-    run(app, dlg, "sync_configure_s3", async move { api::sync::sync_configure_s3(&st, cfg).await }, |app, ()| {
-        if let Some(d) = app.dialogs.sync.as_mut() {
-            d.s3_secret = Zeroizing::default();
-            d.s3_pass = Zeroizing::default();
-            d.s3_pass2 = Zeroizing::default();
-            d.msg = Some("S3 sync enabled. Initial push queued.".into());
-            reseed(d);
-        }
-    });
+    run(
+        app,
+        dlg,
+        "sync_configure_s3",
+        async move { api::sync::sync_configure_s3(&st, cfg).await },
+        |app, ()| {
+            if let Some(d) = app.dialogs.sync.as_mut() {
+                d.s3_secret = Zeroizing::default();
+                d.s3_pass = Zeroizing::default();
+                d.s3_pass2 = Zeroizing::default();
+                d.msg = Some("S3 sync enabled. Initial push queued.".into());
+                reseed(d);
+            }
+        },
+    );
 }
 
 /// The sync dialog's passphrase wording ("≥ 8").
@@ -521,35 +639,53 @@ fn check(pass: &str, confirm: &str) -> Result<(), &'static str> {
 fn disable(app: &mut App, dlg: &mut SyncDialog) {
     tracing::info!("sync: disabling");
     let st = app.core.state.clone();
-    run(app, dlg, "sync_disable", async move { api::sync::sync_disable(&st).await }, |app, ()| {
-        if let Some(d) = app.dialogs.sync.as_mut() {
-            d.msg = Some("Sync disabled.".into());
-            d.clear_secrets();
-            reseed(d);
-        }
-    });
+    run(
+        app,
+        dlg,
+        "sync_disable",
+        async move { api::sync::sync_disable(&st).await },
+        |app, ()| {
+            if let Some(d) = app.dialogs.sync.as_mut() {
+                d.msg = Some("Sync disabled.".into());
+                d.clear_secrets();
+                reseed(d);
+            }
+        },
+    );
 }
 
 fn push(app: &mut App, dlg: &mut SyncDialog) {
     let st = app.core.state.clone();
-    run(app, dlg, "sync_push_now", async move { api::sync::sync_push_now(&st).await }, |app, ()| {
-        if let Some(d) = app.dialogs.sync.as_mut() {
-            d.msg = Some("Push queued — will write within a few seconds.".into());
-            d.next_poll = None;
-        }
-    });
+    run(
+        app,
+        dlg,
+        "sync_push_now",
+        async move { api::sync::sync_push_now(&st).await },
+        |app, ()| {
+            if let Some(d) = app.dialogs.sync.as_mut() {
+                d.msg = Some("Push queued — will write within a few seconds.".into());
+                d.next_poll = None;
+            }
+        },
+    );
 }
 
 fn pull(app: &mut App, dlg: &mut SyncDialog) {
     let st = app.core.state.clone();
-    run(app, dlg, "sync_pull_to_temp", async move { api::sync::sync_pull_to_temp(&st).await }, |app, path| {
-        // Closed or locked meanwhile: do not pop a restore dialog uninvited.
-        if app.dialogs.sync.is_none() {
-            tracing::info!(%path, "sync: pull finished after the dialog closed, not opening restore");
-            return;
-        }
-        hand_off_pull(app, PathBuf::from(path));
-    });
+    run(
+        app,
+        dlg,
+        "sync_pull_to_temp",
+        async move { api::sync::sync_pull_to_temp(&st).await },
+        |app, path| {
+            // Closed or locked meanwhile: do not pop a restore dialog uninvited.
+            if app.dialogs.sync.is_none() {
+                tracing::info!(%path, "sync: pull finished after the dialog closed, not opening restore");
+                return;
+            }
+            hand_off_pull(app, PathBuf::from(path));
+        },
+    );
 }
 
 /// Close the sync dialog and open the restore dialog on a pulled bundle.
@@ -566,24 +702,54 @@ mod tests {
     #[test]
     fn times_and_passphrase_wording() {
         let cet = chrono::FixedOffset::east_opt(3600).expect("offset");
-        assert_eq!(shared::local_time_in("2026-11-01T12:34:56.123456+00:00", &cet, true), "2026-11-01 13:34:56");
-        assert_eq!(shared::local_time_in("2026-11-01T23:34:56Z", &cet, true), "2026-11-02 00:34:56");
-        assert_eq!(shared::local_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc, true), "2026-11-01 10:34:56");
-        assert_eq!(shared::local_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc, false), "2026-11-01 10:34");
+        assert_eq!(
+            shared::local_time_in("2026-11-01T12:34:56.123456+00:00", &cet, true),
+            "2026-11-01 13:34:56"
+        );
+        assert_eq!(
+            shared::local_time_in("2026-11-01T23:34:56Z", &cet, true),
+            "2026-11-02 00:34:56"
+        );
+        assert_eq!(
+            shared::local_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc, true),
+            "2026-11-01 10:34:56"
+        );
+        assert_eq!(
+            shared::local_time_in("2026-11-01T12:34:56+02:00", &chrono::Utc, false),
+            "2026-11-01 10:34"
+        );
         assert_eq!(shared::local_time("soon", true), "soon");
-        assert_eq!(check("short", "short"), Err("Passphrase must be ≥ 8 characters"));
-        assert_eq!(check("long enough", "nope nope"), Err("Passphrases do not match"));
+        assert_eq!(
+            check("short", "short"),
+            Err("Passphrase must be ≥ 8 characters")
+        );
+        assert_eq!(
+            check("long enough", "nope nope"),
+            Err("Passphrases do not match")
+        );
     }
 
     #[test]
     fn status_seeds_the_form_once() {
         let mut d = SyncDialog::default();
         assert_eq!(d.s3_region, "auto");
-        d.apply_status(SyncStatus { kind: "s3".into(), s3_bucket: Some("b".into()), ..SyncStatus::default() });
+        d.apply_status(SyncStatus {
+            kind: "s3".into(),
+            s3_bucket: Some("b".into()),
+            ..SyncStatus::default()
+        });
         assert_eq!((d.kind, d.s3_bucket.as_str()), (Kind::S3, "b"));
         d.kind = Kind::Local;
         d.s3_bucket = "typing".into();
-        d.apply_status(SyncStatus { kind: "s3".into(), s3_bucket: Some("b".into()), ..SyncStatus::default() });
-        assert_eq!((d.kind, d.s3_bucket.as_str()), (Kind::Local, "typing"), "a poll keeps what the user changed");
+        d.apply_status(SyncStatus {
+            kind: "s3".into(),
+            s3_bucket: Some("b".into()),
+            ..SyncStatus::default()
+        });
+        assert_eq!(
+            (d.kind, d.s3_bucket.as_str()),
+            (Kind::Local, "typing"),
+            "a poll keeps what the user changed"
+        );
     }
 }

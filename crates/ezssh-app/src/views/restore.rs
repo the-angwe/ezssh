@@ -11,8 +11,8 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use egui::{Align, CornerRadius, Frame, Id, Layout, Margin, RichText, Ui, vec2};
-use ezssh_core::{AppError, api};
 use ezssh_core::api::backup::{BackupPreview, RestoreSummary, SelectionSpec};
+use ezssh_core::{AppError, api};
 use zeroize::Zeroizing;
 
 use super::backup::{self as shared, Span, count, join_or};
@@ -47,14 +47,22 @@ impl Selection {
             folders: p.folders.iter().map(|f| f.id).collect(),
             sessions: p.sessions.iter().map(|s| s.id).collect(),
             creds: p.credentials.iter().map(|c| c.id).collect(),
-            hosts: p.known_hosts.iter().map(|k| (k.host.clone(), k.port)).collect(),
+            hosts: p
+                .known_hosts
+                .iter()
+                .map(|k| (k.host.clone(), k.port))
+                .collect(),
             settings: true,
         }
     }
 
     /// The footer's "N items selected" (settings count as one).
     fn total(&self, p: &BackupPreview) -> usize {
-        self.folders.len() + self.sessions.len() + self.creds.len() + self.hosts.len() + usize::from(self.settings && p.setting_count > 0)
+        self.folders.len()
+            + self.sessions.len()
+            + self.creds.len()
+            + self.hosts.len()
+            + usize::from(self.settings && p.setting_count > 0)
     }
 
     fn spec(&self, p: &BackupPreview) -> SelectionSpec {
@@ -73,7 +81,11 @@ impl Selection {
         p.sessions
             .iter()
             .filter(|s| self.sessions.contains(&s.id))
-            .filter(|s| s.credential_id.is_some_and(|c| p.credentials.iter().any(|k| k.id == c) && !self.creds.contains(&c)))
+            .filter(|s| {
+                s.credential_id.is_some_and(|c| {
+                    p.credentials.iter().any(|k| k.id == c) && !self.creds.contains(&c)
+                })
+            })
             .map(|s| s.name.as_str())
             .collect()
     }
@@ -99,7 +111,10 @@ pub struct RestoreDialog {
 
 impl RestoreDialog {
     pub fn from_path(path: PathBuf) -> Self {
-        Self { path: Some(path), ..Self::default() }
+        Self {
+            path: Some(path),
+            ..Self::default()
+        }
     }
 }
 
@@ -128,55 +143,86 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     };
     let t = tokens(ctx);
     let path_text = path.display().to_string();
-    let footer = if dlg.step == Step::Passphrase { DialogFooter::Inline } else { DialogFooter::Strip };
+    let footer = if dlg.step == Step::Passphrase {
+        DialogFooter::Inline
+    } else {
+        DialogFooter::Strip
+    };
     let busy = dlg.busy;
     let mut act = None;
     let out = Dialog::data(Id::unique("restore-dialog"), 620.0)
-        .header(Icon::PackageCheck, t.accent, "Restore from backup", Some(&path_text))
+        .header(
+            Icon::PackageCheck,
+            t.accent,
+            "Restore from backup",
+            Some(&path_text),
+        )
         .footer(footer)
         .busy(busy)
         .show(ctx, |ui, part| match (part, dlg.step) {
-        (DialogPart::Body, Step::Passphrase) => {
-            let r = shared::labeled(ui, "Backup passphrase", |ui| form::secret(ui, &mut dlg.passphrase, "", &mut dlg.show, None));
-            shared::autofocus(&r, &mut dlg.focused, Step::Passphrase);
-            if crate::form::entered(ui, &r) {
-                act = Some(Act::Unlock);
+            (DialogPart::Body, Step::Passphrase) => {
+                let r = shared::labeled(ui, "Backup passphrase", |ui| {
+                    form::secret(ui, &mut dlg.passphrase, "", &mut dlg.show, None)
+                });
+                shared::autofocus(&r, &mut dlg.focused, Step::Passphrase);
+                if crate::form::entered(ui, &r) {
+                    act = Some(Act::Unlock);
+                }
+                shared::error_line(ui, dlg.err.as_deref());
             }
-            shared::error_line(ui, dlg.err.as_deref());
-        }
-        (DialogPart::Footer, Step::Passphrase) => {
-            if widgets::Button::primary("Unlock backup").enabled(!busy && !dlg.passphrase.is_empty()).show(ui).clicked() {
-                act = Some(Act::Unlock);
+            (DialogPart::Footer, Step::Passphrase) => {
+                if widgets::Button::primary("Unlock backup")
+                    .enabled(!busy && !dlg.passphrase.is_empty())
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Unlock);
+                }
+                if busy {
+                    form::spinner(ui, 12.0);
+                }
+                if Button::secondary("Cancel")
+                    .enabled(!busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Close);
+                }
             }
-            if busy {
-                form::spinner(ui, 12.0);
+            (DialogPart::Body, Step::Select) => {
+                if let Some(p) = dlg.preview.as_ref() {
+                    select_body(ui, p, &mut dlg.sel);
+                }
+                shared::error_line(ui, dlg.err.as_deref());
             }
-            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
-                act = Some(Act::Close);
+            (DialogPart::Footer, Step::Select) => {
+                let total = dlg.preview.as_ref().map_or(0, |p| dlg.sel.total(p));
+                if widgets::Button::primary("Import selected")
+                    .enabled(!busy && total > 0)
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Restore);
+                }
+                if busy {
+                    form::spinner(ui, 12.0);
+                }
+                if Button::secondary("Cancel")
+                    .enabled(!busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Close);
+                }
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(format!("{total} items selected"))
+                            .font(font(size::SM))
+                            .color(t.muted),
+                    );
+                });
             }
-        }
-        (DialogPart::Body, Step::Select) => {
-            if let Some(p) = dlg.preview.as_ref() {
-                select_body(ui, p, &mut dlg.sel);
-            }
-            shared::error_line(ui, dlg.err.as_deref());
-        }
-        (DialogPart::Footer, Step::Select) => {
-            let total = dlg.preview.as_ref().map_or(0, |p| dlg.sel.total(p));
-            if widgets::Button::primary("Import selected").enabled(!busy && total > 0).show(ui).clicked() {
-                act = Some(Act::Restore);
-            }
-            if busy {
-                form::spinner(ui, 12.0);
-            }
-            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
-                act = Some(Act::Close);
-            }
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.label(RichText::new(format!("{total} items selected")).font(font(size::SM)).color(t.muted));
-            });
-        }
-    });
+        });
     if out.dismissed() && !busy {
         act = Some(Act::Close);
     }
@@ -194,7 +240,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
 fn pick_file(app: &App, serial: u64) {
     app.pick_path(
-        Pick::Open { title: "Restore ezSsh backup", filters: vec![Filter { name: "ezSsh backup", extensions: &["json"] }] },
+        Pick::Open {
+            title: "Restore ezSsh backup",
+            filters: vec![Filter {
+                name: "ezSsh backup",
+                extensions: &["json"],
+            }],
+        },
         move |app, path| {
             let Some(d) = app.dialogs.restore.as_mut().filter(|d| d.serial == serial) else {
                 return;
@@ -286,11 +338,17 @@ fn restore(app: &mut App, dlg: &mut RestoreDialog, path: PathBuf) {
         move |app, r| match r {
             Ok(summary) => {
                 tracing::info!(path = %path.display(), ?summary, "restore: done");
-                if app.dialogs.restore.as_ref().is_some_and(|d| d.serial == serial) {
+                if app
+                    .dialogs
+                    .restore
+                    .as_ref()
+                    .is_some_and(|d| d.serial == serial)
+                {
                     app.dialogs.restore = None;
                 }
                 after_restore(app, &summary);
-                app.toasts.success("Restore complete", summary_text(&summary));
+                app.toasts
+                    .success("Restore complete", summary_text(&summary));
             }
             Err(e) => {
                 tracing::warn!(path = %path.display(), "restore: failed: {e}");
@@ -317,7 +375,10 @@ fn after_restore(app: &mut App, s: &RestoreSummary) {
         |app, rows| match rows {
             Ok(rows) => {
                 tracing::debug!(n = rows.len(), "restore: settings reloaded");
-                let theme = rows.iter().find(|(k, _)| k == "theme").map(|(_, v)| v.as_str());
+                let theme = rows
+                    .iter()
+                    .find(|(k, _)| k == "theme")
+                    .map(|(_, v)| v.as_str());
                 let theme = Theme::from_setting(theme);
                 app.settings = Settings::from_rows(&rows);
                 app.apply_settings();
@@ -357,73 +418,140 @@ fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
     let t = tokens(ui.ctx());
     let version = format!("v{}", p.app_version);
     let created = shared::local_time(&p.created_at, true);
-    shared::rich(ui, &[(Span::Muted, "Created "), (Span::Mono, &created), (Span::Muted, " · version "), (Span::Mono, &version)]);
+    shared::rich(
+        ui,
+        &[
+            (Span::Muted, "Created "),
+            (Span::Mono, &created),
+            (Span::Muted, " · version "),
+            (Span::Mono, &version),
+        ],
+    );
 
     // Folders.
     let all = p.folders.iter().map(|f| f.id);
-    section(ui, Icon::Folder, "Folders", &mut sel.folders, all, |ui, set| {
-        for f in &p.folders {
-            row(ui, set, f.id, &f.name, None, None);
-        }
-    });
+    section(
+        ui,
+        Icon::Folder,
+        "Folders",
+        &mut sel.folders,
+        all,
+        |ui, set| {
+            for f in &p.folders {
+                row(ui, set, f.id, &f.name, None, None);
+            }
+        },
+    );
 
     // Sessions, with the password marker and the missing-key warning.
     let missing: BTreeSet<i64> = p
         .sessions
         .iter()
-        .filter(|s| s.credential_id.is_some_and(|c| p.credentials.iter().any(|k| k.id == c) && !sel.creds.contains(&c)))
+        .filter(|s| {
+            s.credential_id
+                .is_some_and(|c| p.credentials.iter().any(|k| k.id == c) && !sel.creds.contains(&c))
+        })
         .map(|s| s.id)
         .collect();
     let all = p.sessions.iter().map(|s| s.id);
-    section(ui, Icon::Server, "Sessions", &mut sel.sessions, all, |ui, set| {
-        for s in &p.sessions {
-            let port = if s.port != 22 { format!(":{}", s.port) } else { String::new() };
-            let sub = format!("{} · {}@{}{port}", s.session_kind, s.username, s.host);
-            let marker = if s.has_password {
-                Some(Marker::Password)
-            } else if missing.contains(&s.id) && set.contains(&s.id) {
-                let key = s.credential_id.and_then(|c| p.credentials.iter().find(|k| k.id == c)).map_or("", |k| k.label.as_str());
-                Some(Marker::KeyMissing(key))
-            } else {
-                None
-            };
-            row(ui, set, s.id, &s.name, Some(&sub), marker);
-        }
-    });
+    section(
+        ui,
+        Icon::Server,
+        "Sessions",
+        &mut sel.sessions,
+        all,
+        |ui, set| {
+            for s in &p.sessions {
+                let port = if s.port != 22 {
+                    format!(":{}", s.port)
+                } else {
+                    String::new()
+                };
+                let sub = format!("{} · {}@{}{port}", s.session_kind, s.username, s.host);
+                let marker = if s.has_password {
+                    Some(Marker::Password)
+                } else if missing.contains(&s.id) && set.contains(&s.id) {
+                    let key = s
+                        .credential_id
+                        .and_then(|c| p.credentials.iter().find(|k| k.id == c))
+                        .map_or("", |k| k.label.as_str());
+                    Some(Marker::KeyMissing(key))
+                } else {
+                    None
+                };
+                row(ui, set, s.id, &s.name, Some(&sub), marker);
+            }
+        },
+    );
     let without_key = sel.sessions_missing_key(p);
     if !without_key.is_empty() {
-        let names = without_key.iter().take(3).copied().collect::<Vec<_>>().join(", ");
-        let more = if without_key.len() > 3 { format!(" (+{} more)", without_key.len() - 3) } else { String::new() };
+        let names = without_key
+            .iter()
+            .take(3)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let more = if without_key.len() > 3 {
+            format!(" (+{} more)", without_key.len() - 3)
+        } else {
+            String::new()
+        };
         form::note(
             ui,
             Icon::AlertTriangle,
             t.warning,
-            &format!("{names}{more}: the session's key is not selected, so it is restored without one."),
+            &format!(
+                "{names}{more}: the session's key is not selected, so it is restored without one."
+            ),
         );
     }
 
     // Credentials (keys and key passphrases).
     let all = p.credentials.iter().map(|c| c.id);
-    section(ui, Icon::KeyRound, "Credentials", &mut sel.creds, all, |ui, set| {
-        for c in &p.credentials {
-            row(ui, set, c.id, &c.label, Some(&c.kind), None);
-        }
-    });
+    section(
+        ui,
+        Icon::KeyRound,
+        "Credentials",
+        &mut sel.creds,
+        all,
+        |ui, set| {
+            for c in &p.credentials {
+                row(ui, set, c.id, &c.label, Some(&c.kind), None);
+            }
+        },
+    );
 
     // Known hosts.
     let all = p.known_hosts.iter().map(|k| (k.host.clone(), k.port));
-    section(ui, Icon::Shield, "Known hosts", &mut sel.hosts, all, |ui, set| {
-        for k in &p.known_hosts {
-            row(ui, set, (k.host.clone(), k.port), &format!("{}:{}", k.host, k.port), Some(&k.fingerprint_sha256), None);
-        }
-    });
+    section(
+        ui,
+        Icon::Shield,
+        "Known hosts",
+        &mut sel.hosts,
+        all,
+        |ui, set| {
+            for k in &p.known_hosts {
+                row(
+                    ui,
+                    set,
+                    (k.host.clone(), k.port),
+                    &format!("{}:{}", k.host, k.port),
+                    Some(&k.fingerprint_sha256),
+                    None,
+                );
+            }
+        },
+    );
 
     if p.setting_count > 0 {
         let n = p.setting_count;
         let label = format!("Apply {n} app setting{}", if n == 1 { "" } else { "s" });
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            let r = ui.checkbox(&mut sel.settings, RichText::new(&label).font(font(size::SM)).color(t.fg));
+            let r = ui.checkbox(
+                &mut sel.settings,
+                RichText::new(&label).font(font(size::SM)).color(t.fg),
+            );
             if r.changed() {
                 tracing::debug!(on = sel.settings, "restore: settings toggled");
             }
@@ -434,13 +562,19 @@ fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
     shared::rich(
         ui,
         &[
-            (Span::Muted, "Name collisions in folders, sessions, and credential labels are resolved by appending "),
+            (
+                Span::Muted,
+                "Name collisions in folders, sessions, and credential labels are resolved by appending ",
+            ),
             (Span::Mono, "(2)"),
             (Span::Muted, ", "),
             (Span::Mono, "(3)"),
             (Span::Muted, ", … Known hosts upsert by "),
             (Span::Mono, "(host, port)"),
-            (Span::Muted, " key. Session passwords come with their sessions."),
+            (
+                Span::Muted,
+                " key. Session passwords come with their sessions.",
+            ),
         ],
     );
 }
@@ -466,21 +600,38 @@ fn section<K: Ord + Clone>(
             form::caption(ui, &format!("{title} ({}/{})", set.len(), all.len()));
             if !all.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let (text, a11y) = if every { ("None", format!("Select no {}", title.to_lowercase())) } else { ("All", format!("Select all {}", title.to_lowercase())) };
+                    let (text, a11y) = if every {
+                        ("None", format!("Select no {}", title.to_lowercase()))
+                    } else {
+                        ("All", format!("Select all {}", title.to_lowercase()))
+                    };
                     if shared::link(ui, text, &a11y).clicked() {
                         tracing::debug!(section = title, all = !every, "restore: toggle all");
-                        *set = if every { BTreeSet::new() } else { all.iter().cloned().collect() };
+                        *set = if every {
+                            BTreeSet::new()
+                        } else {
+                            all.iter().cloned().collect()
+                        };
                     }
                 });
             }
         });
         if all.is_empty() {
-            ui.label(RichText::new("none in backup").font(font(size::SM)).italics().color(t.muted));
+            ui.label(
+                RichText::new("none in backup")
+                    .font(font(size::SM))
+                    .italics()
+                    .color(t.muted),
+            );
         } else {
-            egui::ScrollArea::vertical().id_salt(("restore-section", title)).max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                rows(ui, set);
-            });
+            egui::ScrollArea::vertical()
+                .id_salt(("restore-section", title))
+                .max_height(160.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    rows(ui, set);
+                });
         }
     });
 }
@@ -494,7 +645,14 @@ enum Marker<'a> {
 
 /// A checkbox row: label, optional marker, optional mono sub text on the
 /// right (`max-w-[220px]`).
-fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, sub: Option<&str>, marker: Option<Marker<'_>>) {
+fn row<K: Ord + Clone>(
+    ui: &mut Ui,
+    set: &mut BTreeSet<K>,
+    key: K,
+    label: &str,
+    sub: Option<&str>,
+    marker: Option<Marker<'_>>,
+) {
     let t = tokens(ui.ctx());
     let w = ui.available_width();
     let mut on = set.contains(&key);
@@ -506,7 +664,11 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
         }
         ui.add_space(4.0);
         let sub_w = sub.map_or(0.0, |s| {
-            let g = ui.painter().layout_no_wrap(s.to_string(), egui::FontId::monospace(size::SM), t.muted);
+            let g = ui.painter().layout_no_wrap(
+                s.to_string(),
+                egui::FontId::monospace(size::SM),
+                t.muted,
+            );
             g.size().x.min(220.0) + 8.0
         });
         let marker_w = match marker {
@@ -516,7 +678,10 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
         };
         let label_w = (w - sub_w - marker_w - 40.0).max(60.0);
         let g = widgets::elide(ui, label, font(size::BASE), label_w);
-        let r = ui.checkbox(&mut on, RichText::new(g.text()).font(font(size::BASE)).color(t.fg));
+        let r = ui.checkbox(
+            &mut on,
+            RichText::new(g.text()).font(font(size::BASE)).color(t.fg),
+        );
         if r.changed() {
             if on {
                 set.insert(key.clone());
@@ -527,7 +692,11 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
         match marker {
             Some(Marker::Password) => pill(ui, Icon::KeyRound, "password included", t.success),
             Some(Marker::KeyMissing(k)) => {
-                let tip = if k.is_empty() { "Its key is not selected".to_string() } else { format!("Its key “{k}” is not selected") };
+                let tip = if k.is_empty() {
+                    "Its key is not selected".to_string()
+                } else {
+                    format!("Its key “{k}” is not selected")
+                };
                 let r = Icon::AlertTriangle.show(ui, 12.0, t.warning);
                 widgets::a11y(&r, egui::Role::Image, &tip);
                 r.on_hover_text(tip);
@@ -538,7 +707,11 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(4.0);
                 let g = widgets::elide(ui, s, egui::FontId::monospace(size::SM), 220.0);
-                ui.label(RichText::new(g.text()).font(egui::FontId::monospace(size::SM)).color(t.muted));
+                ui.label(
+                    RichText::new(g.text())
+                        .font(egui::FontId::monospace(size::SM))
+                        .color(t.muted),
+                );
             });
         }
     });
@@ -546,11 +719,19 @@ fn row<K: Ord + Clone>(ui: &mut Ui, set: &mut BTreeSet<K>, key: K, label: &str, 
 
 /// A small tinted badge with an icon.
 fn pill(ui: &mut Ui, icon: Icon, text: &str, color: egui::Color32) {
-    Frame::new().fill(alpha(color, 0.14)).corner_radius(CornerRadius::same(radius::PILL as u8)).inner_margin(Margin::symmetric(7, 2)).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        icon.show(ui, 11.0, color);
-        ui.label(RichText::new(text).font(font_semibold(size::XS)).color(color));
-    });
+    Frame::new()
+        .fill(alpha(color, 0.14))
+        .corner_radius(CornerRadius::same(radius::PILL as u8))
+        .inner_margin(Margin::symmetric(7, 2))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            icon.show(ui, 11.0, color);
+            ui.label(
+                RichText::new(text)
+                    .font(font_semibold(size::XS))
+                    .color(color),
+            );
+        });
 }
 
 #[cfg(test)]
@@ -575,8 +756,15 @@ mod tests {
             created_at: "2026-11-01T00:00:00+00:00".into(),
             app_version: "0.0.0".into(),
             folders: vec![],
-            sessions: vec![session(1, "pw", None, true), session(2, "keyed", Some(7), false)],
-            credentials: vec![CredentialPreview { id: 7, kind: "private_key".into(), label: "id_ed25519".into() }],
+            sessions: vec![
+                session(1, "pw", None, true),
+                session(2, "keyed", Some(7), false),
+            ],
+            credentials: vec![CredentialPreview {
+                id: 7,
+                kind: "private_key".into(),
+                label: "id_ed25519".into(),
+            }],
             known_hosts: vec![],
             setting_count: 3,
         }
@@ -599,7 +787,11 @@ mod tests {
 
     #[test]
     fn summary_lists_renames() {
-        let s = RestoreSummary { sessions_created: 1, renamed: vec!["a (2)".into()], ..RestoreSummary::default() };
+        let s = RestoreSummary {
+            sessions_created: 1,
+            renamed: vec!["a (2)".into()],
+            ..RestoreSummary::default()
+        };
         assert_eq!(summary_text(&s), "1 session. Imported as: a (2)");
         assert_eq!(summary_text(&RestoreSummary::default()), "nothing imported");
     }

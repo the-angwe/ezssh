@@ -14,7 +14,9 @@ const MASTER: &str = "correct horse battery";
 async fn state() -> (tempfile::TempDir, AppState) {
     let dir = tempfile::tempdir().unwrap();
     let (sink, _rx) = events::channel(|| {});
-    let state = AppState::open(&dir.path().join("ezterm.sqlite"), sink).await.unwrap();
+    let state = AppState::open(&dir.path().join("ezterm.sqlite"), sink)
+        .await
+        .unwrap();
     api::vault::vault_init(&state, MASTER.into()).await.unwrap();
     (dir, state)
 }
@@ -89,39 +91,69 @@ fn old_session(id: i64, name: &str, credential: i64) -> Session {
 }
 
 async fn credential_rows(state: &AppState) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM credentials").fetch_one(&state.db).await.unwrap()
+    sqlx::query_scalar("SELECT COUNT(*) FROM credentials")
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
 async fn password_lives_and_dies_with_its_session() {
     let (_dir, st) = state().await;
-    let s = api::sessions::session_create(&st, ssh("db", "password", Some("hunter2"))).await.unwrap();
-    assert_eq!(stored_password(&st, &s).await, Some(("hunter2".into(), Some(s.id))));
+    let s = api::sessions::session_create(&st, ssh("db", "password", Some("hunter2")))
+        .await
+        .unwrap();
+    assert_eq!(
+        stored_password(&st, &s).await,
+        Some(("hunter2".into(), Some(s.id)))
+    );
     // Not in the shared list.
-    assert!(api::credentials::credential_list(&st).await.unwrap().is_empty());
-    assert!(api::credentials::credential_list_detailed(&st).await.unwrap().is_empty());
+    assert!(
+        api::credentials::credential_list(&st)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        api::credentials::credential_list_detailed(&st)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     // Nor reachable through the shared-credential API.
     let own = s.credential_id.unwrap();
-    assert!(matches!(api::credentials::credential_delete(&st, own).await, Err(AppError::NotFound)));
+    assert!(matches!(
+        api::credentials::credential_delete(&st, own).await,
+        Err(AppError::NotFound)
+    ));
     assert!(matches!(
         api::credentials::credential_update(&st, own, Some("x".into()), None).await,
         Err(AppError::NotFound)
     ));
 
     // Saving without a password keeps it; with one replaces it in place.
-    let s2 = api::sessions::session_update(&st, s.id, ssh("db", "password", None)).await.unwrap();
+    let s2 = api::sessions::session_update(&st, s.id, ssh("db", "password", None))
+        .await
+        .unwrap();
     assert_eq!(s2.credential_id, Some(own));
-    let s3 = api::sessions::session_update(&st, s.id, ssh("db", "password", Some("new-pw"))).await.unwrap();
+    let s3 = api::sessions::session_update(&st, s.id, ssh("db", "password", Some("new-pw")))
+        .await
+        .unwrap();
     assert_eq!(s3.credential_id, Some(own));
     assert_eq!(stored_password(&st, &s3).await.unwrap().0, "new-pw");
     // An empty password field also keeps it.
-    let s4 = api::sessions::session_update(&st, s.id, ssh("db", "password", Some(""))).await.unwrap();
+    let s4 = api::sessions::session_update(&st, s.id, ssh("db", "password", Some("")))
+        .await
+        .unwrap();
     assert_eq!(stored_password(&st, &s4).await.unwrap().0, "new-pw");
 
     // Duplicate gets its own copy.
     let d = api::sessions::session_duplicate(&st, s.id).await.unwrap();
     assert_ne!(d.credential_id, Some(own));
-    assert_eq!(stored_password(&st, &d).await, Some(("new-pw".into(), Some(d.id))));
+    assert_eq!(
+        stored_password(&st, &d).await,
+        Some(("new-pw".into(), Some(d.id)))
+    );
     assert_eq!(credential_rows(&st).await, 2);
 
     // Deleting the copy drops its password only.
@@ -129,7 +161,9 @@ async fn password_lives_and_dies_with_its_session() {
     assert_eq!(credential_rows(&st).await, 1);
 
     // Switching to agent auth drops the password.
-    let a = api::sessions::session_update(&st, s.id, ssh("db", "agent", Some("ignored"))).await.unwrap();
+    let a = api::sessions::session_update(&st, s.id, ssh("db", "agent", Some("ignored")))
+        .await
+        .unwrap();
     assert_eq!(a.credential_id, None);
     assert_eq!(credential_rows(&st).await, 0);
 }
@@ -137,34 +171,56 @@ async fn password_lives_and_dies_with_its_session() {
 #[tokio::test]
 async fn key_slots_take_shared_rows_only_and_password_sessions_ignore_credential_id() {
     let (_dir, st) = state().await;
-    let pw_session = api::sessions::session_create(&st, ssh("a", "password", Some("pw"))).await.unwrap();
+    let pw_session = api::sessions::session_create(&st, ssh("a", "password", Some("pw")))
+        .await
+        .unwrap();
     // A key session may not point at another session's password.
     let mut bad = ssh("b", "key", None);
     bad.credential_id = pw_session.credential_id;
-    assert!(matches!(api::sessions::session_create(&st, bad).await, Err(AppError::Validation(_))));
+    assert!(matches!(
+        api::sessions::session_create(&st, bad).await,
+        Err(AppError::Validation(_))
+    ));
 
     // An unowned password row, as the ezTerm app's picker left them: listed
     // (the credentials manager offers to delete it), never attached by
     // naming it, and deletable.
-    let unowned = api::credentials::credential_create(&st, "password".into(), "legacy".into(), "picked".into())
-        .await
-        .unwrap();
+    let unowned = api::credentials::credential_create(
+        &st,
+        "password".into(),
+        "legacy".into(),
+        "picked".into(),
+    )
+    .await
+    .unwrap();
     let mut naming = ssh("c", "password", Some("own"));
     naming.credential_id = Some(unowned.id);
     let c = api::sessions::session_create(&st, naming).await.unwrap();
     assert_ne!(c.credential_id, Some(unowned.id));
-    assert_eq!(stored_password(&st, &c).await, Some(("own".into(), Some(c.id))));
+    assert_eq!(
+        stored_password(&st, &c).await,
+        Some(("own".into(), Some(c.id)))
+    );
     // Naming another session's password neither shares nor copies it.
     let mut other = ssh("c", "password", None);
     other.credential_id = pw_session.credential_id;
-    let c2 = api::sessions::session_update(&st, c.id, other).await.unwrap();
+    let c2 = api::sessions::session_update(&st, c.id, other)
+        .await
+        .unwrap();
     assert_eq!(c2.credential_id, c.credential_id);
     assert_eq!(stored_password(&st, &c2).await.unwrap().0, "own");
 
-    let listed = api::credentials::credential_list_detailed(&st).await.unwrap();
+    let listed = api::credentials::credential_list_detailed(&st)
+        .await
+        .unwrap();
     assert_eq!(listed.len(), 1);
-    assert_eq!((listed[0].id, listed[0].kind.as_str()), (unowned.id, "password"));
-    api::credentials::credential_delete(&st, unowned.id).await.unwrap();
+    assert_eq!(
+        (listed[0].id, listed[0].kind.as_str()),
+        (unowned.id, "password")
+    );
+    api::credentials::credential_delete(&st, unowned.id)
+        .await
+        .unwrap();
     // One own row per session, no orphans: a, c.
     assert_eq!(credential_rows(&st).await, 2);
 }
@@ -172,32 +228,63 @@ async fn key_slots_take_shared_rows_only_and_password_sessions_ignore_credential
 #[tokio::test]
 async fn backup_round_trip_rebinds_passwords() {
     let (dir, st) = state().await;
-    let s = api::sessions::session_create(&st, ssh("db", "password", Some("hunter2"))).await.unwrap();
-    let key = api::credentials::credential_create(&st, "private_key".into(), "k".into(), "PEM".into()).await.unwrap();
+    let s = api::sessions::session_create(&st, ssh("db", "password", Some("hunter2")))
+        .await
+        .unwrap();
+    let key =
+        api::credentials::credential_create(&st, "private_key".into(), "k".into(), "PEM".into())
+            .await
+            .unwrap();
     let mut k = ssh("box", "key", None);
     k.credential_id = Some(key.id);
     let k = api::sessions::session_create(&st, k).await.unwrap();
 
     let path = dir.path().join("b.ezbackup").to_string_lossy().into_owned();
-    let summary = api::backup::backup_create(&st, path.clone(), MASTER.into(), "backup-pass".into()).await.unwrap();
+    let summary =
+        api::backup::backup_create(&st, path.clone(), MASTER.into(), "backup-pass".into())
+            .await
+            .unwrap();
     assert_eq!(summary.credentials, 2);
 
-    let preview = api::backup::backup_preview(&st, path.clone(), "backup-pass".into()).await.unwrap();
+    let preview = api::backup::backup_preview(&st, path.clone(), "backup-pass".into())
+        .await
+        .unwrap();
     // Only the key is offered as a credential; the password rides on its session.
     assert_eq!(preview.credentials.len(), 1);
     assert_eq!(preview.credentials[0].kind, "private_key");
     let pv = preview.sessions.iter().find(|p| p.id == s.id).unwrap();
     assert!(pv.has_password);
     assert_eq!(pv.credential_id, None);
-    assert_eq!(preview.sessions.iter().find(|p| p.id == k.id).unwrap().credential_id, Some(key.id));
+    assert_eq!(
+        preview
+            .sessions
+            .iter()
+            .find(|p| p.id == k.id)
+            .unwrap()
+            .credential_id,
+        Some(key.id)
+    );
 
     api::sessions::session_delete(&st, s.id).await.unwrap();
-    let sel = api::backup::SelectionSpec { session_ids: vec![s.id], ..Default::default() };
-    let r = api::backup::backup_restore(&st, path, "backup-pass".into(), sel).await.unwrap();
+    let sel = api::backup::SelectionSpec {
+        session_ids: vec![s.id],
+        ..Default::default()
+    };
+    let r = api::backup::backup_restore(&st, path, "backup-pass".into(), sel)
+        .await
+        .unwrap();
     assert_eq!(r.sessions_created, 1);
     assert_eq!(r.credentials_created, 0);
-    let restored = api::sessions::session_list(&st).await.unwrap().into_iter().find(|x| x.name == "db").unwrap();
-    assert_eq!(stored_password(&st, &restored).await, Some(("hunter2".into(), Some(restored.id))));
+    let restored = api::sessions::session_list(&st)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|x| x.name == "db")
+        .unwrap();
+    assert_eq!(
+        stored_password(&st, &restored).await,
+        Some(("hunter2".into(), Some(restored.id)))
+    );
 }
 
 #[tokio::test]
@@ -211,8 +298,16 @@ async fn legacy_bundle_with_a_shared_password_gives_each_session_a_copy() {
         app_version: "1.14.0".into(),
         folders: Vec::new(),
         sessions: vec![
-            SessionEntry { session: one, env: Vec::new(), forwards: Vec::new() },
-            SessionEntry { session: two, env: Vec::new(), forwards: Vec::new() },
+            SessionEntry {
+                session: one,
+                env: Vec::new(),
+                forwards: Vec::new(),
+            },
+            SessionEntry {
+                session: two,
+                env: Vec::new(),
+                forwards: Vec::new(),
+            },
         ],
         credentials: vec![CredentialEntry {
             id: 7,
@@ -228,22 +323,42 @@ async fn legacy_bundle_with_a_shared_password_gives_each_session_a_copy() {
     let json = serde_json::to_string(&bundle).unwrap();
     assert!(!json.contains("session_id"));
     let path = dir.path().join("old.ezbackup");
-    std::fs::write(&path, backup::encrypt_bundle(&bundle, "backup-pass").unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        backup::encrypt_bundle(&bundle, "backup-pass").unwrap(),
+    )
+    .unwrap();
     let path = path.to_string_lossy().into_owned();
 
-    let preview = api::backup::backup_preview(&st, path.clone(), "backup-pass".into()).await.unwrap();
+    let preview = api::backup::backup_preview(&st, path.clone(), "backup-pass".into())
+        .await
+        .unwrap();
     assert!(preview.credentials.is_empty());
     assert!(preview.sessions.iter().all(|s| s.has_password));
 
     // A selection naming the password credential (the ezTerm app's restore
     // dialog listed it) must not land it as a shared row.
-    let sel = api::backup::SelectionSpec { session_ids: vec![1, 2], credential_ids: vec![7], ..Default::default() };
-    api::backup::backup_restore(&st, path, "backup-pass".into(), sel).await.unwrap();
+    let sel = api::backup::SelectionSpec {
+        session_ids: vec![1, 2],
+        credential_ids: vec![7],
+        ..Default::default()
+    };
+    api::backup::backup_restore(&st, path, "backup-pass".into(), sel)
+        .await
+        .unwrap();
     let sessions = api::sessions::session_list(&st).await.unwrap();
     assert_eq!(sessions.len(), 2);
     for s in &sessions {
-        assert_eq!(stored_password(&st, s).await, Some(("s3cret".into(), Some(s.id))));
+        assert_eq!(
+            stored_password(&st, s).await,
+            Some(("s3cret".into(), Some(s.id)))
+        );
     }
     assert_ne!(sessions[0].credential_id, sessions[1].credential_id);
-    assert!(api::credentials::credential_list(&st).await.unwrap().is_empty());
+    assert!(
+        api::credentials::credential_list(&st)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

@@ -12,8 +12,8 @@ use std::sync::OnceLock;
 use egui::FontFamily;
 use egui::epaint::text::{FontData, FontInsert, FontPriority, InsertFontFamily};
 use fontique::{
-    Attributes, Collection, CollectionOptions, FontStyle, FontWeight, FontWidth, GenericFamily, QueryFamily,
-    QueryStatus, SourceCache, SourceCacheOptions,
+    Attributes, Collection, CollectionOptions, FontStyle, FontWeight, FontWidth, GenericFamily,
+    QueryFamily, QueryStatus, SourceCache, SourceCacheOptions,
 };
 
 /// Nerd Font icons and Powerline glyphs, MIT (see
@@ -24,7 +24,13 @@ const SYMBOLS_NAME: &str = "Symbols Nerd Font Mono";
 /// The default font stack on each OS.
 pub fn default_stack() -> &'static [&'static str] {
     if cfg!(target_os = "macos") {
-        &["SF Mono", "Cascadia Mono", "Menlo", "DejaVu Sans Mono", "Consolas"]
+        &[
+            "SF Mono",
+            "Cascadia Mono",
+            "Menlo",
+            "DejaVu Sans Mono",
+            "Consolas",
+        ]
     } else {
         &["Cascadia Mono", "Menlo", "DejaVu Sans Mono", "Consolas"]
     }
@@ -43,7 +49,13 @@ pub struct Faces {
 
 impl Default for Faces {
     fn default() -> Self {
-        Self { regular: FontFamily::Monospace, bold: None, italic: None, bold_italic: None, loaded: None }
+        Self {
+            regular: FontFamily::Monospace,
+            bold: None,
+            italic: None,
+            bold_italic: None,
+            loaded: None,
+        }
     }
 }
 
@@ -52,7 +64,11 @@ impl Faces {
     /// the nearest one (bold italic → bold → italic → regular).
     pub fn pick(&self, bold: bool, italic: bool) -> &FontFamily {
         let found = match (bold, italic) {
-            (true, true) => self.bold_italic.as_ref().or(self.bold.as_ref()).or(self.italic.as_ref()),
+            (true, true) => self
+                .bold_italic
+                .as_ref()
+                .or(self.bold.as_ref())
+                .or(self.italic.as_ref()),
             (true, false) => self.bold.as_ref(),
             (false, true) => self.italic.as_ref(),
             (false, false) => None,
@@ -68,10 +84,20 @@ impl Faces {
     pub fn usable(&self, ctx: &egui::Context) -> Faces {
         let (regular, bold, italic, bold_italic) = ctx.fonts(|f| {
             let families = &f.definitions().families;
-            let bound = |fam: &FontFamily| !matches!(fam, FontFamily::Name(_)) || families.contains_key(fam);
-            (bound(&self.regular), self.bold.as_ref().map(bound), self.italic.as_ref().map(bound), self.bold_italic.as_ref().map(bound))
+            let bound = |fam: &FontFamily| {
+                !matches!(fam, FontFamily::Name(_)) || families.contains_key(fam)
+            };
+            (
+                bound(&self.regular),
+                self.bold.as_ref().map(bound),
+                self.italic.as_ref().map(bound),
+                self.bold_italic.as_ref().map(bound),
+            )
         });
-        let all = regular && [bold, italic, bold_italic].iter().all(|b| b.unwrap_or(true));
+        let all = regular
+            && [bold, italic, bold_italic]
+                .iter()
+                .all(|b| b.unwrap_or(true));
         if all {
             return self.clone();
         }
@@ -84,9 +110,14 @@ impl Faces {
             "term.fonts: font not bound yet this pass, drawing with a fallback"
         );
         ctx.request_repaint();
-        let keep = |fam: &Option<FontFamily>, ok: Option<bool>| fam.clone().filter(|_| ok == Some(true));
+        let keep =
+            |fam: &Option<FontFamily>, ok: Option<bool>| fam.clone().filter(|_| ok == Some(true));
         Faces {
-            regular: if regular { self.regular.clone() } else { FontFamily::Monospace },
+            regular: if regular {
+                self.regular.clone()
+            } else {
+                FontFamily::Monospace
+            },
             bold: keep(&self.bold, bold),
             italic: keep(&self.italic, italic),
             bold_italic: keep(&self.bold_italic, bold_italic),
@@ -100,13 +131,21 @@ impl Faces {
 pub fn parse_stack(value: &str) -> Vec<String> {
     value
         .split(',')
-        .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').trim().to_string())
+        .map(|s| {
+            s.trim()
+                .trim_matches(|c| c == '"' || c == '\'')
+                .trim()
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
         .collect()
 }
 
 fn is_generic(name: &str) -> bool {
-    matches!(name.to_ascii_lowercase().as_str(), "monospace" | "ui-monospace")
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "monospace" | "ui-monospace"
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -156,7 +195,10 @@ impl Default for FontRegistry {
 impl FontRegistry {
     pub fn new() -> Self {
         Self {
-            collection: Collection::new(CollectionOptions { shared: false, system_fonts: true }),
+            collection: Collection::new(CollectionOptions {
+                shared: false,
+                system_fonts: true,
+            }),
             cache: SourceCache::new(SourceCacheOptions::default()),
             by_value: HashMap::new(),
             symbols_installed: false,
@@ -183,10 +225,15 @@ impl FontRegistry {
             }
             tracing::debug!(font = %name, "term.fonts: not installed");
         }
-        let faces = faces.or_else(|| self.install_generic(ctx)).unwrap_or_else(|| {
-            tracing::warn!(?names, "term.fonts: no monospace font found, using egui's built-in one");
-            Faces::default()
-        });
+        let faces = faces
+            .or_else(|| self.install_generic(ctx))
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    ?names,
+                    "term.fonts: no monospace font found, using egui's built-in one"
+                );
+                Faces::default()
+            });
         tracing::info!(
             requested = value,
             font = ?faces.loaded,
@@ -202,7 +249,10 @@ impl FontRegistry {
 
     /// The system's generic monospace font (fontconfig's `monospace`).
     fn install_generic(&mut self, ctx: &egui::Context) -> Option<Faces> {
-        let id = self.collection.generic_families(GenericFamily::Monospace).next()?;
+        let id = self
+            .collection
+            .generic_families(GenericFamily::Monospace)
+            .next()?;
         let name = self.collection.family_name(id)?.to_string();
         self.install(ctx, &name, Some(QueryFamily::Id(id)))
     }
@@ -219,18 +269,31 @@ impl FontRegistry {
         let font = found?;
         // egui cannot synthesise bold or slant: a face that only exists by
         // synthesis is reported missing and the regular face is used.
-        if !matches!(face, Face::Regular) && (font.synthesis.embolden() || font.synthesis.skew().is_some()) {
+        if !matches!(face, Face::Regular)
+            && (font.synthesis.embolden() || font.synthesis.skew().is_some())
+        {
             return None;
         }
         let (blob, _id) = font.blob.into_raw_parts();
         Some(FontData::from_blob(blob, font.index))
     }
 
-    fn install(&mut self, ctx: &egui::Context, name: &str, id: Option<QueryFamily<'_>>) -> Option<Faces> {
+    fn install(
+        &mut self,
+        ctx: &egui::Context,
+        name: &str,
+        id: Option<QueryFamily<'_>>,
+    ) -> Option<Faces> {
         let family = id.unwrap_or(QueryFamily::Named(name));
         let regular = self.find(family, Face::Regular)?;
         let regular = self.register(ctx, name, Face::Regular, regular);
-        let mut faces = Faces { regular, bold: None, italic: None, bold_italic: None, loaded: Some(name.to_string()) };
+        let mut faces = Faces {
+            regular,
+            bold: None,
+            italic: None,
+            bold_italic: None,
+            loaded: Some(name.to_string()),
+        };
         for face in [Face::Bold, Face::Italic, Face::BoldItalic] {
             let Some(data) = self.find(family, face) else {
                 tracing::debug!(font = name, face = face.tag(), "term.fonts: face missing");
@@ -247,12 +310,21 @@ impl FontRegistry {
         Some(faces)
     }
 
-    fn register(&mut self, ctx: &egui::Context, name: &str, face: Face, data: FontData) -> FontFamily {
+    fn register(
+        &mut self,
+        ctx: &egui::Context,
+        name: &str,
+        face: Face,
+        data: FontData,
+    ) -> FontFamily {
         let family = FontFamily::Name(format!("ezssh:{name}:{}", face.tag()).into());
         ctx.add_font(FontInsert {
             name: format!("{name} {}", face.tag()),
             data,
-            families: vec![InsertFontFamily { family: family.clone(), priority: FontPriority::Highest }],
+            families: vec![InsertFontFamily {
+                family: family.clone(),
+                priority: FontPriority::Highest,
+            }],
         });
         self.add_symbols(ctx, &family);
         family
@@ -264,13 +336,19 @@ impl FontRegistry {
     /// registered in the first pass.
     fn add_symbols(&mut self, ctx: &egui::Context, family: &FontFamily) {
         if !self.symbols_installed {
-            tracing::debug!(bytes = SYMBOLS_TTF.len(), "term.fonts: loading bundled Nerd Font symbols");
+            tracing::debug!(
+                bytes = SYMBOLS_TTF.len(),
+                "term.fonts: loading bundled Nerd Font symbols"
+            );
             self.symbols_installed = true;
         }
         ctx.add_font(FontInsert {
             name: format!("{SYMBOLS_NAME} for {family:?}"),
             data: FontData::from_static(SYMBOLS_TTF),
-            families: vec![InsertFontFamily { family: family.clone(), priority: FontPriority::Lowest }],
+            families: vec![InsertFontFamily {
+                family: family.clone(),
+                priority: FontPriority::Lowest,
+            }],
         });
     }
 }
@@ -287,9 +365,11 @@ pub fn monospace_families() -> &'static [String] {
 /// Run the [`monospace_families`] scan on a background thread so the first
 /// font dialog does not wait for it.
 pub fn prewarm_monospace_families() {
-    let spawned = std::thread::Builder::new().name("font-scan".into()).spawn(|| {
-        monospace_families();
-    });
+    let spawned = std::thread::Builder::new()
+        .name("font-scan".into())
+        .spawn(|| {
+            monospace_families();
+        });
     if let Err(e) = spawned {
         tracing::warn!(error = %e, "term.fonts: font scan thread not started; the first font dialog scans inline");
     }
@@ -297,7 +377,10 @@ pub fn prewarm_monospace_families() {
 
 fn scan_monospace() -> Vec<String> {
     let started = std::time::Instant::now();
-    let mut collection = Collection::new(CollectionOptions { shared: false, system_fonts: true });
+    let mut collection = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts: true,
+    });
     let mut cache = SourceCache::new(SourceCacheOptions::default());
     let names: Vec<String> = collection.family_names().map(str::to_string).collect();
     let mut found = Vec::new();
@@ -306,7 +389,12 @@ fn scan_monospace() -> Vec<String> {
             tracing::debug!(font = %name, "term.fonts: scan: listed family not found by name");
             continue;
         };
-        let Some(info) = family.match_font(FontWidth::NORMAL, FontStyle::Normal, FontWeight::NORMAL, false) else {
+        let Some(info) = family.match_font(
+            FontWidth::NORMAL,
+            FontStyle::Normal,
+            FontWeight::NORMAL,
+            false,
+        ) else {
             tracing::debug!(font = %name, "term.fonts: scan: family has no fonts");
             continue;
         };
@@ -317,7 +405,9 @@ fn scan_monospace() -> Vec<String> {
         match is_monospace(blob.as_ref(), info.index()) {
             Ok(true) => found.push(name.clone()),
             Ok(false) => {}
-            Err(e) => tracing::debug!(font = %name, error = %e, "term.fonts: scan: font not readable"),
+            Err(e) => {
+                tracing::debug!(font = %name, error = %e, "term.fonts: scan: font not readable")
+            }
         }
     }
     let mut list = drop_weight_aliases(found);
@@ -348,7 +438,10 @@ fn is_monospace(data: &[u8], index: u32) -> Result<bool, read_fonts::ReadError> 
     if width == 0 || hmtx.advance(m) != Some(width) {
         return Ok(false);
     }
-    Ok("lW.0m_".chars().filter_map(|c| cmap.map_codepoint(c)).all(|g| hmtx.advance(g) == Some(width)))
+    Ok("lW.0m_"
+        .chars()
+        .filter_map(|c| cmap.map_codepoint(c))
+        .all(|g| hmtx.advance(g) == Some(width)))
 }
 
 /// Fontconfig also lists a static font's legacy family name
@@ -356,15 +449,41 @@ fn is_monospace(data: &[u8], index: u32) -> Result<bool, read_fonts::ReadError> 
 /// weight of a family that is already listed, so they are left out.
 fn drop_weight_aliases(names: Vec<String>) -> Vec<String> {
     const WEIGHTS: &[&str] = &[
-        "Thin", "Hairline", "ExtraLight", "Extra Light", "UltraLight", "Ultra Light", "Light", "SemiLight", "Semi Light",
-        "Book", "Regular", "Medium", "SemiBold", "Semi Bold", "DemiBold", "Demi Bold", "Bold", "ExtraBold", "Extra Bold",
-        "UltraBold", "Ultra Bold", "Black", "Heavy", "ExtraBlack", "Extra Black",
+        "Thin",
+        "Hairline",
+        "ExtraLight",
+        "Extra Light",
+        "UltraLight",
+        "Ultra Light",
+        "Light",
+        "SemiLight",
+        "Semi Light",
+        "Book",
+        "Regular",
+        "Medium",
+        "SemiBold",
+        "Semi Bold",
+        "DemiBold",
+        "Demi Bold",
+        "Bold",
+        "ExtraBold",
+        "Extra Bold",
+        "UltraBold",
+        "Ultra Bold",
+        "Black",
+        "Heavy",
+        "ExtraBlack",
+        "Extra Black",
     ];
     let all: std::collections::HashSet<String> = names.iter().cloned().collect();
     names
         .into_iter()
         .filter(|name| {
-            let alias = WEIGHTS.iter().any(|w| name.strip_suffix(w).and_then(|base| base.strip_suffix(' ')).is_some_and(|base| all.contains(base)));
+            let alias = WEIGHTS.iter().any(|w| {
+                name.strip_suffix(w)
+                    .and_then(|base| base.strip_suffix(' '))
+                    .is_some_and(|base| all.contains(base))
+            });
             if alias {
                 tracing::trace!(font = %name, "term.fonts: scan: weight alias left out");
             }
@@ -379,7 +498,13 @@ mod tests {
 
     #[test]
     fn weight_aliases_dropped_only_next_to_their_family() {
-        let names = ["JetBrains Mono", "JetBrains Mono ExtraBold", "JetBrains Mono NL", "JetBrains Mono NL Light", "Iosevka Heavy"];
+        let names = [
+            "JetBrains Mono",
+            "JetBrains Mono ExtraBold",
+            "JetBrains Mono NL",
+            "JetBrains Mono NL Light",
+            "Iosevka Heavy",
+        ];
         assert_eq!(
             drop_weight_aliases(names.iter().map(|s| s.to_string()).collect()),
             vec!["JetBrains Mono", "JetBrains Mono NL", "Iosevka Heavy"]
@@ -391,11 +516,21 @@ mod tests {
     fn monospace_scan_lists_installed_families() {
         let list = monospace_families();
         eprintln!("{} monospace families: {list:?}", list.len());
-        assert!(list.windows(2).all(|w| w[0].to_lowercase() <= w[1].to_lowercase()), "sorted");
-        let mut probe = Collection::new(CollectionOptions { shared: false, system_fonts: true });
+        assert!(
+            list.windows(2)
+                .all(|w| w[0].to_lowercase() <= w[1].to_lowercase()),
+            "sorted"
+        );
+        let mut probe = Collection::new(CollectionOptions {
+            shared: false,
+            system_fonts: true,
+        });
         for name in ["JetBrains Mono", "JetBrains Mono NL", "DejaVu Sans Mono"] {
             if probe.family_by_name(name).is_some() {
-                assert!(list.iter().any(|n| n == name), "{name} is installed but not listed");
+                assert!(
+                    list.iter().any(|n| n == name),
+                    "{name} is installed but not listed"
+                );
             }
         }
         for name in ["DejaVu Sans", "Noto Sans"] {
@@ -407,7 +542,10 @@ mod tests {
     fn stacks_split_and_unquote() {
         assert_eq!(parse_stack(""), Vec::<String>::new());
         assert_eq!(parse_stack("Fira Code"), vec!["Fira Code"]);
-        assert_eq!(parse_stack("\"Fira Code\", 'JetBrains Mono', monospace"), vec!["Fira Code", "JetBrains Mono", "monospace"]);
+        assert_eq!(
+            parse_stack("\"Fira Code\", 'JetBrains Mono', monospace"),
+            vec!["Fira Code", "JetBrains Mono", "monospace"]
+        );
         assert_eq!(parse_stack(" , Consolas ,"), vec!["Consolas"]);
     }
 
@@ -415,7 +553,11 @@ mod tests {
     fn missing_faces_fall_back() {
         let b = FontFamily::Name("b".into());
         let i = FontFamily::Name("i".into());
-        let f = Faces { bold: Some(b.clone()), italic: Some(i.clone()), ..Faces::default() };
+        let f = Faces {
+            bold: Some(b.clone()),
+            italic: Some(i.clone()),
+            ..Faces::default()
+        };
         assert_eq!(f.pick(false, false), &FontFamily::Monospace);
         assert_eq!(f.pick(true, false), &b);
         assert_eq!(f.pick(false, true), &i);
@@ -441,7 +583,11 @@ mod tests {
         let mut faces = None;
         pass_after_text(&ctx, |ctx| {
             let f = reg.faces(ctx, "");
-            assert_eq!(f.usable(ctx).regular, FontFamily::Monospace, "not bound in the pass that added it");
+            assert_eq!(
+                f.usable(ctx).regular,
+                FontFamily::Monospace,
+                "not bound in the pass that added it"
+            );
             faces = Some(f);
         });
         let faces = faces.unwrap();
@@ -449,7 +595,9 @@ mod tests {
             eprintln!("no system monospace font; nothing to check");
             return;
         }
-        pass_after_text(&ctx, |ctx| assert_eq!(faces.usable(ctx), faces, "bound from the next pass"));
+        pass_after_text(&ctx, |ctx| {
+            assert_eq!(faces.usable(ctx), faces, "bound from the next pass")
+        });
     }
 
     /// Fonts registered in later passes get the Nerd Font symbols too.
@@ -457,14 +605,20 @@ mod tests {
     fn symbols_bound_to_families_added_in_later_passes() {
         let ctx = egui::Context::default();
         let mut reg = FontRegistry::new();
-        let (a, b) = (FontFamily::Name("ezssh-test:a".into()), FontFamily::Name("ezssh-test:b".into()));
+        let (a, b) = (
+            FontFamily::Name("ezssh-test:a".into()),
+            FontFamily::Name("ezssh-test:b".into()),
+        );
         pass_after_text(&ctx, |ctx| reg.add_symbols(ctx, &a));
         pass_after_text(&ctx, |ctx| reg.add_symbols(ctx, &b));
         pass_after_text(&ctx, |ctx| {
             ctx.fonts(|f| {
                 for fam in [&a, &b] {
                     let names = f.definitions().families.get(fam);
-                    assert!(names.is_some_and(|n| n.iter().any(|n| n.starts_with(SYMBOLS_NAME))), "{fam:?}: {names:?}");
+                    assert!(
+                        names.is_some_and(|n| n.iter().any(|n| n.starts_with(SYMBOLS_NAME))),
+                        "{fam:?}: {names:?}"
+                    );
                 }
             })
         });

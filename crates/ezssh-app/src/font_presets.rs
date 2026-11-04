@@ -61,10 +61,17 @@ fn fallback() -> &'static [FontChoice] {
 
 fn build(installed: &[String]) -> Vec<(String, String)> {
     if installed.is_empty() {
-        tracing::warn!("font_presets: system scan found no monospace fonts; offering the fixed presets");
-        return fallback().iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+        tracing::warn!(
+            "font_presets: system scan found no monospace fonts; offering the fixed presets"
+        );
+        return fallback()
+            .iter()
+            .map(|(v, l)| (v.to_string(), l.to_string()))
+            .collect();
     }
-    std::iter::once((String::new(), "(default)".to_string())).chain(installed.iter().map(|n| (n.clone(), n.clone()))).collect()
+    std::iter::once((String::new(), "(default)".to_string()))
+        .chain(installed.iter().map(|n| (n.clone(), n.clone())))
+        .collect()
 }
 
 /// `(stored value, label)` pairs: "(default)" first, then the installed
@@ -115,6 +122,15 @@ mod tests {
         assert_eq!(list[0], (String::new(), "(default)".to_string()));
         assert!(list.iter().any(|(v, _)| v == "JetBrains Mono"));
         let list = build(&["JetBrains Mono NL".to_string()]);
-        assert_eq!(list, vec![(String::new(), "(default)".to_string()), ("JetBrains Mono NL".to_string(), "JetBrains Mono NL".to_string())]);
+        assert_eq!(
+            list,
+            vec![
+                (String::new(), "(default)".to_string()),
+                (
+                    "JetBrains Mono NL".to_string(),
+                    "JetBrains Mono NL".to_string()
+                )
+            ]
+        );
     }
 }

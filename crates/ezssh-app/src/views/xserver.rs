@@ -37,13 +37,22 @@ pub struct XServerDialog {
 impl XServerDialog {
     pub fn new(tab: TabId, message: String) -> Self {
         tracing::debug!(tab, %message, "xserver: missing-server dialog");
-        Self { tab, message, phase: Phase::Idle, waiting: Vec::new() }
+        Self {
+            tab,
+            message,
+            phase: Phase::Idle,
+            waiting: Vec::new(),
+        }
     }
 
     /// Another tab failed the same way while the dialog is open.
     pub fn add(&mut self, tab: TabId) {
         if tab != self.tab && !self.waiting.contains(&tab) {
-            tracing::debug!(tab, current = self.tab, "xserver: tab queued behind the open dialog");
+            tracing::debug!(
+                tab,
+                current = self.tab,
+                "xserver: tab queued behind the open dialog"
+            );
             self.waiting.push(tab);
         }
     }
@@ -93,7 +102,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     ui.add_space(1.0);
-                    ui.label(RichText::new("VcXsrv is required for X11 forwarding").font(font_semibold(size::MD)).color(t.fg));
+                    ui.label(
+                        RichText::new("VcXsrv is required for X11 forwarding")
+                            .font(font_semibold(size::MD))
+                            .color(t.fg),
+                    );
                     explanation(ui);
                     match &dlg.phase {
                         Phase::Failed(msg) => {
@@ -105,7 +118,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 6.0;
                                 form::spinner(ui, 14.0);
-                                ui.label(RichText::new("Downloading and installing VcXsrv\u{2026}").font(font(size::SM)).color(t.muted));
+                                ui.label(
+                                    RichText::new("Downloading and installing VcXsrv\u{2026}")
+                                        .font(font(size::SM))
+                                        .color(t.muted),
+                                );
                             });
                         }
                         Phase::Idle => {}
@@ -115,16 +132,38 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         },
         Some(&mut |ui: &mut Ui| {
             if CAN_INSTALL {
-                let icon = if installing { Icon::Loader2 } else { Icon::Download };
-                let label = if failed { "Retry install" } else { "Install VcXsrv" };
-                if widgets::Button::primary(label).icon(icon).enabled(!installing).show(ui).clicked() {
+                let icon = if installing {
+                    Icon::Loader2
+                } else {
+                    Icon::Download
+                };
+                let label = if failed {
+                    "Retry install"
+                } else {
+                    "Install VcXsrv"
+                };
+                if widgets::Button::primary(label)
+                    .icon(icon)
+                    .enabled(!installing)
+                    .show(ui)
+                    .clicked()
+                {
                     action = Some(Action::Install);
                 }
             }
-            if widgets::Button::secondary("Continue without X11").icon(Icon::MonitorOff).enabled(!installing).show(ui).clicked() {
+            if widgets::Button::secondary("Continue without X11")
+                .icon(Icon::MonitorOff)
+                .enabled(!installing)
+                .show(ui)
+                .clicked()
+            {
                 action = Some(Action::WithoutX11);
             }
-            if widgets::Button::secondary("Cancel").enabled(!installing).show(ui).clicked() {
+            if widgets::Button::secondary("Cancel")
+                .enabled(!installing)
+                .show(ui)
+                .clicked()
+            {
                 action = Some(Action::Cancel);
             }
         }),
@@ -162,10 +201,22 @@ fn explanation(ui: &mut Ui) {
         );
         return;
     }
-    let plain = TextFormat { font_id: font(size::BASE), color: t.muted, ..TextFormat::default() };
+    let plain = TextFormat {
+        font_id: font(size::BASE),
+        color: t.muted,
+        ..TextFormat::default()
+    };
     let mut job = LayoutJob::default();
     job.append("This session has X11 forwarding enabled, but no VcXsrv install was found next to ezSsh, in your user data folder, or under ", 0.0, plain.clone());
-    job.append("C:\\Program Files\\VcXsrv\\", 0.0, TextFormat { font_id: FontId::monospace(size::SM), color: t.muted, ..TextFormat::default() });
+    job.append(
+        "C:\\Program Files\\VcXsrv\\",
+        0.0,
+        TextFormat {
+            font_id: FontId::monospace(size::SM),
+            color: t.muted,
+            ..TextFormat::default()
+        },
+    );
     job.append(". You can install it now (roughly 3\u{a0}MB, no admin required) or connect without X11 for this session.", 0.0, plain);
     job.wrap.max_width = ui.available_width();
     ui.add(egui::Label::new(job).wrap());

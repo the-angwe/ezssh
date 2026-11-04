@@ -30,7 +30,14 @@ pub enum Format {
 /// Encode one mouse event. `col` and `line` are 0-based viewport cells.
 /// Returns `None` when the position cannot be encoded in the format
 /// (column or line beyond 222 in the normal format).
-pub fn encode(button: Button, kind: Kind, col: usize, line: usize, mods: Mods, format: Format) -> Option<Vec<u8>> {
+pub fn encode(
+    button: Button,
+    kind: Kind,
+    col: usize,
+    line: usize,
+    mods: Mods,
+    format: Format,
+) -> Option<Vec<u8>> {
     let base: u32 = match button {
         Button::Left => 0,
         Button::Middle => 1,
@@ -92,20 +99,47 @@ mod tests {
     #[test]
     fn sgr_press_release_motion() {
         let m = Mods::NONE;
-        assert_eq!(encode(Button::Left, Kind::Press, 0, 0, m, Format::Sgr), Some(b"\x1b[<0;1;1M".to_vec()));
-        assert_eq!(encode(Button::Left, Kind::Release, 9, 4, m, Format::Sgr), Some(b"\x1b[<0;10;5m".to_vec()));
-        assert_eq!(encode(Button::Left, Kind::Motion, 2, 3, m, Format::Sgr), Some(b"\x1b[<32;3;4M".to_vec()));
-        assert_eq!(encode(Button::WheelDown, Kind::Press, 0, 0, m, Format::Sgr), Some(b"\x1b[<65;1;1M".to_vec()));
-        let ctrl = Mods { ctrl: true, ..Mods::NONE };
-        assert_eq!(encode(Button::Right, Kind::Press, 0, 0, ctrl, Format::Sgr), Some(b"\x1b[<18;1;1M".to_vec()));
+        assert_eq!(
+            encode(Button::Left, Kind::Press, 0, 0, m, Format::Sgr),
+            Some(b"\x1b[<0;1;1M".to_vec())
+        );
+        assert_eq!(
+            encode(Button::Left, Kind::Release, 9, 4, m, Format::Sgr),
+            Some(b"\x1b[<0;10;5m".to_vec())
+        );
+        assert_eq!(
+            encode(Button::Left, Kind::Motion, 2, 3, m, Format::Sgr),
+            Some(b"\x1b[<32;3;4M".to_vec())
+        );
+        assert_eq!(
+            encode(Button::WheelDown, Kind::Press, 0, 0, m, Format::Sgr),
+            Some(b"\x1b[<65;1;1M".to_vec())
+        );
+        let ctrl = Mods {
+            ctrl: true,
+            ..Mods::NONE
+        };
+        assert_eq!(
+            encode(Button::Right, Kind::Press, 0, 0, ctrl, Format::Sgr),
+            Some(b"\x1b[<18;1;1M".to_vec())
+        );
     }
 
     #[test]
     fn normal_format_and_limits() {
         let m = Mods::NONE;
-        assert_eq!(encode(Button::Left, Kind::Press, 0, 0, m, Format::Normal), Some(vec![0x1b, b'[', b'M', 32, 33, 33]));
-        assert_eq!(encode(Button::Left, Kind::Release, 0, 0, m, Format::Normal), Some(vec![0x1b, b'[', b'M', 35, 33, 33]));
-        assert_eq!(encode(Button::Left, Kind::Press, 300, 0, m, Format::Normal), None);
+        assert_eq!(
+            encode(Button::Left, Kind::Press, 0, 0, m, Format::Normal),
+            Some(vec![0x1b, b'[', b'M', 32, 33, 33])
+        );
+        assert_eq!(
+            encode(Button::Left, Kind::Release, 0, 0, m, Format::Normal),
+            Some(vec![0x1b, b'[', b'M', 35, 33, 33])
+        );
+        assert_eq!(
+            encode(Button::Left, Kind::Press, 300, 0, m, Format::Normal),
+            None
+        );
         assert!(encode(Button::Left, Kind::Press, 300, 0, m, Format::Utf8).is_some());
     }
 }

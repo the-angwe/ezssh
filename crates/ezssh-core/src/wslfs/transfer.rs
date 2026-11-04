@@ -16,10 +16,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::{AppError, Result};
 use crate::events::Events;
-use crate::sftp::transfer::{CHUNK, Ticker, check, emit_done, emit_end, open_local, remove_partial_local};
+use crate::sftp::transfer::{
+    CHUNK, Ticker, check, emit_done, emit_end, open_local, remove_partial_local,
+};
 
 use super::handle::WslFsHandle;
-
 
 pub async fn upload(
     events: &Events,
@@ -43,7 +44,9 @@ pub async fn upload(
     let unc = handle.linux_to_unc(remote_path);
 
     let result: Result<()> = async {
-        let mut remote = tokio::fs::File::create(&unc).await.map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
+        let mut remote = tokio::fs::File::create(&unc)
+            .await
+            .map_err(|e| AppError::Sftp(format!("open remote: {e}")))?;
         let mut sent: u64 = 0;
         let mut buf = vec![0u8; CHUNK];
         let mut ticker = Ticker::new(events, transfer_id);
@@ -53,7 +56,10 @@ pub async fn upload(
             if n == 0 {
                 break;
             }
-            remote.write_all(&buf[..n]).await.map_err(|e| AppError::Sftp(format!("write: {e}")))?;
+            remote
+                .write_all(&buf[..n])
+                .await
+                .map_err(|e| AppError::Sftp(format!("write: {e}")))?;
             sent += n as u64;
             ticker.tick(sent, total);
         }
@@ -82,7 +88,9 @@ pub async fn download(
 ) -> Result<()> {
     let unc = handle.linux_to_unc(remote_path);
     let created = match check(cancel) {
-        Ok(()) => tokio::fs::File::create(local_path).await.map_err(AppError::from),
+        Ok(()) => tokio::fs::File::create(local_path)
+            .await
+            .map_err(AppError::from),
         Err(e) => Err(e),
     };
     let mut local = match created {
@@ -96,16 +104,23 @@ pub async fn download(
     let mut total_seen = 0u64;
     let total_out = &mut total_seen;
     let result: Result<()> = async {
-        let meta = tokio::fs::metadata(&unc).await.map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
+        let meta = tokio::fs::metadata(&unc)
+            .await
+            .map_err(|e| AppError::Sftp(format!("stat: {e}")))?;
         let total = meta.len();
         *total_out = total;
-        let mut remote = tokio::fs::File::open(&unc).await.map_err(|e| AppError::Sftp(format!("open: {e}")))?;
+        let mut remote = tokio::fs::File::open(&unc)
+            .await
+            .map_err(|e| AppError::Sftp(format!("open: {e}")))?;
         let mut received: u64 = 0;
         let mut buf = vec![0u8; CHUNK];
         let mut ticker = Ticker::new(events, transfer_id);
         loop {
             check(cancel)?;
-            let n = remote.read(&mut buf).await.map_err(|e| AppError::Sftp(format!("read: {e}")))?;
+            let n = remote
+                .read(&mut buf)
+                .await
+                .map_err(|e| AppError::Sftp(format!("read: {e}")))?;
             if n == 0 {
                 break;
             }

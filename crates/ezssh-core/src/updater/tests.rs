@@ -10,7 +10,9 @@ use super::install::{self, AfterInstall};
 use super::*;
 
 async fn serve(files: HashMap<String, Vec<u8>>) -> String {
-    ezssh_testsrv::http::serve(files).await.expect("http test server")
+    ezssh_testsrv::http::serve(files)
+        .await
+        .expect("http test server")
 }
 
 struct Keys {
@@ -31,7 +33,12 @@ fn sign(k: &Keys, data: &[u8], name: &str, version: &str) -> String {
 }
 
 fn install_of(kind: InstallKind) -> Install {
-    Install { kind, target: PathBuf::from("/x/ezssh"), exe: PathBuf::from("/x/ezssh"), args: vec![] }
+    Install {
+        kind,
+        target: PathBuf::from("/x/ezssh"),
+        exe: PathBuf::from("/x/ezssh"),
+        args: vec![],
+    }
 }
 
 fn cfg(kind: InstallKind, os: &'static str, current: &str, pubkey: &str) -> Config {
@@ -49,7 +56,10 @@ fn cfg(kind: InstallKind, os: &'static str, current: &str, pubkey: &str) -> Conf
 fn manifest(version: &str, entries: &[(&str, &str, &str)]) -> Vec<u8> {
     let mut platforms = serde_json::Map::new();
     for (k, url, sig) in entries {
-        platforms.insert((*k).into(), serde_json::json!({ "url": url, "signature": sig }));
+        platforms.insert(
+            (*k).into(),
+            serde_json::json!({ "url": url, "signature": sig }),
+        );
     }
     serde_json::to_vec(&serde_json::json!({
         "version": version, "notes": "Fixes.", "pub_date": "2026-11-02T10:00:00Z", "platforms": platforms,
@@ -59,13 +69,36 @@ fn manifest(version: &str, entries: &[(&str, &str, &str)]) -> Vec<u8> {
 
 #[test]
 fn targets_per_kind() {
-    assert_eq!(cfg(InstallKind::Nsis, "windows", "1.0.0", "").targets(), ["windows-x86_64-nsis", "windows-x86_64"]);
-    assert_eq!(cfg(InstallKind::Msi, "windows", "1.0.0", "").targets(), ["windows-x86_64-msi"]);
-    assert_eq!(cfg(InstallKind::AppImage, "linux", "1.0.0", "").targets(), ["linux-x86_64-appimage", "linux-x86_64"]);
-    assert_eq!(cfg(InstallKind::Deb, "linux", "1.0.0", "").targets(), ["linux-x86_64-deb"]);
-    assert_eq!(cfg(InstallKind::App, "darwin", "1.0.0", "").targets(), ["darwin-x86_64-app", "darwin-x86_64"]);
-    assert!(cfg(InstallKind::Portable, "linux", "1.0.0", "").targets().is_empty());
-    assert!(cfg(InstallKind::Unpackaged, "linux", "1.0.0", "").targets().is_empty());
+    assert_eq!(
+        cfg(InstallKind::Nsis, "windows", "1.0.0", "").targets(),
+        ["windows-x86_64-nsis", "windows-x86_64"]
+    );
+    assert_eq!(
+        cfg(InstallKind::Msi, "windows", "1.0.0", "").targets(),
+        ["windows-x86_64-msi"]
+    );
+    assert_eq!(
+        cfg(InstallKind::AppImage, "linux", "1.0.0", "").targets(),
+        ["linux-x86_64-appimage", "linux-x86_64"]
+    );
+    assert_eq!(
+        cfg(InstallKind::Deb, "linux", "1.0.0", "").targets(),
+        ["linux-x86_64-deb"]
+    );
+    assert_eq!(
+        cfg(InstallKind::App, "darwin", "1.0.0", "").targets(),
+        ["darwin-x86_64-app", "darwin-x86_64"]
+    );
+    assert!(
+        cfg(InstallKind::Portable, "linux", "1.0.0", "")
+            .targets()
+            .is_empty()
+    );
+    assert!(
+        cfg(InstallKind::Unpackaged, "linux", "1.0.0", "")
+            .targets()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -78,29 +111,75 @@ fn evaluate_picks_the_installer_for_this_copy() {
             ("linux-x86_64-deb", "u-deb", "s2"),
         ],
     );
-    let deb = evaluate(&cfg(InstallKind::Deb, "linux", "1.1.9", "k"), &m, false).unwrap().unwrap();
+    let deb = evaluate(&cfg(InstallKind::Deb, "linux", "1.1.9", "k"), &m, false)
+        .unwrap()
+        .unwrap();
     assert_eq!(deb.version, "1.2.0");
     assert_eq!(deb.url.as_deref(), Some("u-deb"));
     assert_eq!(deb.target.as_deref(), Some("linux-x86_64-deb"));
     assert_eq!(deb.notes.as_deref(), Some("Fixes."));
-    assert_eq!(deb.release_page, "https://github.com/owner/repo/releases/tag/v1.2.0");
+    assert_eq!(
+        deb.release_page,
+        "https://github.com/owner/repo/releases/tag/v1.2.0"
+    );
     // Same or older: nothing.
-    assert!(evaluate(&cfg(InstallKind::Deb, "linux", "1.2.0", "k"), &m, false).unwrap().is_none());
-    assert!(evaluate(&cfg(InstallKind::Deb, "linux", "1.3.0", "k"), &m, false).unwrap().is_none());
+    assert!(
+        evaluate(&cfg(InstallKind::Deb, "linux", "1.2.0", "k"), &m, false)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        evaluate(&cfg(InstallKind::Deb, "linux", "1.3.0", "k"), &m, false)
+            .unwrap()
+            .is_none()
+    );
     // A pre-release of the running version is older than the release.
-    assert!(evaluate(&cfg(InstallKind::Deb, "linux", "1.2.0-beta.1", "k"), &m, true).unwrap().is_some());
+    assert!(
+        evaluate(
+            &cfg(InstallKind::Deb, "linux", "1.2.0-beta.1", "k"),
+            &m,
+            true
+        )
+        .unwrap()
+        .is_some()
+    );
     // Portable copies hear about it but get no installer.
-    let p = evaluate(&cfg(InstallKind::Portable, "linux", "1.0.0", "k"), &m, false).unwrap().unwrap();
+    let p = evaluate(
+        &cfg(InstallKind::Portable, "linux", "1.0.0", "k"),
+        &m,
+        false,
+    )
+    .unwrap()
+    .unwrap();
     assert!(!p.installable());
     // A deb copy never falls back to the bare key (an AppImage).
     let only_bare = manifest("1.2.0", &[("linux-x86_64", "u-appimage", "s1")]);
-    let d = evaluate(&cfg(InstallKind::Deb, "linux", "1.0.0", "k"), &only_bare, false).unwrap().unwrap();
+    let d = evaluate(
+        &cfg(InstallKind::Deb, "linux", "1.0.0", "k"),
+        &only_bare,
+        false,
+    )
+    .unwrap()
+    .unwrap();
     assert!(d.url.is_none());
-    let a = evaluate(&cfg(InstallKind::AppImage, "linux", "1.0.0", "k"), &only_bare, false).unwrap().unwrap();
+    let a = evaluate(
+        &cfg(InstallKind::AppImage, "linux", "1.0.0", "k"),
+        &only_bare,
+        false,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(a.target.as_deref(), Some("linux-x86_64"));
     // Garbage is an error, not "no update".
     assert!(evaluate(&cfg(InstallKind::Deb, "linux", "1.0.0", "k"), b"{}", false).is_err());
-    assert!(evaluate(&cfg(InstallKind::Deb, "linux", "1.0.0", "k"), br#"{"version":"x"}"#, false).is_err());
+    assert!(
+        evaluate(
+            &cfg(InstallKind::Deb, "linux", "1.0.0", "k"),
+            br#"{"version":"x"}"#,
+            false
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -113,8 +192,14 @@ fn signed_version_is_required_and_must_match() {
 
 #[test]
 fn download_names_are_safe() {
-    assert_eq!(file_name_from_url("https://h/d/v1/ezssh_1.2.0_amd64.deb?x=1"), "ezssh_1.2.0_amd64.deb");
-    assert_eq!(file_name_from_url("https://h/d/..%2F..%2Fevil"), "_2F.._2Fevil");
+    assert_eq!(
+        file_name_from_url("https://h/d/v1/ezssh_1.2.0_amd64.deb?x=1"),
+        "ezssh_1.2.0_amd64.deb"
+    );
+    assert_eq!(
+        file_name_from_url("https://h/d/..%2F..%2Fevil"),
+        "_2F.._2Fevil"
+    );
     assert_eq!(file_name_from_url("https://h/"), "ezssh-update");
 }
 
@@ -137,7 +222,11 @@ fn detect_appimage() {
     let dir = tempfile::tempdir().unwrap();
     let img = dir.path().join("ezssh_1.0.0_x86_64.AppImage");
     std::fs::write(&img, b"").unwrap();
-    let i = detect_from(Path::new("/tmp/.mount_ezsshXYZ/usr/bin/ezssh"), Some(img.clone()), vec![]);
+    let i = detect_from(
+        Path::new("/tmp/.mount_ezsshXYZ/usr/bin/ezssh"),
+        Some(img.clone()),
+        vec![],
+    );
     assert_eq!(i.kind, InstallKind::AppImage);
     assert_eq!(i.target, img);
     assert_eq!(i.exe, img);
@@ -158,7 +247,10 @@ async fn check_and_download_verify_end_to_end() {
     files.insert(format!("/dl/{name}"), installer.clone());
     files.insert("/bad/ezssh_1.2.0_amd64.deb".to_string(), tampered);
     let base = serve(files.clone()).await;
-    let m = manifest("1.2.0", &[("linux-x86_64-deb", &format!("{base}/dl/{name}"), &sig)]);
+    let m = manifest(
+        "1.2.0",
+        &[("linux-x86_64-deb", &format!("{base}/dl/{name}"), &sig)],
+    );
     files.insert("/latest.json".into(), m);
     let base = serve(files).await;
 
@@ -169,7 +261,9 @@ async fn check_and_download_verify_end_to_end() {
 
     let dir = tempfile::tempdir().unwrap();
     let mut seen = Vec::new();
-    let path = download(&c, &update, dir.path(), |d, t| seen.push((d, t))).await.unwrap();
+    let path = download(&c, &update, dir.path(), |d, t| seen.push((d, t)))
+        .await
+        .unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), installer);
     assert_eq!(path.file_name().unwrap(), name);
     assert_eq!(seen.first(), Some(&(0, Some(300_000))));
@@ -179,18 +273,27 @@ async fn check_and_download_verify_end_to_end() {
     let mut bad = update.clone();
     bad.url = Some(format!("{base}/bad/ezssh_1.2.0_amd64.deb"));
     let d2 = tempfile::tempdir().unwrap();
-    let e = download(&c, &bad, d2.path(), |_, _| {}).await.unwrap_err().to_string();
+    let e = download(&c, &bad, d2.path(), |_, _| {})
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(e.contains("does not verify"), "{e}");
     assert!(!d2.path().join(name).exists());
 
     // Signed for another version, or by another key: refused before downloading.
     let mut v = update.clone();
     v.signature = Some(wrong_version);
-    let e = download(&c, &v, d2.path(), |_, _| {}).await.unwrap_err().to_string();
+    let e = download(&c, &v, d2.path(), |_, _| {})
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(e.contains("signed for 1.1.0"), "{e}");
     let mut o = update.clone();
     o.signature = Some(other_key);
-    let e = download(&c, &o, d2.path(), |_, _| {}).await.unwrap_err().to_string();
+    let e = download(&c, &o, d2.path(), |_, _| {})
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(e.contains("another key"), "{e}");
 
     // A body shorter than announced fails.
@@ -205,29 +308,69 @@ async fn check_and_download_verify_end_to_end() {
     assert!(e.contains("no release with an update manifest"), "{e}");
     let mut nokey = c.clone();
     nokey.pubkey.clear();
-    assert!(check(&nokey, false).await.unwrap_err().to_string().contains("no update key"));
+    assert!(
+        check(&nokey, false)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("no update key")
+    );
 }
 
 #[test]
 fn release_tool_manifest_reads_back() {
     // The manifest builder of the release job and the reader agree.
     let assets = [
-        ezssh_release::Signed { file_name: "ezssh_2.0.0_x64-setup.exe".into(), signature: "A".into() },
-        ezssh_release::Signed { file_name: "ezssh_2.0.0_x64_en-US.msi".into(), signature: "B".into() },
-        ezssh_release::Signed { file_name: "ezssh_2.0.0_x86_64.AppImage".into(), signature: "C".into() },
-        ezssh_release::Signed { file_name: "ezssh_2.0.0_amd64.deb".into(), signature: "D".into() },
-        ezssh_release::Signed { file_name: "ezssh_2.0.0_aarch64.app.tar.gz".into(), signature: "E".into() },
+        ezssh_release::Signed {
+            file_name: "ezssh_2.0.0_x64-setup.exe".into(),
+            signature: "A".into(),
+        },
+        ezssh_release::Signed {
+            file_name: "ezssh_2.0.0_x64_en-US.msi".into(),
+            signature: "B".into(),
+        },
+        ezssh_release::Signed {
+            file_name: "ezssh_2.0.0_x86_64.AppImage".into(),
+            signature: "C".into(),
+        },
+        ezssh_release::Signed {
+            file_name: "ezssh_2.0.0_amd64.deb".into(),
+            signature: "D".into(),
+        },
+        ezssh_release::Signed {
+            file_name: "ezssh_2.0.0_aarch64.app.tar.gz".into(),
+            signature: "E".into(),
+        },
     ];
-    let m = ezssh_release::manifest("2.0.0", "", "2026-11-02T00:00:00Z", "https://h/v2.0.0", &assets).unwrap();
+    let m = ezssh_release::manifest(
+        "2.0.0",
+        "",
+        "2026-11-02T00:00:00Z",
+        "https://h/v2.0.0",
+        &assets,
+    )
+    .unwrap();
     let bytes = serde_json::to_vec(&m).unwrap();
-    let pick = |kind, os| evaluate(&cfg(kind, os, "1.0.0", "k"), &bytes, false).unwrap().unwrap().signature;
+    let pick = |kind, os| {
+        evaluate(&cfg(kind, os, "1.0.0", "k"), &bytes, false)
+            .unwrap()
+            .unwrap()
+            .signature
+    };
     assert_eq!(pick(InstallKind::Nsis, "windows").as_deref(), Some("A"));
     assert_eq!(pick(InstallKind::Msi, "windows").as_deref(), Some("B"));
     assert_eq!(pick(InstallKind::AppImage, "linux").as_deref(), Some("C"));
     assert_eq!(pick(InstallKind::Deb, "linux").as_deref(), Some("D"));
     let mut mac = cfg(InstallKind::App, "darwin", "1.0.0", "k");
     mac.arch = "aarch64";
-    assert_eq!(evaluate(&mac, &bytes, false).unwrap().unwrap().signature.as_deref(), Some("E"));
+    assert_eq!(
+        evaluate(&mac, &bytes, false)
+            .unwrap()
+            .unwrap()
+            .signature
+            .as_deref(),
+        Some("E")
+    );
 }
 
 #[cfg(unix)]
@@ -246,9 +389,18 @@ fn appimage_is_replaced_atomically_with_its_mode() {
     inst.args = vec![OsString::from("--db"), OsString::from("x")];
     let after = install::install(&inst, &new).unwrap();
     assert_eq!(std::fs::read(&target).unwrap(), b"new");
-    assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o750);
+    assert_eq!(
+        std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o750
+    );
     assert!(!new.exists(), "download removed");
-    assert_eq!(after, AfterInstall::Relaunch { program: target, args: inst.args.clone() });
+    assert_eq!(
+        after,
+        AfterInstall::Relaunch {
+            program: target,
+            args: inst.args.clone()
+        }
+    );
     // No stray temp file left next to it.
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
@@ -268,25 +420,46 @@ fn app_bundle_swap_and_restore() {
     let tgz = src.path().join("ezssh_2.0.0_aarch64.app.tar.gz");
     {
         let f = std::fs::File::create(&tgz).unwrap();
-        let mut b = tar::Builder::new(flate2::write::GzEncoder::new(f, flate2::Compression::fast()));
-        b.append_dir_all("ezSsh.app", src.path().join("ezSsh.app")).unwrap();
+        let mut b = tar::Builder::new(flate2::write::GzEncoder::new(
+            f,
+            flate2::Compression::fast(),
+        ));
+        b.append_dir_all("ezSsh.app", src.path().join("ezSsh.app"))
+            .unwrap();
         b.into_inner().unwrap().finish().unwrap();
     }
     install::swap_app_bundle(&app, &tgz).unwrap();
-    assert_eq!(std::fs::read(app.join("Contents/MacOS/ezssh")).unwrap(), b"new");
-    let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
-    assert_eq!(names, [OsString::from("ezSsh.app")], "staging and backup removed");
+    assert_eq!(
+        std::fs::read(app.join("Contents/MacOS/ezssh")).unwrap(),
+        b"new"
+    );
+    let names: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        names,
+        [OsString::from("ezSsh.app")],
+        "staging and backup removed"
+    );
 
     // An archive without an .app leaves the installed bundle alone.
     let empty = src.path().join("empty.tar.gz");
     {
         let f = std::fs::File::create(&empty).unwrap();
-        let mut b = tar::Builder::new(flate2::write::GzEncoder::new(f, flate2::Compression::fast()));
-        b.append_dir_all("notes", src.path().join("ezSsh.app/Contents")).unwrap();
+        let mut b = tar::Builder::new(flate2::write::GzEncoder::new(
+            f,
+            flate2::Compression::fast(),
+        ));
+        b.append_dir_all("notes", src.path().join("ezSsh.app/Contents"))
+            .unwrap();
         b.into_inner().unwrap().finish().unwrap();
     }
     assert!(install::swap_app_bundle(&app, &empty).is_err());
-    assert_eq!(std::fs::read(app.join("Contents/MacOS/ezssh")).unwrap(), b"new");
+    assert_eq!(
+        std::fs::read(app.join("Contents/MacOS/ezssh")).unwrap(),
+        b"new"
+    );
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
@@ -303,7 +476,10 @@ fn windows_helper_script() {
         Path::new(r"C:\Users\O'Brien\AppData\Local\Temp\ezssh-update-1\ezssh_2.0.0_x64-setup.exe"),
         4242,
         Path::new(r"C:\Users\O'Brien\AppData\Local\ezSsh\ezssh.exe"),
-        &[OsString::from("--db"), OsString::from(r"C:\My Data\ezterm.sqlite")],
+        &[
+            OsString::from("--db"),
+            OsString::from(r"C:\My Data\ezterm.sqlite"),
+        ],
         Path::new(r"C:\Temp\ezssh-update.log"),
     );
     assert!(s.contains("Wait-Process -Id 4242"), "{s}");
@@ -320,7 +496,13 @@ fn windows_helper_script() {
         Path::new(r"C:\T\l.log"),
     );
     assert!(m.contains(r#"msiexec.exe" -ArgumentList '/i','C:\T\d\ezssh_2.0.0_x64_en-US.msi','/passive','/norestart' -Wait -PassThru"#), "{m}");
-    assert!(m.ends_with("Start-Process -FilePath 'C:\\Program Files\\ezSsh\\ezssh.exe'\n"), "{m}");
+    assert!(
+        m.ends_with("Start-Process -FilePath 'C:\\Program Files\\ezSsh\\ezssh.exe'\n"),
+        "{m}"
+    );
     // A file outside a download folder: only the file goes.
-    assert!(m.contains(r"Remove-Item -LiteralPath 'C:\T\d\ezssh_2.0.0_x64_en-US.msi' -Force"), "{m}");
+    assert!(
+        m.contains(r"Remove-Item -LiteralPath 'C:\T\d\ezssh_2.0.0_x64_en-US.msi' -Force"),
+        "{m}"
+    );
 }

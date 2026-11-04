@@ -26,6 +26,6 @@ pub mod wslfs;
 pub mod xserver;
 
 pub use error::{AppError, Result};
-pub use secret::Secret;
 pub use events::{CloseReason, Event, EventSink, Events, Output, OutputSink};
+pub use secret::Secret;
 pub use state::AppState;
