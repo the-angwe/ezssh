@@ -1,4 +1,10 @@
 //! `ezssh`: the native ezSsh window.
+// Release builds on Windows are GUI-subsystem programs: no console window
+// opens when the app is started from the Explorer or the Start menu. Debug
+// builds keep the console so logs are visible. `attach_parent_console`
+// below still routes --help and RUST_LOG output to the terminal when the
+// release binary is started from one.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -116,7 +122,30 @@ impl eframe::App for StartupError {
     }
 }
 
+/// GUI-subsystem binaries start without a console, so stdout / stderr go
+/// nowhere. When the parent process has one (cmd, PowerShell, a CI step),
+/// attach to it so `ezssh --help`, argument errors and `RUST_LOG` output
+/// are visible. Must run before the first write to stdout / stderr: Rust
+/// caches the standard handles on first use. Started from the Explorer
+/// there is no parent console and the call fails, which is the normal
+/// case and not an error.
+#[cfg(all(windows, not(debug_assertions)))]
+fn attach_parent_console() {
+    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+    // SAFETY: plain Win32 call with a documented constant, no pointers.
+    let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0;
+    if attached {
+        // The console cursor sits after the shell prompt; start our output
+        // on a fresh line.
+        eprintln!();
+    }
+}
+
+#[cfg(not(all(windows, not(debug_assertions))))]
+fn attach_parent_console() {}
+
 fn main() -> Result<()> {
+    attach_parent_console();
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(

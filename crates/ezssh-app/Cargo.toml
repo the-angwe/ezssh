@@ -34,7 +34,9 @@ chrono = "0.4"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Diagnostics_Debug"] }
+# Diagnostics_Debug: Beep (bell.rs). Console: AttachConsole (main.rs), so the
+# GUI-subsystem release build still prints to the terminal it was started from.
+windows-sys = { version = "0.61", features = ["Win32_System_Diagnostics_Debug", "Win32_System_Console"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }
