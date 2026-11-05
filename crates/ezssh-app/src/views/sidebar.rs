@@ -518,7 +518,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         &mut top,
         Icon::PanelLeftClose,
         false,
-        "Hide sessions (Ctrl+B)",
+        &format!("Hide sessions ({})", ezssh_term::shortcut::cmd("B")),
     )
     .clicked()
     {

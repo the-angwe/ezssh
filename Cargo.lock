@@ -1883,9 +1883,10 @@ dependencies = [
 
 [[package]]
 name = "ezssh-app"
-version = "2.0.0-2"
+version = "2.0.0-3"
 dependencies = [
  "anyhow",
+ "arboard",
  "chrono",
  "eframe",
  "egui",
@@ -1897,6 +1898,9 @@ dependencies = [
  "ezssh-term",
  "ezssh-testsrv",
  "fontique",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "open",
  "rfd",
  "serde",
@@ -1911,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "ezssh-core"
-version = "2.0.0-2"
+version = "2.0.0-3"
 dependencies = [
  "argon2",
  "base64 0.23.1",
@@ -1944,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "ezssh-release"
-version = "2.0.0-2"
+version = "2.0.0-3"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -1956,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "ezssh-term"
-version = "2.0.0-2"
+version = "2.0.0-3"
 dependencies = [
  "alacritty_terminal",
  "arboard",
@@ -1970,7 +1974,7 @@ dependencies = [
 
 [[package]]
 name = "ezssh-testsrv"
-version = "2.0.0-2"
+version = "2.0.0-3"
 dependencies = [
  "anyhow",
  "rand",

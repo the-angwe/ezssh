@@ -14,6 +14,7 @@ pub mod mouse;
 pub mod osc52;
 pub mod palette;
 pub mod search;
+pub mod shortcut;
 pub mod terminal;
 pub mod view;
 

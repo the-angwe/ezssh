@@ -183,8 +183,11 @@ fn main() -> Result<()> {
             .with_app_id("ezssh")
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([640.0, 400.0]),
-        // Ctrl+C / Ctrl+V / Ctrl+X must reach the shell as keys.
-        clipboard_shortcuts: false,
+        // Ctrl+C / Ctrl+V / Ctrl+X must reach the shell as keys; the text
+        // fields get them from `clipboard.rs` instead. On macOS the chords
+        // are ⌘C / ⌘V / ⌘X, which no shell wants: eframe's translation
+        // stays on.
+        clipboard_shortcuts: cfg!(target_os = "macos"),
         ..Default::default()
     };
     match args.renderer {
@@ -215,6 +218,8 @@ fn main() -> Result<()> {
         "ezssh",
         options,
         Box::new(move |cc| {
+            #[cfg(target_os = "macos")]
+            ezssh_app::macos::route_quit_through_close();
             Ok(match ezssh_app::App::new(&cc.egui_ctx, app_options) {
                 Ok(app) => Box::new(app) as Box<dyn eframe::App>,
                 Err(e) => {

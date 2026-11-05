@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use egui::{FontFamily, Key, Modifiers};
 use ezssh_core::xserver::XServerStatus;
 use ezssh_core::{Event, api};
+use ezssh_term::shortcut;
 use ezssh_term::view::ImeLoopFilter;
 use ezssh_term::{BellMode, CursorKind, FontRegistry, RightClick, TermOptions, TermStyle};
 
@@ -111,6 +112,7 @@ pub struct App {
     /// Quit confirmed: let the next close request through.
     allow_close: bool,
     ime_filter: ImeLoopFilter,
+    clipboard_keys: crate::clipboard::ClipboardKeys,
     window_title: String,
     pub(crate) ctx: egui::Context,
 }
@@ -178,6 +180,7 @@ impl App {
             last_input: Instant::now(),
             allow_close: false,
             ime_filter: ImeLoopFilter::default(),
+            clipboard_keys: Default::default(),
             window_title: String::new(),
             ctx: ctx.clone(),
         };
@@ -605,18 +608,34 @@ impl App {
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
-    /// Ctrl+B / Ctrl+K / Ctrl+Shift+W, only while no terminal has the
-    /// keyboard (a terminal gets ^B, ^K and ^W itself: tmux, readline).
+    /// The app's keyboard chords, consumed before the panels are shown.
+    ///
+    /// Ctrl+B (sidebar), Ctrl+K (session filter) and Ctrl+Shift+W (view
+    /// mode) only while no terminal has the keyboard: a terminal gets ^B,
+    /// ^K and ^W itself (tmux, readline). On macOS they are ⌘B / ⌘K /
+    /// ⇧⌘W, which no shell sees, so they work over a terminal too, as do
+    /// the standard ⌘ chords: ⌘W closes the tab, ⌘N a new session, ⌘,
+    /// the settings, ⌘M minimises, ⇧⌘[ / ⇧⌘] and ⌥⌘← / ⌥⌘→ step
+    /// through the tabs, ⌘1…⌘9 pick a tab (⌘9 the last). ⌘C / ⌘V / ⌘X
+    /// are eframe's, ⌘Q / ⌘H the application menu's (`macos.rs`), ⌘A /
+    /// ⌘F / ⌘+ / ⌘− / ⌘0 the terminal widget's.
     pub(crate) fn global_shortcuts(&mut self, ctx: &egui::Context) {
         if self.any_modal_open() {
             return;
         }
-        let (toggle, cycle, filter) = ctx.input_mut(|i| {
-            let cycle = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::W);
-            let toggle = i.consume_key(Modifiers::COMMAND, Key::B);
-            let filter = i.consume_key(Modifiers::COMMAND, Key::K);
-            (toggle, cycle, filter)
-        });
+        // Last frame's focus (the panels come after this): one frame of
+        // lag at most.
+        let over_terminal = self.mdi.term_focused && !shortcut::IS_MAC;
+        let (toggle, cycle, filter) = if over_terminal {
+            (false, false, false)
+        } else {
+            ctx.input_mut(|i| {
+                let cycle = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::W);
+                let toggle = i.consume_key(Modifiers::COMMAND, Key::B);
+                let filter = i.consume_key(Modifiers::COMMAND, Key::K);
+                (toggle, cycle, filter)
+            })
+        };
         if toggle {
             self.tabs.sidebar_collapsed = !self.tabs.sidebar_collapsed;
         }
@@ -629,6 +648,92 @@ impl App {
             self.tabs.view_mode = self.tabs.view_mode.next();
             self.save_layout();
         }
+
+        // `MAC_CMD` matches the Command key only, which egui reports on
+        // macOS alone: inert elsewhere.
+        let m = ctx.input_mut(|i| MacChords {
+            close_tab: i.consume_key(Modifiers::MAC_CMD, Key::W),
+            new_session: i.consume_key(Modifiers::MAC_CMD, Key::N),
+            settings: i.consume_key(Modifiers::MAC_CMD, Key::Comma),
+            minimize: i.consume_key(Modifiers::MAC_CMD, Key::M),
+            prev_tab: i.consume_key(Modifiers::MAC_CMD | Modifiers::SHIFT, Key::OpenBracket)
+                || i.consume_key(Modifiers::MAC_CMD | Modifiers::ALT, Key::ArrowLeft),
+            next_tab: i.consume_key(Modifiers::MAC_CMD | Modifiers::SHIFT, Key::CloseBracket)
+                || i.consume_key(Modifiers::MAC_CMD | Modifiers::ALT, Key::ArrowRight),
+            nth_tab: [
+                Key::Num1,
+                Key::Num2,
+                Key::Num3,
+                Key::Num4,
+                Key::Num5,
+                Key::Num6,
+                Key::Num7,
+                Key::Num8,
+                Key::Num9,
+            ]
+            .iter()
+            .position(|k| i.consume_key(Modifiers::MAC_CMD, *k))
+            .map(|p| p + 1),
+        });
+        if m.close_tab
+            && let Some(id) = self.tabs.active
+        {
+            tracing::debug!(tab = id, "app: ⌘W, close the active tab");
+            self.request_close_tab(id);
+        }
+        if m.new_session {
+            tracing::debug!("app: ⌘N, new session");
+            self.dialogs.session = Some(views::session_dialog::SessionDialog::new_session(None));
+        }
+        if m.settings {
+            tracing::debug!("app: ⌘,, settings");
+            self.dialogs.settings = Some(views::settings::SettingsDialog::default());
+        }
+        if m.minimize {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+        if m.prev_tab {
+            self.step_tab(-1);
+        }
+        if m.next_tab {
+            self.step_tab(1);
+        }
+        if let Some(n) = m.nth_tab {
+            self.nth_tab(n);
+        }
+    }
+
+    /// Activate the tab `delta` places from the active one (wrapping).
+    fn step_tab(&mut self, delta: isize) {
+        let n = self.tabs.tabs.len();
+        if n == 0 {
+            return;
+        }
+        let cur = self
+            .tabs
+            .active
+            .and_then(|a| self.tabs.index_of(a))
+            .unwrap_or(0);
+        let next = (cur as isize + delta).rem_euclid(n as isize) as usize;
+        let id = self.tabs.tabs[next].id;
+        tracing::debug!(from = cur, to = next, tab = id, "app: step tab");
+        self.activate(id);
+    }
+
+    /// Activate the `n`-th tab (1-based); 9 is the last one, as on macOS.
+    fn nth_tab(&mut self, n: usize) {
+        let len = self.tabs.tabs.len();
+        let idx = if n == 9 {
+            len.checked_sub(1)
+        } else {
+            (n <= len).then(|| n - 1)
+        };
+        let Some(idx) = idx else {
+            tracing::debug!(n, tabs = len, "app: ⌘{n}, no such tab");
+            return;
+        };
+        let id = self.tabs.tabs[idx].id;
+        self.activate(id);
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
@@ -661,6 +766,11 @@ impl eframe::App for App {
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.ime_filter.filter(raw_input);
+        // Ctrl+C / X / V for the text fields while no terminal has the
+        // keyboard (last frame's focus; the unlock screen has none).
+        if !shortcut::IS_MAC && !(matches!(self.screen, Screen::Main) && self.mdi.term_focused) {
+            self.clipboard_keys.translate(&mut raw_input.events);
+        }
         let active = raw_input.events.iter().any(|e| {
             matches!(
                 e,
@@ -686,4 +796,16 @@ impl eframe::App for App {
         self.toasts.show(&ctx);
         self.update_title(&ctx);
     }
+}
+
+/// The ⌘ chords consumed this frame (`App::global_shortcuts`).
+struct MacChords {
+    close_tab: bool,
+    new_session: bool,
+    settings: bool,
+    minimize: bool,
+    prev_tab: bool,
+    next_tab: bool,
+    /// ⌘1…⌘9: the 1-based tab number.
+    nth_tab: Option<usize>,
 }

@@ -88,11 +88,15 @@ pub fn show(app: &mut App, ui: &mut Ui, strip: Rect) {
         .iter()
         .find(|(m, _)| *m == mode)
         .map_or(Icon::LayoutPanelLeft, |(_, i)| *i);
+    let layout_tip = format!(
+        "View mode ({} cycles)",
+        ezssh_term::shortcut::cmd_shift("W")
+    );
     let layout_btn = widgets::Button::ghost("Layout")
         .icon(layout_icon)
         .chevron()
         .small()
-        .tooltip("View mode (Ctrl+Shift+W cycles)")
+        .tooltip(layout_tip.as_str())
         .show(&mut right);
     if layout_btn.clicked() {
         let entries = MODE_ICONS

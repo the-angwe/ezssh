@@ -5,6 +5,7 @@
 
 pub mod app;
 mod bell;
+mod clipboard;
 mod conn;
 mod core;
 mod creds;
@@ -13,6 +14,8 @@ mod font_presets;
 mod form;
 mod icons;
 pub mod layout;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod settings;
 pub mod style;
 pub mod tabs;

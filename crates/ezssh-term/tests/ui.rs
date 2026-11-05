@@ -480,3 +480,45 @@ fn paint_cost() {
         );
     }
 }
+
+/// macOS: ⌘A / ⌘C / ⌘F / ⌘+ / ⌘− / ⌘0 are the terminal's (egui reports
+/// `mac_cmd` only there; nothing reaches the shell).
+#[test]
+fn mac_command_chords() {
+    let mut h = harness(State::new(b"hello world\r\n$ "));
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::A);
+    h.run_steps(2);
+    assert!(
+        h.state_mut()
+            .term()
+            .selection_text()
+            .is_some_and(|t| t.contains("hello world")),
+        "⌘A selects everything"
+    );
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::C);
+    h.run_steps(2);
+    assert!(
+        h.state().sink.0.lock().unwrap().is_empty(),
+        "⌘A / ⌘C send nothing to the pty"
+    );
+
+    let base = h.state_mut().term().font_size();
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Equals);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().term().font_size(), base + 1.0, "⌘= grows");
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Minus);
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Minus);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().term().font_size(), base - 1.0, "⌘− shrinks");
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Num0);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().term().font_size(), base, "⌘0 resets");
+
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::F);
+    h.run_steps(3);
+    assert!(h.query_by_label("Aa").is_some(), "⌘F opens the find bar");
+    assert!(
+        h.state().sink.0.lock().unwrap().is_empty(),
+        "the chords send nothing to the pty"
+    );
+}

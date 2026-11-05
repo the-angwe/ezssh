@@ -29,6 +29,7 @@ use crate::links::{Link, LinkFinder};
 use crate::mouse;
 use crate::palette::{Palette, dim};
 use crate::search::{Find, MAX_COUNTED};
+use crate::shortcut;
 use crate::terminal::{Terminal, UiEvent, multiline_paste_lines};
 
 pub const MIN_FONT_SIZE: f32 = 8.0;
@@ -156,8 +157,12 @@ pub struct ViewState {
     pub(crate) rows: usize,
     cell: Vec2,
     origin: Pos2,
-    /// Live font size: starts at the session's, changed by Ctrl+wheel.
+    /// Live font size: starts at the session's, changed by Ctrl+wheel
+    /// and ⌘+ / ⌘−.
     pub(crate) font_size: f32,
+    /// The size `set_font_size` last set (the session's, or "Apply to
+    /// tab"); ⌘0 returns to it.
+    base_font_size: f32,
     pub(crate) faces: Faces,
     selecting: bool,
     last_click: Option<(Instant, Point, u8)>,
@@ -200,6 +205,7 @@ impl Default for ViewState {
             cell: Vec2::ZERO,
             origin: Pos2::ZERO,
             font_size: 14.0,
+            base_font_size: 14.0,
             faces: Faces::default(),
             selecting: false,
             last_click: None,
@@ -250,6 +256,7 @@ impl Terminal {
     /// the PTY told about the new size.
     pub fn set_font_size(&mut self, size: f32) {
         self.view.font_size = size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+        self.view.base_font_size = self.view.font_size;
     }
 
     pub fn faces(&self) -> &Faces {
@@ -260,7 +267,7 @@ impl Terminal {
         self.view.faces = faces;
     }
 
-    /// Open the find bar (Ctrl+Shift+F, context menu).
+    /// Open the find bar (Ctrl+Shift+F / ⌘F, context menu).
     pub fn open_find(&mut self) {
         match &mut self.view.find {
             Some(f) => f.focus_input = true,
@@ -646,26 +653,68 @@ fn handle_keyboard(
             } => {
                 let mods = Mods::from_egui(*modifiers);
                 let ctrl_shift = mods.ctrl && mods.shift && !mods.alt;
+                // macOS: egui sets `mac_cmd` only there, and ⌘+key never
+                // means anything to the shell, so Terminal.app's chords
+                // live here. (⌘C / ⌘V usually arrive as `Event::Copy` /
+                // `Event::Paste` from eframe instead; the key form is
+                // kept for hosts that pass the keys through.)
+                let cmd = mods.super_ && !mods.ctrl && !mods.alt;
                 // A consumed shortcut's release must not reach a kitty
                 // program as an unmatched release report either.
                 let shortcut = matches!(key, egui::Key::C | egui::Key::V | egui::Key::F if ctrl_shift)
-                    || matches!(key, egui::Key::Insert if mods.shift != mods.ctrl && !mods.alt);
+                    || matches!(key, egui::Key::Insert if mods.shift != mods.ctrl && !mods.alt)
+                    || matches!(
+                        key,
+                        egui::Key::A
+                            | egui::Key::C
+                            | egui::Key::V
+                            | egui::Key::F
+                            | egui::Key::Equals
+                            | egui::Key::Plus
+                            | egui::Key::Minus
+                            | egui::Key::Num0
+                            if cmd
+                    );
                 if !*pressed && shortcut {
                     continue;
                 }
                 if *pressed {
                     // Terminal shortcuts.
                     match key {
-                        egui::Key::C if ctrl_shift => {
+                        egui::Key::C if ctrl_shift || cmd => {
                             copy_selection(term, ctx);
                             continue;
                         }
-                        egui::Key::V if ctrl_shift => {
+                        egui::Key::V if ctrl_shift || cmd => {
                             paste_clipboard(term, style, actions);
                             continue;
                         }
-                        egui::Key::F if ctrl_shift => {
+                        egui::Key::F if ctrl_shift || cmd => {
                             term.open_find();
+                            continue;
+                        }
+                        egui::Key::A if cmd => {
+                            term.select_all();
+                            continue;
+                        }
+                        egui::Key::Equals
+                        | egui::Key::Plus
+                        | egui::Key::Minus
+                        | egui::Key::Num0
+                            if cmd =>
+                        {
+                            // ⌘+ / ⌘− / ⌘0 like Terminal.app; Ctrl+wheel
+                            // is the pointer form.
+                            let size = match key {
+                                egui::Key::Minus => term.view.font_size - 1.0,
+                                egui::Key::Num0 => term.view.base_font_size,
+                                _ => term.view.font_size + 1.0,
+                            }
+                            .clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+                            if size != term.view.font_size {
+                                tracing::debug!(from = term.view.font_size, to = size, "term.zoom");
+                                term.view.font_size = size;
+                            }
                             continue;
                         }
                         egui::Key::Insert if mods.shift && !mods.ctrl => {
@@ -1089,10 +1138,10 @@ fn show_menu(
                     }
                     ui.add_enabled(enabled, b).clicked().then_some(label)
                 };
-                chosen = item(ui, has_selection, "Copy", "Ctrl+Shift+C")
-                    .or_else(|| item(ui, true, "Paste", "Shift+Insert"))
+                chosen = item(ui, has_selection, "Copy", shortcut::COPY)
+                    .or_else(|| item(ui, true, "Paste", shortcut::PASTE))
                     .or_else(|| item(ui, true, "Select All", ""))
-                    .or_else(|| item(ui, true, "Find…", "Ctrl+Shift+F"));
+                    .or_else(|| item(ui, true, "Find…", shortcut::FIND));
                 ui.separator();
                 chosen = chosen
                     .or_else(|| item(ui, true, "Appearance…", ""))

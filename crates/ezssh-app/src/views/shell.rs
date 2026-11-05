@@ -13,6 +13,7 @@ use crate::views::{
     settings, sftp, sidebar, statusbar, sync, tabstrip, update, vault_dialogs, xserver,
 };
 use crate::widgets;
+use ezssh_term::shortcut;
 
 /// The collapsed sidebar rail (px).
 const RAIL_W: f32 = 36.0;
@@ -43,6 +44,9 @@ pub fn quit_confirm(app: &mut App, ctx: &egui::Context) {
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = tokens(ui.ctx());
     let ctx = ui.ctx().clone();
+    // Before the panels: a consumed chord never reaches a terminal or a
+    // text field.
+    app.global_shortcuts(&ctx);
 
     egui::Panel::bottom("status-bar")
         .exact_size(STATUS_BAR_H)
@@ -78,7 +82,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     false,
                     "Show sessions sidebar",
                 )
-                .on_hover_text("Show sessions (Ctrl+B)")
+                .on_hover_text(format!("Show sessions ({})", shortcut::cmd("B")))
                 .clicked()
                 {
                     app.tabs.sidebar_collapsed = false;
@@ -151,9 +155,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     shell_dialogs(app, &ctx);
     sidebar::dialogs(app, &ctx);
-    if !app.mdi.term_focused {
-        app.global_shortcuts(&ctx);
-    }
 }
 
 fn shell_dialogs(app: &mut App, ctx: &egui::Context) {

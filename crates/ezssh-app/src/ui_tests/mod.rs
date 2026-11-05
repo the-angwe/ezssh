@@ -761,3 +761,70 @@ fn tab_header_right_click_opens_terminal_menu() {
     h.run_steps(3);
     assert!(h.query_by_label("Select All").is_none(), "Escape closes");
 }
+
+/// macOS chords (`Modifiers::MAC_CMD`, which egui reports only there):
+/// ⌘N / ⌘, open dialogs, ⇧⌘[ / ⇧⌘] / ⌘1 pick tabs, ⌘W closes one.
+#[test]
+fn mac_command_chords() {
+    let mut env = start();
+    unlock_fresh(&mut env);
+    let h = &mut env.h;
+    let tabs: Vec<u64> = (0..2)
+        .map(|_| {
+            h.state_mut().tabs.sidebar_collapsed = false;
+            h.run_steps(2);
+            open_local(h)
+        })
+        .collect();
+    assert_eq!(h.state().tabs.active, Some(tabs[1]));
+
+    h.key_press_modifiers(
+        Modifiers::MAC_CMD | Modifiers::SHIFT,
+        egui::Key::OpenBracket,
+    );
+    h.run_steps(2);
+    assert_eq!(h.state().tabs.active, Some(tabs[0]), "⇧⌘[ steps back");
+    h.key_press_modifiers(
+        Modifiers::MAC_CMD | Modifiers::SHIFT,
+        egui::Key::CloseBracket,
+    );
+    h.run_steps(2);
+    assert_eq!(h.state().tabs.active, Some(tabs[1]), "⇧⌘] steps forward");
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Num1);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[0]),
+        "⌘1 picks the first tab"
+    );
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Num9);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[1]),
+        "⌘9 picks the last tab"
+    );
+
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::N);
+    h.run_steps(2);
+    assert!(
+        h.state().dialogs.session.is_some(),
+        "⌘N opens the session dialog"
+    );
+    h.state_mut().dialogs.session = None;
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::Comma);
+    h.run_steps(2);
+    assert!(
+        h.state().dialogs.settings.is_some(),
+        "⌘, opens the settings"
+    );
+    h.state_mut().dialogs.settings = None;
+    h.run_steps(2);
+
+    let before = h.state().tabs.tabs.len();
+    h.key_press_modifiers(Modifiers::MAC_CMD, egui::Key::W);
+    h.run_steps(3);
+    let closed = h.state().tabs.tabs.len() == before - 1 || h.state().tabs.pending_close.is_some();
+    assert!(closed, "⌘W closes the active tab (or asks first)");
+}

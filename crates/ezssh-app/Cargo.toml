@@ -32,6 +32,14 @@ zeroize = "1.9"
 chrono = "0.4"
 # Native open / save dialogs (backup, restore, sync, import; SFTP in phase 6).
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Ctrl+V for the text fields (clipboard.rs); the version ezssh-term uses.
+arboard = "3.7"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The application menu's Quit item (macos.rs); the versions eframe uses.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSString"] }
 
 [target.'cfg(windows)'.dependencies]
 # Diagnostics_Debug: Beep (bell.rs). Console: AttachConsole (main.rs), so the
