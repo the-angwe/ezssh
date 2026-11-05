@@ -255,6 +255,14 @@ fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
 /// A bare `-l` login shell only reads `~/.profile` / `~/.bash_profile`
 /// and skips the rc file unless the user wired it up themselves, which
 /// surprised users with "env vars don't load" reports (#104).
+///
+/// The child gets `TERM` / `COLORTERM` for the terminal it actually runs
+/// in, exactly as the SSH path requests `xterm-256color` for its PTY.
+/// `CommandBuilder` otherwise copies the ezssh process environment, and a
+/// desktop launcher starts ezssh with no `TERM` at all: readline / ZLE
+/// then find no `clear` capability and Ctrl+L merely reprints the prompt.
+/// A `TERM` inherited from whichever terminal launched ezssh (say
+/// `xterm-kitty`) would be just as wrong.
 #[cfg(unix)]
 fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
     let shell = match program.trim() {
@@ -263,12 +271,19 @@ fn build_local_command(program: &str, extra: &str) -> Result<CommandBuilder> {
     };
     let mut c = CommandBuilder::new(&shell);
     c.arg("-i");
+    c.env("TERM", LOCAL_TERM);
+    c.env("COLORTERM", "truecolor");
     let cwd = extra.trim();
     if !cwd.is_empty() {
         c.cwd(cwd);
     }
+    tracing::debug!(%shell, cwd, term = LOCAL_TERM, "local: spawning shell");
     Ok(c)
 }
+
+/// `TERM` for local shells; the same name the SSH client requests.
+#[cfg(unix)]
+const LOCAL_TERM: &str = "xterm-256color";
 
 #[cfg(not(any(unix, windows)))]
 fn build_local_command(_program: &str, _extra: &str) -> Result<CommandBuilder> {
@@ -300,4 +315,19 @@ pub async fn spawn_from_session(
         output,
     )
     .await
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_shell_gets_a_terminal_type() {
+        // Ctrl+L (readline / ZLE `clear-screen`) needs a `clear` capability,
+        // which the shell looks up by `TERM`; the ezssh process may have
+        // none (desktop launcher) or the wrong one (launching terminal).
+        let c = build_local_command("/bin/sh", "").unwrap();
+        assert_eq!(c.get_env("TERM").unwrap(), LOCAL_TERM);
+        assert_eq!(c.get_env("COLORTERM").unwrap(), "truecolor");
+    }
 }
