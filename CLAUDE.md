@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-ezSsh is a free, open-source Windows SSH client that should **look and feel like MobaXterm**. It is a **permanent fork** of ezTerm (`github.com/ZerosAndOnesLLC/ezTerm`); nothing goes upstream. The fork lives at `github.com/the-angwe/ezssh` (git remote `fork`; `origin` is upstream, no push rights), app identifier `xyz.angwe.ezssh`. Feature set: connection/session manager, encrypted credential vault ("locker"), SSH, SFTP, WSL and local shells, port forwards, X11 forwarding, an xterm-compatible terminal.
+ezSsh is a free, open-source Windows SSH client that should **look and feel like MobaXterm**. It is a **permanent fork** of ezTerm (`github.com/ZerosAndOnesLLC/ezTerm`); nothing goes upstream. The fork lives at `github.com/the-angwe/ezssh` (git remote `origin`; no upstream remote is configured), app identifier `xyz.angwe.ezssh`. Feature set: connection/session manager, encrypted credential vault ("locker"), SSH, SFTP, WSL and local shells, port forwards, X11 forwarding, an xterm-compatible terminal.
 
 Since 2.0 it is one native Rust process (egui/eframe 0.37 + alacritty_terminal 0.26); the Tauri + Next.js + xterm.js app is gone (removed in phase 8, 2026-11-02). Design, phases and results: `docs/design/native-rework-plan.md` (§9–§16).
 

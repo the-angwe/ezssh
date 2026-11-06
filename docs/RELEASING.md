@@ -40,7 +40,8 @@ is offered it. One-time key setup: [UPDATER_SIGNING.md](UPDATER_SIGNING.md).
 2. **Write the notes** in `docs/release-notes/v<version>.md`. They become
    the GitHub release body and the `notes` of `latest.json`, which the
    update dialog shows.
-3. Commit, push, then **tag**: `git tag v2.0.0 && git push fork v2.0.0`.
+3. Commit, push (`git push origin main`), then **tag**:
+   `git tag -a v2.0.0 -m "ezSsh v2.0.0" && git push origin v2.0.0`.
 4. Watch the `release` workflow in the Actions tab. The four build jobs run
    in parallel; `publish draft release` attaches everything to a draft.
 5. Open the draft on GitHub, check the assets, and **Publish**. Installed
