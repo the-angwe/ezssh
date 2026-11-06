@@ -277,7 +277,7 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
     // Header.
     let header = Rect::from_min_size(card.min, vec2(card_w, HEADER_H));
     let line = fix.header_line();
-    if widgets::dialog_header(
+    let header_close = widgets::dialog_header(
         ui,
         card_id,
         header,
@@ -287,9 +287,7 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
         Some(&line),
         true,
         fix.busy,
-    ) {
-        cancel = true;
-    }
+    );
 
     // Body.
     let footer = Rect::from_min_max(pos2(card.left(), card.bottom() - FOOTER_H), card.max);
@@ -320,18 +318,23 @@ pub fn show(app: &mut App, ui: &mut Ui, tab: TabId, rect: Rect) {
 
     // Footer.
     widgets::dialog_footer(ui, footer, PAD, |ui| {
-        if widgets::Button::primary("Save & reconnect")
-            .icon(Icon::PlugZap)
-            .enabled(!fix.busy)
-            .show(ui)
-            .clicked()
-        {
-            submit = true;
-        }
-        if widgets::Button::secondary("Close tab").show(ui).clicked() && !fix.busy {
-            cancel = true;
-        }
+        widgets::trailing(ui, |ui| {
+            if widgets::Button::secondary("Close tab").show(ui).clicked() && !fix.busy {
+                cancel = true;
+            }
+            if widgets::Button::primary("Save & reconnect")
+                .icon(Icon::PlugZap)
+                .enabled(!fix.busy)
+                .show(ui)
+                .clicked()
+            {
+                submit = true;
+            }
+        });
     });
+    if header_close.show(ui) {
+        cancel = true;
+    }
 
     // Escape: only for the active tab's overlay, and not while a dialog
     // (the credentials manager) is on top.

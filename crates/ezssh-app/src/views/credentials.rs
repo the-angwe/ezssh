@@ -275,11 +275,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     group(ui, &mut d, &UNATTACHED, &mut ops);
                 }
             }
-            DialogPart::Footer => {
+            DialogPart::Footer => widgets::trailing(ui, |ui| {
                 if widgets::Button::secondary("Close").show(ui).clicked() {
                     close = true;
                 }
-            }
+            }),
         });
     // Backdrop and ✕ close; Escape unwinds one layer: inline edit, then
     // dialog (the confirm is its own top modal and takes Escape itself).
@@ -594,13 +594,13 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                     }
                     save |= enter;
                     widgets::button_row(ui, |ui| {
+                        cancel = widgets::Button::secondary("Cancel")
+                            .small()
+                            .show(ui)
+                            .clicked();
                         save |= widgets::Button::primary("Replace secret")
                             .small()
                             .enabled(!busy && !secret.is_empty())
-                            .show(ui)
-                            .clicked();
-                        cancel = widgets::Button::secondary("Cancel")
-                            .small()
                             .show(ui)
                             .clicked();
                     });
@@ -678,13 +678,13 @@ fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>
             let mut save = crate::form::entered(ui, &label_resp) || secret_enter;
             let mut cancel = false;
             widgets::button_row(ui, |ui| {
+                cancel = widgets::Button::secondary("Cancel")
+                    .small()
+                    .show(ui)
+                    .clicked();
                 save |= widgets::Button::primary("Save credential")
                     .small()
                     .enabled(!busy && ready)
-                    .show(ui)
-                    .clicked();
-                cancel = widgets::Button::secondary("Cancel")
-                    .small()
                     .show(ui)
                     .clicked();
             });

@@ -346,18 +346,56 @@ impl<'a> Button<'a> {
     }
 }
 
-/// A right-aligned row of buttons, one button tall (add the rightmost
-/// first). Fixed height: a centred right-to-left layout would otherwise
-/// claim every pixel below.
+/// A right-aligned row of buttons, one button tall, added in visual order
+/// (left to right, so Tab follows them; the primary button last). Fixed
+/// height: a centred layout would otherwise claim every pixel below.
 pub fn button_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.allocate_ui_with_layout(
         vec2(ui.available_width(), CONTROL_H),
-        Layout::right_to_left(Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            add(ui);
-        },
+        Layout::left_to_right(Align::Center),
+        |ui| trailing(ui, add),
     );
+}
+
+/// Lay `add` out left to right, flush with the right edge of what is left
+/// of `ui`'s row, and take that space. Tab order is creation order, so a
+/// right-to-left layout would put the right-most widget first; this keeps
+/// the visual order instead. The group's width is last pass's; when it
+/// changes the pass is discarded and laid out again (or, past egui's pass
+/// limit, the next frame is: at most one frame misplaced).
+pub fn trailing<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    // `unique_id`: two groups in one scope (a body row and the footer)
+    // must not share a width.
+    let id = ui.unique_id().with("trailing");
+    let avail = ui.available_rect_before_wrap();
+    let last: Option<f32> = ui.ctx().data(|d| d.get_temp(id));
+    let w = last.unwrap_or(0.0);
+    // As wide as the row, shifted so last pass's content ends at the right
+    // edge: widgets that size to the available width (text fields, combo
+    // boxes) get the same room as in a plain row.
+    let left = (avail.right() - w).max(avail.left());
+    let rect = Rect::from_min_size(Pos2::new(left, avail.top()), avail.size());
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(Layout::left_to_right(Align::Center)),
+    );
+    child.spacing_mut().item_spacing.x = 8.0;
+    // Text keeps its natural width: wrapped to last pass's width it would
+    // measure the same next pass.
+    child.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+    let r = add(&mut child);
+    let used = child.min_rect().width();
+    if last.is_none_or(|w| (w - used).abs() > 0.5) {
+        tracing::trace!(?id, from = ?last, to = used, "widgets: trailing group width");
+        ui.ctx().data_mut(|d| d.insert_temp(id, used));
+        ui.ctx().request_discard("trailing group width");
+        // egui allows a limited number of passes per frame; when this one
+        // is the last, the next frame puts the group in place.
+        ui.ctx().request_repaint();
+    }
+    ui.advance_cursor_after_rect(avail);
+    r
 }
 
 /// `IconButton`: a square button with one icon, 28 px with a 16 px glyph
@@ -377,6 +415,23 @@ pub fn icon_button(
 /// [`icon_button`] at the default size.
 pub fn icon_btn(ui: &mut Ui, icon: Icon, pressed: bool, tooltip: &str) -> Response {
     icon_button_tinted(ui, icon, ICON_BTN, 16.0, pressed, tooltip, None)
+}
+
+/// [`icon_button`] with its own `sense` (`Sense::CLICK` leaves it out of
+/// the Tab order).
+pub fn icon_button_sense(
+    ui: &mut Ui,
+    icon: Icon,
+    box_size: f32,
+    icon_size: f32,
+    tooltip: &str,
+    sense: Sense,
+) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), sense);
+    paint_icon_button(ui, &resp, rect, icon, icon_size, false, None);
+    a11y(&resp, egui::Role::Button, tooltip);
+    resp.on_hover_text(tooltip)
+        .on_hover_cursor(CursorIcon::PointingHand)
 }
 
 pub fn icon_button_tinted(
@@ -1022,8 +1077,9 @@ pub enum DialogFooter {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DialogPart {
     Body,
-    /// Laid out right to left: add the primary button first. Leftover
-    /// space on the left can hold more (`ui.with_layout(left_to_right)`).
+    /// Laid out left to right in visual order (Tab follows it): anything
+    /// on the left first, then the right-aligned buttons inside
+    /// [`trailing`], the primary one last.
     Footer,
 }
 
@@ -1059,10 +1115,38 @@ pub fn dialog_frame(t: &style::Tokens) -> Frame {
         .shadow(style::dialog_shadow())
 }
 
+/// The header's ✕, returned by [`dialog_header`]. Show it after the body
+/// and the footer: Tab follows creation order, and the ✕ comes last, after
+/// the dialog's own controls.
+#[must_use = "show the ✕ after the body and footer"]
+pub struct HeaderClose {
+    id: Id,
+    rect: Rect,
+    busy: bool,
+}
+
+impl HeaderClose {
+    /// Interact with and paint the ✕; true when clicked.
+    pub fn show(self, ui: &mut Ui) -> bool {
+        let x = ui.interact(
+            self.rect,
+            self.id.with("close"),
+            if self.busy {
+                Sense::hover()
+            } else {
+                Sense::click()
+            },
+        );
+        paint_icon_button(ui, &x, self.rect, Icon::X, 16.0, false, None);
+        a11y(&x, egui::Role::Button, "Close dialog");
+        x.on_hover_cursor(CursorIcon::PointingHand).clicked()
+    }
+}
+
 /// Paint the standard header into `rect` (hairline below, icon tile,
-/// title, subtitle, ✕). Returns true when ✕ was clicked. Dialogs that size
-/// themselves by hand (settings, the session editor) share it with
-/// [`Dialog`].
+/// title, subtitle). The ✕ comes back as a [`HeaderClose`] to show last.
+/// Dialogs that size themselves by hand (settings, the session editor)
+/// share it with [`Dialog`].
 #[allow(clippy::too_many_arguments)]
 pub fn dialog_header(
     ui: &mut Ui,
@@ -1074,7 +1158,7 @@ pub fn dialog_header(
     subtitle: Option<&str>,
     mono: bool,
     busy: bool,
-) -> bool {
+) -> HeaderClose {
     let t = tokens(ui.ctx());
     ui.painter().hline(
         rect.x_range(),
@@ -1127,18 +1211,16 @@ pub fn dialog_header(
         }
         None => title_label(ui, text_r, title_text, Align::Center),
     }
-    let x = ui.interact(
-        x_r,
-        id.with("close"),
-        if busy { Sense::hover() } else { Sense::click() },
-    );
-    paint_icon_button(ui, &x, x_r, Icon::X, 16.0, false, None);
-    a11y(&x, egui::Role::Button, "Close dialog");
-    x.on_hover_cursor(CursorIcon::PointingHand).clicked()
+    HeaderClose {
+        id,
+        rect: x_r,
+        busy,
+    }
 }
 
-/// Paint the footer hairline and run `add` right-to-left inside `rect`
-/// (horizontal padding `pad`).
+/// Paint the footer hairline and run `add` left to right inside `rect`
+/// (horizontal padding `pad`): add widgets in visual order, the
+/// right-aligned buttons inside [`trailing`].
 pub fn dialog_footer(ui: &mut Ui, rect: Rect, pad: f32, add: impl FnOnce(&mut Ui)) {
     let t = tokens(ui.ctx());
     ui.painter()
@@ -1146,7 +1228,7 @@ pub fn dialog_footer(ui: &mut Ui, rect: Rect, pad: f32, add: impl FnOnce(&mut Ui
     ui.scope_builder(
         egui::UiBuilder::new().max_rect(rect.shrink2(vec2(pad, (rect.height() - CONTROL_H) / 2.0))),
         |ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 add(ui);
             });
@@ -1265,6 +1347,7 @@ impl<'a> Dialog<'a> {
         let id = self.id;
         let frame = dialog_frame(t);
         let mut close = false;
+        let mut header_close = None;
         let resp = egui::Modal::new(id)
             .backdrop_color(Color32::from_black_alpha(128))
             .frame(frame)
@@ -1283,11 +1366,9 @@ impl<'a> Dialog<'a> {
                     } => {
                         let (hrect, _) =
                             ui.allocate_exact_size(vec2(width, DIALOG_HEAD_H), Sense::hover());
-                        if dialog_header(
+                        header_close = Some(dialog_header(
                             ui, id, hrect, icon, icon_color, title, subtitle, mono, self.busy,
-                        ) {
-                            close = true;
-                        }
+                        ));
                         DIALOG_HEAD_H
                     }
                 };
@@ -1316,7 +1397,7 @@ impl<'a> Dialog<'a> {
                                 ui.add_space(4.0);
                                 ui.allocate_ui_with_layout(
                                     vec2(width - 2.0 * pad, CONTROL_H),
-                                    Layout::right_to_left(Align::Center),
+                                    Layout::left_to_right(Align::Center),
                                     |ui| {
                                         ui.spacing_mut().item_spacing.x = 8.0;
                                         add(ui, DialogPart::Footer);
@@ -1349,6 +1430,11 @@ impl<'a> Dialog<'a> {
                         ui.allocate_exact_size(vec2(width, DIALOG_FOOTER_H), Sense::hover());
                     dialog_footer(ui, strip, pad, |ui| add(ui, DialogPart::Footer));
                 }
+                if let Some(x) = header_close.take()
+                    && x.show(ui)
+                {
+                    close = true;
+                }
             });
         let backdrop = resp.backdrop_response.clicked();
         let close = close || resp.response.should_close();
@@ -1375,8 +1461,8 @@ fn title_label(ui: &mut Ui, rect: Rect, text: RichText, valign: Align) {
 }
 
 /// [`Dialog`] without a header: the compact confirm card. Body padded
-/// 24 px, `footer` (if any) in a strip with right-aligned buttons, laid
-/// out right to left (add the primary button first).
+/// 24 px, `footer` (if any) in a strip, laid out left to right (see
+/// [`DialogPart::Footer`]).
 pub fn dialog(
     ctx: &egui::Context,
     id: Id,

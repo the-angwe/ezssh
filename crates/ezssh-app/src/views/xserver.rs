@@ -131,41 +131,43 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             });
         },
         Some(&mut |ui: &mut Ui| {
-            if CAN_INSTALL {
-                let icon = if installing {
-                    Icon::Loader2
-                } else {
-                    Icon::Download
-                };
-                let label = if failed {
-                    "Retry install"
-                } else {
-                    "Install VcXsrv"
-                };
-                if widgets::Button::primary(label)
-                    .icon(icon)
+            widgets::trailing(ui, |ui| {
+                if widgets::Button::secondary("Cancel")
                     .enabled(!installing)
                     .show(ui)
                     .clicked()
                 {
-                    action = Some(Action::Install);
+                    action = Some(Action::Cancel);
                 }
-            }
-            if widgets::Button::secondary("Continue without X11")
-                .icon(Icon::MonitorOff)
-                .enabled(!installing)
-                .show(ui)
-                .clicked()
-            {
-                action = Some(Action::WithoutX11);
-            }
-            if widgets::Button::secondary("Cancel")
-                .enabled(!installing)
-                .show(ui)
-                .clicked()
-            {
-                action = Some(Action::Cancel);
-            }
+                if widgets::Button::secondary("Continue without X11")
+                    .icon(Icon::MonitorOff)
+                    .enabled(!installing)
+                    .show(ui)
+                    .clicked()
+                {
+                    action = Some(Action::WithoutX11);
+                }
+                if CAN_INSTALL {
+                    let icon = if installing {
+                        Icon::Loader2
+                    } else {
+                        Icon::Download
+                    };
+                    let label = if failed {
+                        "Retry install"
+                    } else {
+                        "Install VcXsrv"
+                    };
+                    if widgets::Button::primary(label)
+                        .icon(icon)
+                        .enabled(!installing)
+                        .show(ui)
+                        .clicked()
+                    {
+                        action = Some(Action::Install);
+                    }
+                }
+            });
         }),
     );
     // Cancel closes the tab: too much for a stray click on the backdrop

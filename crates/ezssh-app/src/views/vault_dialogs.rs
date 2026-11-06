@@ -214,9 +214,11 @@ fn show_change_password(app: &mut App, ctx: &egui::Context) {
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::Button::primary("Unlock").show(ui).clicked() {
-                    finish = true;
-                }
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::primary("Unlock").show(ui).clicked() {
+                        finish = true;
+                    }
+                });
             }),
         );
         if finish {
@@ -261,14 +263,13 @@ fn show_change_password(app: &mut App, ctx: &egui::Context) {
             }
             ui.add_space(4.0);
             widgets::button_row(ui, |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
+                if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
+                    close = true;
+                }
                 // Enter submits only when the button would (HTML implicit
                 // submission skips a disabled submit button).
                 if widgets::Button::primary(if busy { "Changing\u{2026}" } else { "Change password" }).enabled(can_submit).show(ui).clicked() || (enter && can_submit) {
                     submit = true;
-                }
-                if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
-                    close = true;
                 }
             });
         },
@@ -495,12 +496,11 @@ fn show_recovery_code(app: &mut App, ctx: &egui::Context) {
                 }
                 let can_submit = !verifying && !dlg.password.is_empty() && !(matches!(dlg.phase, Phase::Replace) && !dlg.understand);
                 widgets::button_row(ui, |ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    if widgets::Button::primary(if verifying { "Generating\u{2026}" } else { "Generate code" }).enabled(can_submit).show(ui).clicked() || (enter && can_submit) {
-                        action = Some(CodeAction::Submit);
-                    }
                     if Button::secondary("Cancel").enabled(!verifying).show(ui).clicked() {
                         action = Some(CodeAction::Close);
+                    }
+                    if widgets::Button::primary(if verifying { "Generating\u{2026}" } else { "Generate code" }).enabled(can_submit).show(ui).clicked() || (enter && can_submit) {
+                        action = Some(CodeAction::Submit);
                     }
                 });
             }
@@ -727,12 +727,11 @@ fn recovery_unlock_frame(ctx: &egui::Context, dlg: &mut RecoveryUnlock) -> Optio
                 widgets::error_strip(ui, e);
             }
             widgets::button_row(ui, |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                if widgets::Button::primary(if busy { "Unlocking\u{2026}" } else { "Unlock" }).enabled(can_submit).show(ui).clicked() || enter {
-                    action = Some(UnlockAction::Submit);
-                }
                 if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                     action = Some(UnlockAction::Close);
+                }
+                if widgets::Button::primary(if busy { "Unlocking\u{2026}" } else { "Unlock" }).enabled(can_submit).show(ui).clicked() || enter {
+                    action = Some(UnlockAction::Submit);
                 }
             });
             para(
@@ -809,9 +808,11 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::Button::primary("Set a new master password").show(ui).clicked() {
-                    action = Some(UnlockAction::Finish);
-                }
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::primary("Set a new master password").show(ui).clicked() {
+                        action = Some(UnlockAction::Finish);
+                    }
+                });
             }),
         );
         // Escape is inert here (the TSX closed back to a "locked" screen
@@ -851,12 +852,11 @@ fn reset_frame(ctx: &egui::Context, dlg: &mut ResetVault) -> Option<UnlockAction
                 widgets::error_strip(ui, e);
             }
             widgets::button_row(ui, |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                if widgets::Button::danger(if busy { "Resetting\u{2026}" } else { "Reset vault" }).icon(Icon::Trash).enabled(!busy && armed).show(ui).clicked() {
-                    action = Some(UnlockAction::Submit);
-                }
                 if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
                     action = Some(UnlockAction::Close);
+                }
+                if widgets::Button::danger(if busy { "Resetting\u{2026}" } else { "Reset vault" }).icon(Icon::Trash).enabled(!busy && armed).show(ui).clicked() {
+                    action = Some(UnlockAction::Submit);
                 }
             });
         },

@@ -122,7 +122,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .busy(busy)
         .show(ctx, |ui, part| match part {
             DialogPart::Body => body(ui, &mut dlg),
-            DialogPart::Footer => {
+            DialogPart::Footer => widgets::trailing(ui, |ui| {
+                if Button::secondary("Cancel")
+                    .enabled(!busy)
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Close);
+                }
                 let can = dlg.preview.as_ref().is_some_and(|p| !p.sessions.is_empty()) && !busy;
                 let icon = if busy { Icon::Loader2 } else { Icon::Upload };
                 if widgets::Button::primary("Import")
@@ -133,14 +140,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 {
                     act = Some(Act::Import);
                 }
-                if Button::secondary("Cancel")
-                    .enabled(!busy)
-                    .show(ui)
-                    .clicked()
-                {
-                    act = Some(Act::Close);
-                }
-            }
+            }),
         });
     if out.dismissed() && !busy {
         act = Some(Act::Close);

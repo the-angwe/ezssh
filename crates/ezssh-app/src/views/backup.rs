@@ -96,7 +96,13 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             error_line(ui, dlg.err.as_deref());
         }
-        (DialogPart::Footer, step) => {
+        (DialogPart::Footer, step) => widgets::trailing(ui, |ui| {
+            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
+                act = Some(Act::Close);
+            }
+            if busy {
+                form::spinner(ui, 12.0);
+            }
             let (label, ready) = match step {
                 Step::Reauth => ("Continue", !dlg.master.is_empty()),
                 Step::Passphrase => ("Save backup…", !dlg.passphrase.is_empty() && !dlg.confirm.is_empty()),
@@ -104,13 +110,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             if widgets::Button::primary(label).enabled(!busy && ready).show(ui).clicked() {
                 act = Some(if step == Step::Reauth { Act::Reauth } else { Act::Save });
             }
-            if busy {
-                form::spinner(ui, 12.0);
-            }
-            if Button::secondary("Cancel").enabled(!busy).show(ui).clicked() {
-                act = Some(Act::Close);
-            }
-        }
+        }),
     });
     if out.dismissed() && !busy {
         act = Some(Act::Close);

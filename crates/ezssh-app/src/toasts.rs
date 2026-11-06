@@ -89,6 +89,9 @@ impl Toasts {
         }
         let t = tokens(ctx);
         let mut dismiss = None;
+        // Above every modal, so Tab would leave an open dialog for the
+        // toasts: while one is open, ✕ only takes clicks.
+        let modal = ctx.memory(|m| m.top_modal_layer().is_some());
         egui::Area::new(Id::unique("toasts"))
             .order(Order::Tooltip)
             .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -(STATUS_BAR_H + 12.0)))
@@ -148,13 +151,18 @@ impl Toasts {
                                         );
                                     }
                                 });
-                                if crate::widgets::icon_button(
+                                let sense = if modal {
+                                    egui::Sense::CLICK
+                                } else {
+                                    egui::Sense::click()
+                                };
+                                if crate::widgets::icon_button_sense(
                                     ui,
                                     Icon::X,
                                     24.0,
                                     14.0,
-                                    false,
                                     "Dismiss",
+                                    sense,
                                 )
                                 .clicked()
                                 {

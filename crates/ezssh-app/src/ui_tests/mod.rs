@@ -12,6 +12,7 @@
 // below.
 mod credentials;
 mod data;
+mod focus_order;
 mod sessions;
 mod sftp;
 mod update;

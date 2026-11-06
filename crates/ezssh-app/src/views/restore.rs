@@ -170,17 +170,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 }
                 shared::error_line(ui, dlg.err.as_deref());
             }
-            (DialogPart::Footer, Step::Passphrase) => {
-                if widgets::Button::primary("Unlock backup")
-                    .enabled(!busy && !dlg.passphrase.is_empty())
-                    .show(ui)
-                    .clicked()
-                {
-                    act = Some(Act::Unlock);
-                }
-                if busy {
-                    form::spinner(ui, 12.0);
-                }
+            (DialogPart::Footer, Step::Passphrase) => widgets::trailing(ui, |ui| {
                 if Button::secondary("Cancel")
                     .enabled(!busy)
                     .show(ui)
@@ -188,7 +178,17 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 {
                     act = Some(Act::Close);
                 }
-            }
+                if busy {
+                    form::spinner(ui, 12.0);
+                }
+                if widgets::Button::primary("Unlock backup")
+                    .enabled(!busy && !dlg.passphrase.is_empty())
+                    .show(ui)
+                    .clicked()
+                {
+                    act = Some(Act::Unlock);
+                }
+            }),
             (DialogPart::Body, Step::Select) => {
                 if let Some(p) = dlg.preview.as_ref() {
                     select_body(ui, p, &mut dlg.sel);
@@ -197,29 +197,29 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             (DialogPart::Footer, Step::Select) => {
                 let total = dlg.preview.as_ref().map_or(0, |p| dlg.sel.total(p));
-                if widgets::Button::primary("Import selected")
-                    .enabled(!busy && total > 0)
-                    .show(ui)
-                    .clicked()
-                {
-                    act = Some(Act::Restore);
-                }
-                if busy {
-                    form::spinner(ui, 12.0);
-                }
-                if Button::secondary("Cancel")
-                    .enabled(!busy)
-                    .show(ui)
-                    .clicked()
-                {
-                    act = Some(Act::Close);
-                }
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(format!("{total} items selected"))
-                            .font(font(size::SM))
-                            .color(t.muted),
-                    );
+                ui.label(
+                    RichText::new(format!("{total} items selected"))
+                        .font(font(size::SM))
+                        .color(t.muted),
+                );
+                widgets::trailing(ui, |ui| {
+                    if Button::secondary("Cancel")
+                        .enabled(!busy)
+                        .show(ui)
+                        .clicked()
+                    {
+                        act = Some(Act::Close);
+                    }
+                    if busy {
+                        form::spinner(ui, 12.0);
+                    }
+                    if widgets::Button::primary("Import selected")
+                        .enabled(!busy && total > 0)
+                        .show(ui)
+                        .clicked()
+                    {
+                        act = Some(Act::Restore);
+                    }
                 });
             }
         });

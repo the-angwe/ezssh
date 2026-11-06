@@ -370,8 +370,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 });
             }
         },
-        Some(&mut |ui: &mut Ui| match &dlg.phase {
+        Some(&mut |ui: &mut Ui| widgets::trailing(ui, |ui| match &dlg.phase {
             Phase::Available(u) => {
+                if widgets::Button::secondary("Later").show(ui).clicked() {
+                    action = Some(Action::Close);
+                }
                 if u.installable() {
                     if widgets::Button::primary("Install & restart").icon(Icon::Download).show(ui).clicked() {
                         action = Some(Action::Install(u.clone()));
@@ -379,20 +382,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 } else if widgets::Button::primary("Open releases page").icon(Icon::Globe2).show(ui).clicked() {
                     action = Some(Action::OpenPage(u.release_page.clone()));
                 }
-                if widgets::Button::secondary("Later").show(ui).clicked() {
-                    action = Some(Action::Close);
-                }
             }
             phase => {
-                // Right-to-left: the action goes first so it sits rightmost.
-                if matches!(phase, Phase::UpToDate | Phase::Error(_)) && widgets::Button::secondary("Check again").icon(Icon::RefreshCw).show(ui).clicked() {
-                    action = Some(Action::Recheck);
-                }
                 if widgets::Button::secondary("Close").enabled(!busy).show(ui).clicked() {
                     action = Some(Action::Close);
                 }
+                if matches!(phase, Phase::UpToDate | Phase::Error(_)) && widgets::Button::secondary("Check again").icon(Icon::RefreshCw).show(ui).clicked() {
+                    action = Some(Action::Recheck);
+                }
             }
-        }),
+        })),
     );
     if let Some(on) = channel {
         action = Some(Action::Channel(on));

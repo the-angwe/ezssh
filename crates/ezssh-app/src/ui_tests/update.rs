@@ -167,6 +167,9 @@ fn up_to_date_then_a_tampered_installer_is_refused() {
         std::thread::sleep(Duration::from_millis(15));
     }
     shot(h, "update-latest");
+    // The footer just gained "Check again": its right-aligned group may
+    // take a frame to settle.
+    h.run_steps(2);
     h.get_by_label("Close").click();
     h.run_steps(3);
     assert!(!h.state().updater.dialog_open());

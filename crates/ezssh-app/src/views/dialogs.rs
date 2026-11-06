@@ -39,21 +39,23 @@ pub fn confirm(ctx: &egui::Context, id: Id, c: Confirm<'_>) -> Option<bool> {
             dialog_heading(ui, icon, color, c.title, c.body);
         },
         Some(&mut |ui: &mut Ui| {
-            let ok = if c.danger {
-                widgets::Button::danger(c.confirm_text)
-            } else {
-                widgets::Button::primary(c.confirm_text)
-            }
-            .show(ui);
-            if first {
-                ok.request_focus();
-            }
-            if ok.clicked() {
-                answer = Some(true);
-            }
-            if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                answer = Some(false);
-            }
+            widgets::trailing(ui, |ui| {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                    answer = Some(false);
+                }
+                let ok = if c.danger {
+                    widgets::Button::danger(c.confirm_text)
+                } else {
+                    widgets::Button::primary(c.confirm_text)
+                }
+                .show(ui);
+                if first {
+                    ok.request_focus();
+                }
+                if ok.clicked() {
+                    answer = Some(true);
+                }
+            });
         }),
     );
     if out.dismissed() && answer.is_none() {
@@ -163,12 +165,14 @@ impl PromptState {
                 }
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::Button::primary(&confirm_text).show(ui).clicked() {
-                    submit.set(true);
-                }
-                if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                    cancel = true;
-                }
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                        cancel = true;
+                    }
+                    if widgets::Button::primary(&confirm_text).show(ui).clicked() {
+                        submit.set(true);
+                    }
+                });
             }),
         );
         if cancel || out.dismissed() {
@@ -317,17 +321,19 @@ impl MoveState {
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::Button::primary("Move")
-                    .enabled(pick.is_some())
-                    .show(ui)
-                    .clicked()
-                    && let Some(p) = pick
-                {
-                    done = Some(Some(p));
-                }
-                if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                    done = Some(None);
-                }
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                        done = Some(None);
+                    }
+                    if widgets::Button::primary("Move")
+                        .enabled(pick.is_some())
+                        .show(ui)
+                        .clicked()
+                        && let Some(p) = pick
+                    {
+                        done = Some(Some(p));
+                    }
+                });
             }),
         );
         if out.dismissed() && done.is_none() {
@@ -349,6 +355,7 @@ fn folder_row(ui: &mut Ui, name: &str, disabled: bool, selected: bool, root: boo
         },
     );
     paint_pick_row(ui, &resp, rect, selected, disabled);
+    widgets::a11y_selected(&resp, egui::Role::TreeItem, selected, name);
     let x = rect.left() + 6.0 + 12.0 + 8.0;
     let icon_rect =
         egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), vec2(16.0, 16.0));
@@ -397,12 +404,18 @@ fn folder_row_tree(
         },
     );
     paint_pick_row(ui, &resp, rect, selected, disabled);
+    widgets::a11y_selected(&resp, egui::Role::TreeItem, selected, name);
     let x0 = rect.left() + 6.0 + (depth + 1) as f32 * 14.0;
     let chevron =
         egui::Rect::from_center_size(egui::pos2(x0 + 6.0, rect.center().y), vec2(14.0, 14.0));
     let mut toggled = false;
     if has_kids {
         let c = ui.interact(chevron, resp.id.with("chevron"), Sense::click());
+        widgets::a11y(
+            &c,
+            egui::Role::Button,
+            &format!("{} {name}", if open { "Collapse" } else { "Expand" }),
+        );
         (if open {
             Icon::ChevronDown
         } else {
@@ -496,16 +509,18 @@ impl TileGridDraft {
                 });
             },
             Some(&mut |ui: &mut Ui| {
-                let ok = widgets::Button::primary("Apply").show(ui);
-                if first {
-                    ok.request_focus();
-                }
-                if ok.clicked() {
-                    apply.set(true);
-                }
-                if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                    cancel = true;
-                }
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                        cancel = true;
+                    }
+                    let ok = widgets::Button::primary("Apply").show(ui);
+                    if first {
+                        ok.request_focus();
+                    }
+                    if ok.clicked() {
+                        apply.set(true);
+                    }
+                });
             }),
         );
         if apply.get() {
@@ -596,18 +611,20 @@ pub fn host_key(
             });
         },
         Some(&mut |ui: &mut Ui| {
-            let ok = if p.mismatch {
-                widgets::Button::danger("Replace and connect")
-            } else {
-                widgets::Button::primary("Trust and connect")
-            }
-            .show(ui);
-            if ok.clicked() {
-                answer = Some(true);
-            }
-            if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                answer = Some(false);
-            }
+            widgets::trailing(ui, |ui| {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                    answer = Some(false);
+                }
+                let ok = if p.mismatch {
+                    widgets::Button::danger("Replace and connect")
+                } else {
+                    widgets::Button::primary("Trust and connect")
+                }
+                .show(ui);
+                if ok.clicked() {
+                    answer = Some(true);
+                }
+            });
         }),
     );
     if answer.is_none() && out.dismissed() {

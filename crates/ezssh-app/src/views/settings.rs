@@ -75,7 +75,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(size_w, size_h), Sense::hover());
             let header = Rect::from_min_size(rect.min, vec2(size_w, widgets::DIALOG_HEAD_H));
-            if widgets::dialog_header(
+            let header_close = widgets::dialog_header(
                 ui,
                 id,
                 header,
@@ -85,9 +85,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Some("Changes save automatically"),
                 false,
                 false,
-            ) {
-                close = true;
-            }
+            );
             // Navigation.
             let nav = Rect::from_min_max(
                 Pos2::new(rect.left(), header.bottom()),
@@ -133,6 +131,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             });
                     });
             });
+            if header_close.show(ui) {
+                close = true;
+            }
         });
     if resp.should_close() {
         close = true;
@@ -386,10 +387,9 @@ impl Sec<'_, '_> {
         let mut child = self.ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(ctrl_rect)
-                .layout(Layout::right_to_left(Align::Center)),
+                .layout(Layout::left_to_right(Align::Center)),
         );
-        child.spacing_mut().item_spacing.x = 8.0;
-        control(self, &mut child);
+        widgets::trailing(&mut child, |ui| control(self, ui));
         self.ui.painter().hline(
             row.x_range(),
             row.bottom() - 0.5,

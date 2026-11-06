@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use egui::{Align, CornerRadius, Frame, Id, Layout, Margin, RichText, Stroke, Ui};
+use egui::{CornerRadius, Frame, Id, Margin, RichText, Stroke, Ui};
 use ezssh_core::api;
 use ezssh_core::api::sync::S3ConfigInput;
 use ezssh_core::sync::SyncStatus;
@@ -417,46 +417,47 @@ fn footer(ui: &mut Ui, dlg: &SyncDialog, act: &mut Option<Act>) {
     } else {
         "Enable sync"
     };
-    if widgets::Button::primary(label)
-        .enabled(!busy)
-        .show(ui)
-        .clicked()
-    {
-        *act = Some(Act::Save);
-    }
-    if busy {
-        form::spinner(ui, 12.0);
-    }
-    if enabled {
-        if Button::secondary("Push now")
-            .icon(Icon::RefreshCw)
+    if enabled
+        && Button::secondary("Disable")
+            .tint(t.danger)
             .enabled(!busy)
             .show(ui)
             .clicked()
-        {
-            *act = Some(Act::Push);
-        }
-        if dlg.status.as_ref().is_some_and(|s| s.kind == "s3")
-            && Button::secondary("Pull from cloud")
-                .icon(Icon::Download)
-                .enabled(!busy)
-                .show(ui)
-                .on_hover_text("Download the remote bundle and open the Restore dialog")
-                .clicked()
-        {
-            *act = Some(Act::Pull);
-        }
-        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            if Button::secondary("Disable")
-                .tint(t.danger)
+    {
+        *act = Some(Act::Disable);
+    }
+    widgets::trailing(ui, |ui| {
+        if enabled {
+            if dlg.status.as_ref().is_some_and(|s| s.kind == "s3")
+                && Button::secondary("Pull from cloud")
+                    .icon(Icon::Download)
+                    .enabled(!busy)
+                    .show(ui)
+                    .on_hover_text("Download the remote bundle and open the Restore dialog")
+                    .clicked()
+            {
+                *act = Some(Act::Pull);
+            }
+            if Button::secondary("Push now")
+                .icon(Icon::RefreshCw)
                 .enabled(!busy)
                 .show(ui)
                 .clicked()
             {
-                *act = Some(Act::Disable);
+                *act = Some(Act::Push);
             }
-        });
-    }
+        }
+        if busy {
+            form::spinner(ui, 12.0);
+        }
+        if widgets::Button::primary(label)
+            .enabled(!busy)
+            .show(ui)
+            .clicked()
+        {
+            *act = Some(Act::Save);
+        }
+    });
 }
 
 // ------------------------------------------------------------------ actions

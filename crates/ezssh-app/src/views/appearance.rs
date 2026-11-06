@@ -208,20 +208,20 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     action = Some(Action::Save);
                 }
             }
-            DialogPart::Footer => {
+            DialogPart::Footer => widgets::trailing(ui, |ui| {
+                if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                    action = Some(Action::Cancel);
+                }
+                if widgets::Button::secondary("Apply to tab").enabled(!dlg.busy).show(ui).on_hover_text("Use for this tab only").clicked() {
+                    action = Some(Action::Apply);
+                }
                 if widgets::Button::primary("Save to session").enabled(!dlg.busy).show(ui)
                     .on_hover_text("Save as the session's default; its other open tabs follow")
                     .clicked()
                 {
                     action = Some(Action::Save);
                 }
-                if widgets::Button::secondary("Apply to tab").enabled(!dlg.busy).show(ui).on_hover_text("Use for this tab only").clicked() {
-                    action = Some(Action::Apply);
-                }
-                if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                    action = Some(Action::Cancel);
-                }
-            }
+            }),
         });
     if action.is_none() && out.dismissed() && !dlg.busy {
         action = Some(Action::Cancel);

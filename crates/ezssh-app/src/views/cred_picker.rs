@@ -280,24 +280,25 @@ impl CredPicker {
                     if let Some(e) = &self.err {
                         ui.label(egui::RichText::new(e).font(font(size::SM)).color(t.danger));
                     }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        if widgets::Button::primary("Save credential")
-                            .small()
-                            .enabled(!self.busy)
-                            .show(ui)
-                            .clicked()
-                            || (enter && !self.busy)
-                        {
-                            self.create(app);
-                        }
-                        if widgets::Button::secondary("Cancel")
-                            .small()
-                            .show(ui)
-                            .clicked()
-                        {
-                            self.reset_form();
-                        }
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        widgets::trailing(ui, |ui| {
+                            if widgets::Button::secondary("Cancel")
+                                .small()
+                                .show(ui)
+                                .clicked()
+                            {
+                                self.reset_form();
+                            }
+                            if widgets::Button::primary("Save credential")
+                                .small()
+                                .enabled(!self.busy)
+                                .show(ui)
+                                .clicked()
+                                || (enter && !self.busy)
+                            {
+                                self.create(app);
+                            }
+                        });
                     });
                 });
         });

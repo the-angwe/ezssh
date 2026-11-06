@@ -1419,16 +1419,18 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
                 }
             },
             Some(&mut |ui: &mut Ui| {
-                if widgets::Button::primary(if busy { "Saving…" } else { "Save" })
-                    .enabled(!busy)
-                    .show(ui)
-                    .clicked()
-                {
-                    save = true;
-                }
-                if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                    cancel = true;
-                }
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                        cancel = true;
+                    }
+                    if widgets::Button::primary(if busy { "Saving…" } else { "Save" })
+                        .enabled(!busy)
+                        .show(ui)
+                        .clicked()
+                    {
+                        save = true;
+                    }
+                });
             }),
         );
     if cancel || out.dismissed() {

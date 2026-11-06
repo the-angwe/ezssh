@@ -505,7 +505,7 @@ fn sync_local_folder_push_status_and_pull_handoff() {
     assert!(h.query_by_label("Disable").is_none());
 }
 
-const MOBA_FIXTURE: &str = "\
+pub(super) const MOBA_FIXTURE: &str = "\
 [Bookmarks]
 SubRep=
 ImgNum=42

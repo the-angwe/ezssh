@@ -299,13 +299,16 @@ pub fn textarea(
 /// What a [`number`] field did this frame.
 pub struct NumberOut {
     pub resp: Response,
-    /// The stepper was clicked: +1 / −1 (Shift: ±10).
+    /// The stepper was clicked, or ↑ / ↓ pressed in the field: +1 / −1
+    /// (Shift: ±10).
     pub step: i64,
 }
 
 /// A number field: a right-aligned text input with a stacked ▲ ▼ stepper.
 /// The caller owns the draft string (committed on Enter / blur) and
-/// applies `step` to its value.
+/// applies `step` to its value. The stepper takes clicks only, so the field
+/// is one Tab stop; from the keyboard ↑ / ↓ step instead (a focused text
+/// field keeps the vertical arrows, egui does not move focus with them).
 pub fn number(ui: &mut Ui, draft: &mut String, label: &str, width: f32) -> NumberOut {
     let t = tokens(ui.ctx());
     let edit = egui::TextEdit::singleline(draft)
@@ -329,12 +332,24 @@ pub fn number(ui: &mut Ui, draft: &mut String, label: &str, width: f32) -> Numbe
     let (up, down) = col.split_top_bottom_at_fraction(0.5);
     let shift = ui.input(|i| i.modifiers.shift);
     let mut step = 0;
+    if resp.has_focus() {
+        let (n_up, n_down) = ui.input_mut(|i| {
+            (
+                i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                i.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+            )
+        });
+        if n_up + n_down > 0 {
+            step = (n_up as i64 - n_down as i64) * if shift { 10 } else { 1 };
+            tracing::debug!(field = label, step, "form: number stepped by keyboard");
+        }
+    }
     for (r, icon, dir, name) in [
         (up, Icon::ChevronUp, 1, "Increase"),
         (down, Icon::ChevronDown, -1, "Decrease"),
     ] {
         let b = ui
-            .interact(r, resp.id.with(name), Sense::click())
+            .interact(r, resp.id.with(name), Sense::CLICK)
             .on_hover_cursor(CursorIcon::PointingHand);
         if b.hovered() {
             ui.painter().rect_filled(r, radius::SM - 1.0, t.surface3);

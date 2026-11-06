@@ -596,7 +596,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 dlg.draft.name.clone()
             };
             let summary = dlg.draft.summary();
-            if widgets::dialog_header(
+            let header_close = widgets::dialog_header(
                 ui,
                 id,
                 header,
@@ -606,9 +606,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Some(&summary),
                 true,
                 dlg.busy,
-            ) {
-                close = true;
-            }
+            );
             // Side rail.
             ui.painter()
                 .vline(nav.right() - 0.5, nav.y_range(), Stroke::new(1.0, t.border));
@@ -668,22 +666,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             // Footer: keyboard hints on the left, the buttons on the right.
             widgets::dialog_footer(ui, footer, PAD, |ui| {
-                let label = if dlg.edit_id().is_some() {
-                    "Save changes"
-                } else {
-                    "Create session"
-                };
-                if widgets::Button::primary(label)
-                    .enabled(!dlg.busy)
-                    .show(ui)
-                    .clicked()
-                {
-                    save = true;
-                }
-                if widgets::Button::secondary("Cancel").show(ui).clicked() {
-                    close = true;
-                }
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.scope(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let muted = |ui: &mut Ui, s: &str| {
                         ui.label(RichText::new(s).font(font(size::XS)).color(t.muted))
@@ -696,7 +679,27 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     form::kbd(ui, "Enter");
                     muted(ui, "save");
                 });
+                widgets::trailing(ui, |ui| {
+                    if widgets::Button::secondary("Cancel").show(ui).clicked() {
+                        close = true;
+                    }
+                    let label = if dlg.edit_id().is_some() {
+                        "Save changes"
+                    } else {
+                        "Create session"
+                    };
+                    if widgets::Button::primary(label)
+                        .enabled(!dlg.busy)
+                        .show(ui)
+                        .clicked()
+                    {
+                        save = true;
+                    }
+                });
             });
+            if header_close.show(ui) {
+                close = true;
+            }
             if !manager_open && form::ctrl_enter(ui) {
                 save = true;
             }
