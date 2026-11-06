@@ -30,8 +30,9 @@ cargo run -p ezssh-app -- --db /tmp/ezssh-dev/ezterm.sqlite
 - `cargo test --workspace` passes. UI changes come with a test in
   `crates/ezssh-app/src/ui_tests/` (or `crates/ezssh-term/tests/ui.rs` for the
   terminal widget).
-- Bump `Cargo.toml` version per the convention: major = breaking, minor =
-  features, patch = fixes. Docs-only commits don't bump.
+- Don't bump the `Cargo.toml` version in a PR. It is bumped once per
+  release, when one is cut (major = breaking, minor = features, patch =
+  fixes; see [docs/RELEASING.md](docs/RELEASING.md)).
 - Migrations are added with `sqlx migrate add` so the timestamp is correct.
   The database, vault, backup and sync formats are shared with ezTerm
   installs; changes must keep existing data opening.

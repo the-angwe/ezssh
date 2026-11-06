@@ -60,7 +60,7 @@ migrations/       sqlx migrations
 
 ## Conventions
 
-- Bump the workspace `Cargo.toml` version before each commit (major=breaking, minor=features, patch=fixes); the release tag must equal it.
+- Don't bump the version per commit. Bump the workspace `Cargo.toml` version once, when cutting a release (major=breaking, minor=features, patch=fixes), and write `docs/release-notes/v<version>.md` covering every commit since the last tag; the release tag must equal the version (`docs/RELEASING.md`).
 - Conventional Commits; no `Co-Authored-By` / "Made with" lines in commit messages (CONTRIBUTING.md).
 - Fix warnings properly — remove unused code, don't `#[allow(...)]` past them.
 - Async everywhere (tokio); no blocking calls on the UI thread or in async tasks (use `spawn_blocking`).
