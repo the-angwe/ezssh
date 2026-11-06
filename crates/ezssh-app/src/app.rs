@@ -373,8 +373,9 @@ impl App {
         slot.term.set_font_size(session.font_size as f32);
         slot.term
             .set_faces(self.fonts.faces(&self.ctx, &session.font_family));
-        tracing::info!(session = session.id, name = %session.name, kind = %session.session_kind, "app: open tab");
-        let id = self.tabs.open(session);
+        let collapse = self.settings.bool("sessions.collapseSidebarOnOpen");
+        tracing::info!(session = session.id, name = %session.name, kind = %session.session_kind, collapse_sidebar = collapse, "app: open tab");
+        let id = self.tabs.open(session, collapse);
         self.terms.insert(id, slot);
         self.strip.reveal_active = true;
     }

@@ -261,6 +261,11 @@ impl Sec<'_, '_> {
                 None,
             );
             s.bool_row(
+                "sessions.collapseSidebarOnOpen",
+                "Hide the sessions sidebar when a tab opens",
+                Some("Gives the terminal the room."),
+            );
+            s.bool_row(
                 "sessions.autoOpenSftp",
                 "Open the file pane when a session connects",
                 Some("SSH and WSL tabs."),

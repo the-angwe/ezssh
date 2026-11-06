@@ -181,6 +181,10 @@ pub const SPEC: &[Spec] = &[
         kind: Kind::Bool { default: true },
     },
     Spec {
+        key: "sessions.collapseSidebarOnOpen",
+        kind: Kind::Bool { default: true },
+    },
+    Spec {
         key: "sessions.autoOpenSftp",
         kind: Kind::Bool { default: false },
     },
@@ -440,8 +444,9 @@ mod tests {
         for spec in SPEC {
             assert_eq!(s.get(spec.key), &spec.default_value(), "{}", spec.key);
         }
-        // The 21 keys existing databases may hold.
-        assert_eq!(SPEC.len(), 21);
+        // The 21 keys existing databases may hold, plus ezSsh's
+        // `sessions.collapseSidebarOnOpen`.
+        assert_eq!(SPEC.len(), 22);
     }
 
     #[test]

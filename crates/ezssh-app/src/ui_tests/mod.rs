@@ -515,6 +515,31 @@ fn folder_create_drag_drop_and_close_confirm() {
 }
 
 #[test]
+fn sidebar_stays_open_when_collapse_on_open_is_off() {
+    let mut env = start();
+    unlock_fresh(&mut env);
+    let h = &mut env.h;
+    assert!(h.state().settings.bool("sessions.collapseSidebarOnOpen"));
+    h.get_by_label("Settings").click();
+    h.run_steps(3);
+    h.get_by_label("Sessions").click();
+    h.run_steps(3);
+    shot(h, "settings-sessions");
+    h.get_by_role_and_label(Role::Switch, "Hide the sessions sidebar when a tab opens")
+        .click();
+    h.run_steps(2);
+    assert!(!h.state().settings.bool("sessions.collapseSidebarOnOpen"));
+    h.state_mut().dialogs.settings = None;
+    h.run_steps(2);
+
+    open_local(h);
+    assert!(
+        !h.state().tabs.sidebar_collapsed,
+        "the sidebar stays open with the setting off"
+    );
+}
+
+#[test]
 fn settings_write_through_and_theme() {
     let mut env = start();
     unlock_fresh(&mut env);

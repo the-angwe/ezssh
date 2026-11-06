@@ -326,9 +326,11 @@ impl Tabs {
             .map(|t| t.id)
     }
 
-    /// Open a tab for `session`; it becomes active and the sidebar collapses
-    /// (MobaXterm: the terminal gets the room).
-    pub fn open(&mut self, session: Session) -> TabId {
+    /// Open a tab for `session`; it becomes active. With `collapse_sidebar`
+    /// (setting `sessions.collapseSidebarOnOpen`) the sidebar collapses too
+    /// (MobaXterm: the terminal gets the room); without it the sidebar stays
+    /// as it was.
+    pub fn open(&mut self, session: Session, collapse_sidebar: bool) -> TabId {
         let id = self.next_id;
         self.next_id += 1;
         self.next_z += 1;
@@ -347,7 +349,9 @@ impl Tabs {
             cwd: "/".into(),
         });
         self.active = Some(id);
-        self.sidebar_collapsed = true;
+        if collapse_sidebar {
+            self.sidebar_collapsed = true;
+        }
         id
     }
 
@@ -510,7 +514,7 @@ mod tests {
     fn tabs_with(n: usize) -> (Tabs, Vec<TabId>) {
         let mut t = Tabs::new(ViewMode::Tabs, TileGrid::default());
         let ids = (0..n)
-            .map(|i| t.open(test_session(i as i64, &format!("s{i}"), "ssh")))
+            .map(|i| t.open(test_session(i as i64, &format!("s{i}"), "ssh"), true))
             .collect();
         (t, ids)
     }
@@ -528,6 +532,19 @@ mod tests {
         assert_eq!((g[0].x, g[1].x, g[2].x), (0.0, 30.0, 60.0));
         assert!(g[0].z < g[1].z && g[1].z < g[2].z);
         assert_eq!(t.get(ids[0]).unwrap().status, TabStatus::Connecting);
+    }
+
+    #[test]
+    fn open_keeps_sidebar_when_collapse_is_off() {
+        let mut t = Tabs::new(ViewMode::Tabs, TileGrid::default());
+        t.open(test_session(1, "s1", "ssh"), false);
+        assert!(!t.sidebar_collapsed, "sidebar stays open");
+        t.sidebar_collapsed = true;
+        t.open(test_session(2, "s2", "ssh"), false);
+        assert!(
+            t.sidebar_collapsed,
+            "an already hidden sidebar stays hidden"
+        );
     }
 
     #[test]
