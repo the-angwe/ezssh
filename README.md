@@ -96,7 +96,8 @@ shells and the bundled X server do not apply.
   vault credential without leaving the tab. No "close tab and start over" ritual.
 - **Six view modes** (the Layout menu in the tab strip, `Ctrl+Shift+W`
   cycles): tabs, tile horizontally / vertically / grid / auto, and cascade
-  with minimise / maximise / restore.
+  with minimise / maximise / restore. `Alt+1`…`Alt+9` pick a tab (`Alt+9`
+  the last; `⌘1`…`⌘9` on macOS), also while a terminal has the keyboard.
 - **Sessions sidebar footer** — update check, lock, theme and settings;
   `Ctrl+K` focuses the session filter.
 - **Status bar** — active-session `user@host`, SFTP cwd, X-server and

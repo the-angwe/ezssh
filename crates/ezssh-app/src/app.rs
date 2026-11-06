@@ -619,7 +619,9 @@ impl App {
     /// the settings, ⌘M minimises, ⇧⌘[ / ⇧⌘] and ⌥⌘← / ⌥⌘→ step
     /// through the tabs, ⌘1…⌘9 pick a tab (⌘9 the last). ⌘C / ⌘V / ⌘X
     /// are eframe's, ⌘Q / ⌘H the application menu's (`macos.rs`), ⌘A /
-    /// ⌘F / ⌘+ / ⌘− / ⌘0 the terminal widget's.
+    /// ⌘F / ⌘+ / ⌘− / ⌘0 the terminal widget's. On Linux and Windows
+    /// Alt+1…Alt+9 pick a tab, over a terminal too (GNOME Terminal,
+    /// Konsole); see [`consume_alt_digit`].
     pub(crate) fn global_shortcuts(&mut self, ctx: &egui::Context) {
         if self.any_modal_open() {
             return;
@@ -702,6 +704,12 @@ impl App {
         if let Some(n) = m.nth_tab {
             self.nth_tab(n);
         }
+        if !shortcut::IS_MAC
+            && let Some(n) = ctx.input_mut(|i| consume_alt_digit(&mut i.events))
+        {
+            tracing::debug!(n, "app: Alt+{n}, pick a tab");
+            self.nth_tab(n);
+        }
     }
 
     /// Activate the tab `delta` places from the active one (wrapping).
@@ -730,7 +738,7 @@ impl App {
             (n <= len).then(|| n - 1)
         };
         let Some(idx) = idx else {
-            tracing::debug!(n, tabs = len, "app: ⌘{n}, no such tab");
+            tracing::debug!(n, tabs = len, "app: tab {n} picked, no such tab");
             return;
         };
         let id = self.tabs.tabs[idx].id;
@@ -799,6 +807,71 @@ impl eframe::App for App {
     }
 }
 
+/// Alt+1…Alt+9 (Alt alone, so AltGr, reported as Ctrl+Alt on Windows,
+/// still types `{ [ ]` on German layouts): the 1-based tab number of the
+/// first press, or `None`. Not used on macOS, where ⌥+digit types
+/// characters (`¡ ™ £`). The digit is the logical key, else the physical
+/// one, so AZERTY's `&` / `é` / `"` row works unshifted.
+///
+/// Every matching press and release is removed, and so is the `Text`
+/// event egui-winit sends right after the press (Alt does not suppress
+/// text): otherwise a terminal would type the digit, or report the key to
+/// a kitty-protocol app. egui cannot tell the numpad from the digit row,
+/// so Windows Alt codes typed on the numpad (Alt+0169) switch tabs too.
+fn consume_alt_digit(events: &mut Vec<egui::Event>) -> Option<usize> {
+    fn digit(k: Key) -> Option<usize> {
+        [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
+        ]
+        .iter()
+        .position(|d| *d == k)
+        .map(|p| p + 1)
+    }
+    let mut nth = None;
+    let mut i = 0;
+    while i < events.len() {
+        let hit = match &events[i] {
+            egui::Event::Key {
+                key,
+                physical_key,
+                pressed,
+                modifiers,
+                ..
+            } if modifiers.alt
+                && !modifiers.ctrl
+                && !modifiers.shift
+                && !modifiers.command
+                && !modifiers.mac_cmd =>
+            {
+                digit(*key)
+                    .or_else(|| physical_key.and_then(digit))
+                    .map(|n| (n, *pressed))
+            }
+            _ => None,
+        };
+        let Some((n, pressed)) = hit else {
+            i += 1;
+            continue;
+        };
+        events.remove(i);
+        if pressed {
+            if matches!(events.get(i), Some(egui::Event::Text(_))) {
+                events.remove(i);
+            }
+            nth.get_or_insert(n);
+        }
+    }
+    nth
+}
+
 /// The ⌘ chords consumed this frame (`App::global_shortcuts`).
 struct MacChords {
     close_tab: bool,
@@ -809,4 +882,68 @@ struct MacChords {
     next_tab: bool,
     /// ⌘1…⌘9: the 1-based tab number.
     nth_tab: Option<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::Event;
+
+    fn key(k: Key, physical: Option<Key>, pressed: bool, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key: k,
+            physical_key: physical,
+            pressed,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn alt_digit_takes_press_text_and_release() {
+        let mut ev = vec![
+            key(Key::Num3, Some(Key::Num3), true, Modifiers::ALT),
+            Event::Text("3".into()),
+            key(Key::Num3, Some(Key::Num3), false, Modifiers::ALT),
+            Event::Text("x".into()),
+        ];
+        assert_eq!(consume_alt_digit(&mut ev), Some(3));
+        assert_eq!(ev, vec![Event::Text("x".into())]);
+    }
+
+    #[test]
+    fn alt_digit_falls_back_to_the_physical_key() {
+        // AZERTY: the unshifted digit row is `&`, which egui has no key for,
+        // so egui-winit reports the physical key as `key` too; a layout
+        // whose logical key is some other egui key still matches here.
+        let mut ev = vec![key(Key::Plus, Some(Key::Num2), true, Modifiers::ALT)];
+        assert_eq!(consume_alt_digit(&mut ev), Some(2));
+        assert!(ev.is_empty());
+    }
+
+    #[test]
+    fn alt_digit_leaves_other_chords_alone() {
+        let altgr = Modifiers {
+            alt: true,
+            ctrl: true,
+            ..Modifiers::NONE
+        };
+        let mut ev = vec![
+            key(Key::Num7, Some(Key::Num7), true, altgr),
+            Event::Text("{".into()),
+            key(
+                Key::Num1,
+                Some(Key::Num1),
+                true,
+                Modifiers::ALT | Modifiers::SHIFT,
+            ),
+            key(Key::Num1, Some(Key::Num1), true, Modifiers::NONE),
+            Event::Text("1".into()),
+            key(Key::Num0, Some(Key::Num0), true, Modifiers::ALT),
+            key(Key::A, Some(Key::A), true, Modifiers::ALT),
+        ];
+        let before = ev.clone();
+        assert_eq!(consume_alt_digit(&mut ev), None);
+        assert_eq!(ev, before);
+    }
 }

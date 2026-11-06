@@ -787,6 +787,84 @@ fn tab_header_right_click_opens_terminal_menu() {
     assert!(h.query_by_label("Select All").is_none(), "Escape closes");
 }
 
+/// Alt+1…Alt+9 pick a tab on Linux and Windows, also while a terminal
+/// has the keyboard, and the digit does not reach the shell.
+#[test]
+fn alt_digit_picks_tabs() {
+    let mut env = start();
+    unlock_fresh(&mut env);
+    let h = &mut env.h;
+    let tabs: Vec<u64> = (0..3)
+        .map(|_| {
+            h.state_mut().tabs.sidebar_collapsed = false;
+            h.run_steps(2);
+            open_local(h)
+        })
+        .collect();
+    assert_eq!(h.state().tabs.active, Some(tabs[2]));
+    assert!(
+        h.state().mdi.term_focused,
+        "the new tab's terminal has the keyboard"
+    );
+
+    // As egui-winit delivers it: the key, then the digit as text, in one
+    // frame (the harness's queue would run a frame per event).
+    h.input_mut().events.extend([
+        egui::Event::ModifiersChanged(Modifiers::ALT),
+        egui::Event::Key {
+            key: egui::Key::Num1,
+            physical_key: Some(egui::Key::Num1),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::ALT,
+        },
+        egui::Event::Text("1".into()),
+        egui::Event::ModifiersChanged(Modifiers::NONE),
+    ]);
+    h.step();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[0]),
+        "Alt+1 picks the first tab"
+    );
+    // The "1" never reached the shell: the command runs as typed.
+    h.event(egui::Event::Text("echo alt-$((40+2))".into()));
+    h.key_press(egui::Key::Enter);
+    let until = Instant::now() + Duration::from_secs(10);
+    while !screen_text(h, tabs[0]).contains("alt-42") {
+        assert!(
+            Instant::now() < until,
+            "no command output:\n{}",
+            screen_text(h, tabs[0])
+        );
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    h.key_press_modifiers(Modifiers::ALT, egui::Key::Num2);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[1]),
+        "Alt+2 picks the second tab"
+    );
+    h.key_press_modifiers(Modifiers::ALT, egui::Key::Num9);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[2]),
+        "Alt+9 picks the last tab"
+    );
+    h.key_press_modifiers(Modifiers::ALT, egui::Key::Num5);
+    h.run_steps(2);
+    assert_eq!(
+        h.state().tabs.active,
+        Some(tabs[2]),
+        "Alt+5 with three tabs: no change"
+    );
+}
+
 /// macOS chords (`Modifiers::MAC_CMD`, which egui reports only there):
 /// ⌘N / ⌘, open dialogs, ⇧⌘[ / ⇧⌘] / ⌘1 pick tabs, ⌘W closes one.
 #[test]

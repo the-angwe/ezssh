@@ -23,7 +23,7 @@ sidebar width, SFTP pane width and columns, last update check) is kept in
 
 | File | Holds |
 |---|---|
-| `app.rs` | start-up, the vault gate, settings hydrate, WSL / local-shell autodetect, idle lock, quit confirm, Ctrl+B / Ctrl+K / Ctrl+Shift+W |
+| `app.rs` | start-up, the vault gate, settings hydrate, WSL / local-shell autodetect, idle lock, quit confirm, Ctrl+B / Ctrl+K / Ctrl+Shift+W, Alt+1…Alt+9 |
 | `core.rs` | a tokio runtime owns the `AppState`; `Core::call(future, continuation)` runs the continuation on the UI thread |
 | `conn.rs` | the connect state machine per tab: output straight into the terminal, per-attempt generations, reconnect, error routing |
 | `settings.rs` | app preferences: spec, parse, normalise, write-through with rollback |
