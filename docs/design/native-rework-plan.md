@@ -554,7 +554,7 @@ path.
 | web links | `links.rs`: xterm.js web-links regex (http/https only, same trailing-punctuation rule), OSC 8 hyperlinks; underline + hand cursor on hover; a click without drag returns `TermAction::OpenUrl`. Inactive while a program has mouse reporting on (Shift overrides) |
 | OSC 52 | `osc52.rs` port of `osc52.ts` with its 11 tests, through `hook.rs` (below): lenient base64 (unpadded, whitespace), 4 MiB cap checked before decoding, NUL stripped, reads refused, live on/off |
 | copy / paste / shortcuts | Ctrl+Shift+C/V/F, Shift+Insert, Ctrl+Insert; right-click menu (Copy, Paste, Select All, Find…, Appearance…, Clear scrollback) or paste per `terminal.rightClick`, Ctrl+right-click always the menu |
-| paste | `Terminal::paste` (CR normalisation, bracketed, end marker stripped); multi-line pastes return `TermAction::ConfirmPaste { text, lines }` while `warn_multiline_paste` is on (the app asks, then calls `paste`) |
+| paste | `Terminal::paste` (CR normalisation, bracketed, end marker stripped); pastes with any line break (a trailing one included) return `TermAction::ConfirmPaste { text, lines }` while `warn_multiline_paste` is on (the app asks, then calls `paste`) |
 | Ctrl+wheel zoom | per tab, 40 px per step, one wheel notch = 100 px (WebView2's value, so a notch is 2–3 pt as before), 8–48 |
 | bell | `BellMode::Visual` = 120 ms inset ring in the palette's yellow; `Sound` returns `TermAction::Bell` (the app plays it; no audio dependency in the widget) |
 | overlays | `TerminalView::overlay(Overlay::{Connecting, Failed, Closed})` paints the dimmed terminal and the card; Reconnect returns `TermAction::Reconnect`; the terminal takes no input under an overlay. The app owns the state machine (phase 4) |

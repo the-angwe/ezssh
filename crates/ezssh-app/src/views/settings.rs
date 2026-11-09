@@ -227,7 +227,7 @@ impl Sec<'_, '_> {
             s.bool_row(
                 "terminal.warnMultilinePaste",
                 "Warn before pasting multiple lines",
-                Some("Catches a whole script landing in a shell by accident."),
+                Some("Also asks when one line ends in a line break, which would run it at once."),
             );
             s.bool_row(
                 "terminal.osc52Clipboard",

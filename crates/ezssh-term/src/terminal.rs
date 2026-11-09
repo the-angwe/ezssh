@@ -550,13 +550,15 @@ pub fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
-/// Lines a paste would submit, for the multi-line warning: `None` when the
-/// text has no line break before its trailing whitespace.
+/// Lines in a paste, for the paste warning: `None` when the text has no
+/// line break at all. A single line ending in a line break counts (as 1),
+/// since the shell runs it the moment it lands. Trailing blank lines are
+/// not counted.
 pub fn multiline_paste_lines(text: &str) -> Option<usize> {
-    let trimmed = text.trim_end();
-    if !trimmed.contains(['\r', '\n']) {
+    if !text.contains(['\r', '\n']) {
         return None;
     }
+    let trimmed = text.trim_end();
     Some(trimmed.replace("\r\n", "\n").split(['\r', '\n']).count())
 }
 
@@ -746,8 +748,10 @@ mod tests {
     #[test]
     fn multiline_paste_detection() {
         assert_eq!(multiline_paste_lines("ls -la"), None);
-        // A trailing newline alone does not count.
-        assert_eq!(multiline_paste_lines("ls -la\n"), None);
+        assert_eq!(multiline_paste_lines("ls -la  "), None);
+        // A trailing newline runs the line, so it counts.
+        assert_eq!(multiline_paste_lines("ls -la\n"), Some(1));
+        assert_eq!(multiline_paste_lines("ls -la\r\n\n"), Some(1));
         assert_eq!(multiline_paste_lines("a\nb"), Some(2));
         assert_eq!(multiline_paste_lines("a\r\nb\rc\n\n"), Some(3));
     }

@@ -356,10 +356,23 @@ fn multiline_paste_asks_first() {
         "nothing typed before the answer"
     );
 
-    // A single line goes straight through.
+    // A single line ending in a line break would run at once: ask too.
+    h.state_mut().actions.clear();
     h.event(Event::Paste("ls -la\n".into()));
     h.run_steps(2);
-    assert_eq!(h.state().sink.0.lock().unwrap().as_slice(), b"ls -la\r");
+    assert_eq!(
+        h.state().actions,
+        vec![TermAction::ConfirmPaste {
+            text: "ls -la\n".into(),
+            lines: 1
+        }]
+    );
+    assert!(h.state().sink.0.lock().unwrap().is_empty());
+
+    // A single line without a line break goes straight through.
+    h.event(Event::Paste("ls -la".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().sink.0.lock().unwrap().as_slice(), b"ls -la");
 
     // With the warning off, everything goes through.
     h.state_mut().style.warn_multiline_paste = false;

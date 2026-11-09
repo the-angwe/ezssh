@@ -186,14 +186,22 @@ fn shell_dialogs(app: &mut App, ctx: &egui::Context) {
 
     if let Some((tab, text, lines)) = &app.dialogs.paste {
         let (tab, lines) = (*tab, *lines);
+        let body = if lines == 1 {
+            "The clipboard text ends in a line break, so it will run as soon as you paste it."
+                .to_string()
+        } else {
+            format!("The clipboard holds {lines} lines. Each one will run as you paste it.")
+        };
         let answer = dialogs::confirm(
             ctx,
             Id::unique("confirm-paste"),
             dialogs::Confirm {
-                title: "Paste multiple lines?",
-                body: &format!(
-                    "The clipboard holds {lines} lines. Each one will run as you paste it."
-                ),
+                title: if lines == 1 {
+                    "Paste and run?"
+                } else {
+                    "Paste multiple lines?"
+                },
+                body: &body,
                 confirm_text: "Paste",
                 danger: true,
             },

@@ -135,8 +135,8 @@ pub enum Overlay {
 pub enum TermAction {
     /// The overlay's Reconnect button.
     Reconnect,
-    /// A paste with line breaks while `warn_multiline_paste` is on. Ask,
-    /// then call [`Terminal::paste`].
+    /// A paste with any line break (a trailing one included) while
+    /// `warn_multiline_paste` is on. Ask, then call [`Terminal::paste`].
     ConfirmPaste { text: String, lines: usize },
     /// A link was clicked.
     OpenUrl(String),
@@ -589,7 +589,7 @@ fn read_clipboard(term: &mut Terminal) -> Option<String> {
     }
 }
 
-/// Paste, or ask first when the text would run several lines.
+/// Paste, or ask first when the text holds a line break.
 fn request_paste(
     term: &mut Terminal,
     style: &TermStyle,
@@ -602,7 +602,11 @@ fn request_paste(
     if style.warn_multiline_paste
         && let Some(lines) = multiline_paste_lines(&text)
     {
-        tracing::debug!(lines, "term.paste: multi-line, asking first");
+        tracing::debug!(
+            lines,
+            len = text.len(),
+            "term.paste: has a line break, asking first"
+        );
         actions.push(TermAction::ConfirmPaste { text, lines });
         return;
     }
