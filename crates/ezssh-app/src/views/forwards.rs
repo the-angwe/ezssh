@@ -221,14 +221,18 @@ impl ForwardsState {
         !matches!(prev, Some(p) if p + 1 >= frame)
     }
 
-    fn open_dialog(&mut self, mode: Mode) {
+    /// Open the dialog for `mode`; `session_name` goes in its title.
+    fn open_dialog(&mut self, mode: Mode, session_name: Option<String>) {
         self.next_token += 1;
         tracing::debug!(
             mode = mode.name(),
             token = self.next_token,
+            session = ?session_name,
             "forwards: dialog open"
         );
-        self.dialog = Some(ForwardDialog::new(mode, self.next_token));
+        let mut d = ForwardDialog::new(mode, self.next_token);
+        d.session_name = session_name;
+        self.dialog = Some(d);
     }
 }
 
@@ -364,28 +368,71 @@ pub fn on_event(app: &mut App, event: ezssh_core::Event) {
 
 // ---------------------------------------------------------------- actions
 
+/// Name of saved session `id`: the sidebar's list, else the session dialog
+/// editing it.
+fn session_name(app: &App, id: i64) -> Option<String> {
+    let name = app
+        .sidebar
+        .sessions
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.name.clone())
+        .or_else(|| match app.dialogs.session.as_ref().map(|d| &d.mode) {
+            Some(crate::views::session_dialog::Mode::Edit(s)) if s.id == id => Some(s.name.clone()),
+            _ => None,
+        });
+    if name.is_none() {
+        tracing::debug!(
+            session = id,
+            "forwards: session name unknown, title without it"
+        );
+    }
+    name
+}
+
 fn apply(app: &mut App, tab: Option<TabId>, action: Action) {
-    let (connection_id, session_id) = match tab.and_then(|t| app.tabs.get(t)) {
-        Some(t) => (t.connection_id, Some(t.session.id)),
-        None => (None, None),
+    let (connection_id, session_id, tab_session) = match tab.and_then(|t| app.tabs.get(t)) {
+        Some(t) => (
+            t.connection_id,
+            Some(t.session.id),
+            Some(t.session.name.clone()),
+        ),
+        None => (None, None, None),
     };
     match action {
         Action::AddTab => match connection_id {
-            Some(cid) => app.forwards.open_dialog(Mode::TabCreate {
-                connection_id: cid,
-                session_id,
-            }),
+            Some(cid) => app.forwards.open_dialog(
+                Mode::TabCreate {
+                    connection_id: cid,
+                    session_id,
+                },
+                tab_session,
+            ),
             None => tracing::debug!(?tab, "forwards: add ignored, not connected"),
         },
-        Action::AddSaved(sid) => app
-            .forwards
-            .open_dialog(Mode::SavedCreate { session_id: sid }),
-        Action::EditSaved(forward) => app.forwards.open_dialog(Mode::SavedEdit { forward }),
+        Action::AddSaved(sid) => {
+            let name = match (session_id, &tab_session) {
+                (Some(t), Some(n)) if t == sid => Some(n.clone()),
+                _ => session_name(app, sid),
+            };
+            app.forwards
+                .open_dialog(Mode::SavedCreate { session_id: sid }, name)
+        }
+        Action::EditSaved(forward) => {
+            let name = match (session_id, &tab_session) {
+                (Some(t), Some(n)) if t == forward.session_id => Some(n.clone()),
+                _ => session_name(app, forward.session_id),
+            };
+            app.forwards.open_dialog(Mode::SavedEdit { forward }, name)
+        }
         Action::EditTab(existing) => match connection_id {
-            Some(cid) => app.forwards.open_dialog(Mode::TabEdit {
-                connection_id: cid,
-                existing,
-            }),
+            Some(cid) => app.forwards.open_dialog(
+                Mode::TabEdit {
+                    connection_id: cid,
+                    existing,
+                },
+                tab_session,
+            ),
             None => tracing::debug!(?tab, "forwards: edit ignored, not connected"),
         },
         Action::Start(id) => {
@@ -933,6 +980,9 @@ pub(crate) struct ForwardDialog {
     err: Option<String>,
     /// Focus the Name field on the first frame.
     focus_name: bool,
+    /// The session the forward belongs to (saved) or the tab's session,
+    /// shown in the title so it is clear where Save puts it.
+    session_name: Option<String>,
 }
 
 /// The parsed, validated form.
@@ -968,6 +1018,7 @@ impl ForwardDialog {
             busy: false,
             err: None,
             focus_name: true,
+            session_name: None,
         };
         match &d.mode {
             Mode::SavedEdit { forward: f } => {
@@ -992,6 +1043,20 @@ impl ForwardDialog {
             Mode::SavedCreate { .. } | Mode::TabCreate { .. } => {}
         }
         d
+    }
+
+    /// `Forward for "dn" (session config)`; without a known session name,
+    /// just the kind of forward.
+    fn title(&self) -> String {
+        let scope = if self.mode.is_saved() {
+            "session config"
+        } else {
+            "this tab"
+        };
+        match &self.session_name {
+            Some(n) => format!("Forward for \"{n}\" ({scope})"),
+            None => format!("Forward ({scope})"),
+        }
     }
 
     fn non_loopback(&self) -> bool {
@@ -1322,15 +1387,16 @@ pub fn dialogs(app: &mut App, ctx: &egui::Context) {
     let tk = tokens(ctx);
     let busy = d.busy;
     let (mut save, mut cancel) = (false, false);
-    let title = if d.mode.is_saved() {
-        "Forward (session config)"
-    } else {
-        "Forward (this tab)"
-    };
+    let title = d.title();
     let focus_name = std::mem::take(&mut d.focus_name);
     let chord = !busy && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
     let out = widgets::Dialog::new(Id::unique("forward-dialog"), 560.0)
-        .header(Icon::Network, crate::style::tokens(ctx).accent, title, None)
+        .header(
+            Icon::Network,
+            crate::style::tokens(ctx).accent,
+            &title,
+            None,
+        )
         .row_gap(12.0)
         .busy(busy)
         .show_split(
@@ -1564,5 +1630,22 @@ mod tests {
             None
         );
         assert_eq!(Mode::SavedCreate { session_id: 4 }.persist_session(), None);
+    }
+
+    #[test]
+    fn title_names_the_session() {
+        let mut d = ForwardDialog::new(Mode::SavedCreate { session_id: 4 }, 1);
+        assert_eq!(d.title(), "Forward (session config)");
+        d.session_name = Some("dn".into());
+        assert_eq!(d.title(), "Forward for \"dn\" (session config)");
+        let mut d = ForwardDialog::new(
+            Mode::TabCreate {
+                connection_id: 1,
+                session_id: Some(4),
+            },
+            2,
+        );
+        d.session_name = Some("avoro".into());
+        assert_eq!(d.title(), "Forward for \"avoro\" (this tab)");
     }
 }

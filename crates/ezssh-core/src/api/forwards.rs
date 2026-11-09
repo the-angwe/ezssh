@@ -12,6 +12,7 @@ use crate::db;
 use crate::error::{AppError, Result};
 use crate::events::{Event, Events};
 use crate::ssh::forwards::{ForwardKind, ForwardSpec, ForwardStatus, RuntimeForwardSummary};
+use crate::ssh::registry::ConnectionRegistry;
 use crate::state::AppState;
 
 // ---------- Persistent ----------
@@ -53,13 +54,23 @@ pub async fn forward_update(
         let handle = conn.ssh_handle.clone();
         let forwards = conn.forwards.clone();
         let events = state.events.clone();
+        let registry = state.ssh.clone();
         let spec = new_spec.clone();
         let cid = conn.id;
         tokio::spawn(async move {
             // start_inner emits its own status event (Running / Conflict /
             // Error) carrying the real allocated runtime id, so we only log
             // a hard failure here — no synthetic sentinel event.
-            if let Err(e) = start_inner(cid, events, forwards, handle, spec.clone(), Some(id)).await
+            if let Err(e) = start_inner(
+                cid,
+                events,
+                &registry,
+                forwards,
+                handle,
+                spec.clone(),
+                Some(id),
+            )
+            .await
             {
                 tracing::warn!(
                     "post-update restart of forward {}:{} failed: {e}",
@@ -161,6 +172,7 @@ pub async fn forward_start(
     start_inner(
         connection_id,
         state.events.clone(),
+        &state.ssh,
         conn.forwards.clone(),
         conn.ssh_handle.clone(),
         spec,
@@ -193,6 +205,7 @@ pub async fn forward_replace(
     start_inner(
         connection_id,
         state.events.clone(),
+        &state.ssh,
         conn.forwards.clone(),
         conn.ssh_handle.clone(),
         spec,
@@ -239,6 +252,7 @@ pub(crate) fn spec_from_db(f: &db::forwards::Forward) -> Result<ForwardSpec> {
 pub(crate) async fn start_inner(
     connection_id: u64,
     events: Events,
+    registry: &ConnectionRegistry,
     forwards: Arc<crate::ssh::forwards::Forwards>,
     handle: Arc<russh::client::Handle<crate::ssh::client::ClientHandler>>,
     spec: ForwardSpec,
@@ -293,6 +307,8 @@ pub(crate) async fn start_inner(
             // Emit an amber Conflict status (the pane keeps Start available
             // so the user can take it over) and return Ok — no error toast,
             // nothing inserted into the registry.
+            let msg = conflict_message(registry, connection_id, &spec, msg).await;
+            tracing::info!(connection_id, runtime_id = id, "forward conflict: {msg}");
             let summary = RuntimeForwardSummary {
                 runtime_id: id,
                 persistent_id,
@@ -341,6 +357,48 @@ pub(crate) async fn start_inner(
 }
 
 // ---------- Internal helpers ----------
+
+/// The amber message of a port conflict. A local bind held by a running
+/// forward of an open tab names that tab; otherwise the holder is outside
+/// this app's tabs (another program or ezSsh window) and the message says
+/// so. Remote conflicts keep the core's message (this session already
+/// forwards that remote port).
+async fn conflict_message(
+    registry: &ConnectionRegistry,
+    connection_id: u64,
+    spec: &ForwardSpec,
+    fallback: String,
+) -> String {
+    let addr = format!("{}:{}", spec.bind_addr, spec.bind_port);
+    match spec.kind {
+        ForwardKind::Remote => fallback,
+        _ => match registry.local_bind_holder(spec).await {
+            Some((holder, _)) if holder.id == connection_id => {
+                format!("{addr} is in use by another forward of this tab")
+            }
+            Some((holder, held)) => {
+                tracing::debug!(
+                    connection_id,
+                    holder = holder.id,
+                    holder_session = holder.session_id,
+                    held = %format!("{}:{}", held.bind_addr, held.bind_port),
+                    "forward conflict: holder found"
+                );
+                format!(
+                    "{addr} is in use by the forward of tab \"{}\"",
+                    holder.session_name
+                )
+            }
+            None => {
+                tracing::debug!(
+                    connection_id,
+                    "forward conflict, no tab holds it: {fallback}"
+                );
+                format!("{addr} is in use by another program or ezSsh window")
+            }
+        },
+    }
+}
 
 #[cfg(test)]
 mod tests {

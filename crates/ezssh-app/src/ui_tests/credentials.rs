@@ -402,7 +402,7 @@ fn forwards_pane_status_menu_and_dialog() {
             None,
             spec("", ForwardKind::Remote, 8080),
             ForwardStatus::Conflict {
-                message: "bind 127.0.0.1:8080 in use (another ezSsh tab?)".into(),
+                message: "127.0.0.1:8080 is in use by the forward of tab \"web\"".into(),
             },
         ),
     );
@@ -440,7 +440,10 @@ fn forwards_pane_status_menu_and_dialog() {
     shot(h, "forwards-pane-menu");
     h.get_by_role_and_label(Role::MenuItem, "Edit").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Forward (session config)").is_some());
+    assert!(
+        h.query_by_label("Forward for \"tunnel-host\" (session config)")
+            .is_some()
+    );
     assert_eq!(
         field_value(h, "Name (optional)").as_deref(),
         Some("Postgres dev")
@@ -456,7 +459,10 @@ fn forwards_pane_status_menu_and_dialog() {
     // Add on this tab: validation and warnings.
     h.get_by_label("Add forward").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Forward (this tab)").is_some());
+    assert!(
+        h.query_by_label("Forward for \"tunnel-host\" (this tab)")
+            .is_some()
+    );
     assert!(
         h.query_by_label("Save to this session (persists across reconnects)")
             .is_some()
@@ -632,7 +638,10 @@ fn session_tab_lists_adds_edits_deletes() {
         .expire(Instant::now() + Duration::from_secs(30));
     h.get_by_label("Add forward").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Forward (session config)").is_some());
+    assert!(
+        h.query_by_label("Forward for \"tunnel-host\" (session config)")
+            .is_some()
+    );
     assert!(
         h.query_by_label("Auto-start when the session connects")
             .is_some()

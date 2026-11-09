@@ -66,13 +66,12 @@ pub fn bind_socket(bind_addr: &str, port: u16) -> Result<std::net::SocketAddr> {
     Ok(std::net::SocketAddr::new(ip, port))
 }
 
-/// Format a bind-failure error message. Detects `AddrInUse` and emits
-/// the friendlier "another ezSsh tab?" hint promised by the spec.
+/// Format a bind-failure error message. An `AddrInUse` one becomes a
+/// `PortConflict`, whose shown text `api::forwards::start_inner` replaces
+/// with the holder (an open tab, or another program / ezSsh window).
 pub fn format_bind_error(bind_addr: &str, port: u16, err: &std::io::Error) -> String {
     if err.kind() == std::io::ErrorKind::AddrInUse {
-        format!(
-            "bind {bind_addr}:{port} in use (another ezSsh tab, or a different app on this port?)"
-        )
+        format!("bind {bind_addr}:{port} in use")
     } else if err.kind() == std::io::ErrorKind::PermissionDenied {
         format!(
             "bind {bind_addr}:{port} permission denied (ports below 1024 typically require admin/root)"

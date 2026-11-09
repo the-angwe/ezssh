@@ -492,6 +492,8 @@ async fn connect_impl(deps: ConnectDeps, req: ConnectRequest) -> Result<ConnectO
     deps.ssh
         .insert(Connection {
             id,
+            session_id: session.id,
+            session_name: session.name.clone(),
             stdin: tx,
             ssh_handle: handle_arc.clone(),
             x11_display,
@@ -507,6 +509,7 @@ async fn connect_impl(deps: ConnectDeps, req: ConnectRequest) -> Result<ConnectO
     let events_for_scan = deps.events.clone();
     let handle_for_scan = handle_arc.clone();
     let session_id_for_scan = session.id;
+    let registry_for_scan = deps.ssh.clone();
     tokio::spawn(async move {
         let auto =
             match crate::db::forwards::list_auto_start(&db_for_scan, session_id_for_scan).await {
@@ -555,6 +558,7 @@ async fn connect_impl(deps: ConnectDeps, req: ConnectRequest) -> Result<ConnectO
             if let Err(e) = crate::api::forwards::start_inner(
                 id,
                 events_for_scan.clone(),
+                &registry_for_scan,
                 forwards_for_scan.clone(),
                 handle_for_scan.clone(),
                 spec.clone(),

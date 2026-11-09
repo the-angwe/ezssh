@@ -7,6 +7,7 @@ use tokio::sync::{RwLock, mpsc};
 use russh::client::Handle as RusshHandle;
 
 use crate::ssh::client::ClientHandler;
+use crate::ssh::forwards::{ForwardKind, ForwardSpec, bind_socket};
 
 /// A live SSH session. The write half is an mpsc sender: the command layer
 /// enqueues keystrokes and the per-connection writer task drains them to the
@@ -17,6 +18,10 @@ use crate::ssh::client::ClientHandler;
 /// would only serialize SSH channel opens behind one another.
 pub struct Connection {
     pub id: u64,
+    /// The saved session this connection was opened from, and its name at
+    /// connect time. Lets a port conflict name the tab holding the port.
+    pub session_id: i64,
+    pub session_name: String,
     pub stdin: mpsc::UnboundedSender<ConnectionInput>,
     /// Shared russh client handle. The driver task holds a clone for the
     /// lifetime of the session so the Close branch can `disconnect(..)`; the
@@ -90,6 +95,27 @@ impl ConnectionRegistry {
         }
     }
 
+    /// The connection whose running forward holds the local address `spec`
+    /// would bind (Local / Dynamic only), with that forward. Used to name
+    /// the holder in a port-conflict message. Several holders cannot exist:
+    /// the first one bound the port.
+    pub async fn local_bind_holder(
+        &self,
+        spec: &ForwardSpec,
+    ) -> Option<(Arc<Connection>, ForwardSpec)> {
+        if spec.kind == ForwardKind::Remote {
+            return None;
+        }
+        for conn in self.list_all().await {
+            for rf in conn.forwards.by_id.read().await.values() {
+                if rf.spec.kind != ForwardKind::Remote && binds_overlap(&rf.spec, spec) {
+                    return Some((conn.clone(), rf.spec.clone()));
+                }
+            }
+        }
+        None
+    }
+
     pub async fn close(&self, id: u64) {
         let conn = self.inner.write().await.remove(&id);
         if let Some(c) = conn {
@@ -99,5 +125,66 @@ impl ConnectionRegistry {
             c.forwards.stop_all().await;
             let _ = c.stdin.send(ConnectionInput::Close);
         }
+    }
+}
+
+/// Two local binds collide: same port, and the same address or either one
+/// on the unspecified address (`0.0.0.0` / `::` take every interface).
+/// Unparseable addresses never collide (their bind failed anyway).
+fn binds_overlap(a: &ForwardSpec, b: &ForwardSpec) -> bool {
+    if a.bind_port != b.bind_port {
+        return false;
+    }
+    match (
+        bind_socket(&a.bind_addr, a.bind_port),
+        bind_socket(&b.bind_addr, b.bind_port),
+    ) {
+        (Ok(x), Ok(y)) => x.ip() == y.ip() || x.ip().is_unspecified() || y.ip().is_unspecified(),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn local(addr: &str, port: u16) -> ForwardSpec {
+        ForwardSpec {
+            name: String::new(),
+            kind: ForwardKind::Local,
+            bind_addr: addr.into(),
+            bind_port: port,
+            dest_addr: "127.0.0.1".into(),
+            dest_port: 80,
+        }
+    }
+
+    #[test]
+    fn overlap_rules() {
+        assert!(binds_overlap(
+            &local("127.0.0.1", 8000),
+            &local("127.0.0.1", 8000)
+        ));
+        assert!(binds_overlap(
+            &local("localhost", 8000),
+            &local("127.0.0.1", 8000)
+        ));
+        assert!(binds_overlap(
+            &local("0.0.0.0", 8000),
+            &local("127.0.0.1", 8000)
+        ));
+        assert!(binds_overlap(&local("::1", 8000), &local("::", 8000)));
+        assert!(!binds_overlap(
+            &local("127.0.0.1", 8000),
+            &local("127.0.0.1", 8001)
+        ));
+        assert!(!binds_overlap(
+            &local("127.0.0.1", 8000),
+            &local("127.0.0.2", 8000)
+        ));
+        assert!(!binds_overlap(
+            &local("bogus", 8000),
+            &local("127.0.0.1", 8000)
+        ));
     }
 }
