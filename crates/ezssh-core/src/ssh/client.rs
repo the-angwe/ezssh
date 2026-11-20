@@ -645,16 +645,17 @@ async fn load_auth_material(
             let row = db::credentials::get(&deps.db, cred_id).await?;
             let vs = deps.vault.read().await;
             let pem = vault::decrypt_with(&vs, &row.nonce, &row.ciphertext)?;
-            // Optional passphrase credential — stored as a separate row with
-            // kind='key_passphrase' so a single stored passphrase can be reused
-            // across multiple sessions that share the same private key.
-            let passphrase = if let Some(pp_id) = session.key_passphrase_credential_id {
-                let pp_row = db::credentials::get(&deps.db, pp_id).await?;
-                let pp = vault::decrypt_with(&vs, &pp_row.nonce, &pp_row.ciphertext)?;
-                Some(pp)
-            } else {
-                None
+            // The key's passphrase is stored with the key (one credential).
+            let passphrase = match (&row.passphrase_nonce, &row.passphrase_ciphertext) {
+                (Some(n), Some(c)) => Some(vault::decrypt_with(&vs, n, c)?),
+                _ => None,
             };
+            tracing::debug!(
+                session = session.id,
+                credential = cred_id,
+                has_passphrase = passphrase.is_some(),
+                "ssh: key auth material loaded"
+            );
             Ok((AuthMaterial::PrivateKey { pem, passphrase }, Some(row.kind)))
         }
         other => Err(AppError::Validation(format!("unknown auth_type: {other}"))),

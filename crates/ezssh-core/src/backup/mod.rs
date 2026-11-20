@@ -113,6 +113,11 @@ pub struct CredentialEntry {
     /// a password to every selected session that references it either way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
+    /// A private key's passphrase, base64. Bundles written before the
+    /// passphrase moved onto its key carry it as a separate
+    /// `key_passphrase` entry that sessions name instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passphrase_b64: Option<String>,
 }
 
 /// Decrypt every credential row, session passwords included, for a backup
@@ -125,12 +130,20 @@ pub async fn export_credentials(
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let pt = crate::vault::decrypt_with(vault_state, &row.nonce, &row.ciphertext)?;
+        let passphrase_b64 = match (&row.passphrase_nonce, &row.passphrase_ciphertext) {
+            (Some(n), Some(c)) => {
+                let pp = crate::vault::decrypt_with(vault_state, n, c)?;
+                Some(B64.encode(&pp[..]))
+            }
+            _ => None,
+        };
         out.push(CredentialEntry {
             id: row.id,
             kind: row.kind,
             label: row.label,
             secret_b64: B64.encode(&pt[..]),
             session_id: row.session_id,
+            passphrase_b64,
         });
     }
     Ok(out)
@@ -265,6 +278,7 @@ mod tests {
                 label: "prod-db".into(),
                 secret_b64: B64.encode(b"sup3rsecret"),
                 session_id: None,
+                passphrase_b64: None,
             }],
             known_hosts: Vec::new(),
             settings: Vec::new(),

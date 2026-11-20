@@ -83,7 +83,7 @@ fn validate(input: &SessionInput) -> Result<()> {
                 "non-ssh sessions must use auth_type='agent'".into(),
             ));
         }
-        if input.credential_id.is_some() || input.key_passphrase_credential_id.is_some() {
+        if input.credential_id.is_some() {
             return Err(AppError::Validation(
                 "non-ssh sessions cannot attach a credential".into(),
             ));

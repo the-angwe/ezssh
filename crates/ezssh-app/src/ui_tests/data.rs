@@ -31,7 +31,6 @@ fn session(
         username: "ops".into(),
         auth_type: auth.into(),
         credential_id,
-        key_passphrase_credential_id: None,
         color: None,
         initial_command: None,
         scrollback_lines: 5000,
@@ -76,6 +75,7 @@ fn seed(h: &mut Harness<'static, App>) -> Seeded {
             "private_key".into(),
             "id_test".into(),
             "-----BEGIN KEY-----\nx\n".into(),
+            None,
         )
         .await
         .expect("key");

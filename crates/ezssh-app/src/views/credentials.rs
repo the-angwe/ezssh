@@ -1,17 +1,20 @@
-//! The credentials manager: the vault's shared credentials (SSH keys and
-//! key passphrases) with rename, rotate secret, add, and delete with a
-//! warning that lists the sessions using it. Sessions reference these by
-//! id, so every change applies to all of them at once.
+//! The credentials manager: the vault's shared SSH keys, each stored
+//! together with its passphrase, with rename, replace key, change
+//! passphrase, add, and delete with a warning that lists the sessions
+//! using it. Sessions reference keys by id, so every change applies to all
+//! of them at once.
 //!
 //! Session passwords are saved with their session (the core lists only
 //! shared rows), so there is no password group. An unowned password left
-//! by the ezTerm app's password picker (in a database it wrote) shows in a
-//! small delete-only group.
+//! by the ezTerm app's password picker, or a passphrase that no key took
+//! when passphrases moved onto their keys, shows in a small delete-only
+//! group.
 
 use egui::{
     Align, CornerRadius, Frame, Id, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui, vec2,
 };
 use ezssh_core::api;
+use ezssh_core::api::credentials::PassphraseChange;
 use ezssh_core::db::credentials::CredentialDetail;
 use zeroize::Zeroizing;
 
@@ -31,39 +34,50 @@ struct Group {
     editable: bool,
 }
 
-const GROUPS: [Group; 2] = [
+const KEYS: Group = Group {
+    kind: "private_key",
+    title: "SSH keys",
+    icon: Icon::KeySquare,
+    secret_label: "Private key",
+    editable: true,
+};
+
+/// Leftovers, listed only when there are some.
+const UNATTACHED: [Group; 2] = [
     Group {
-        kind: "private_key",
-        title: "SSH keys",
-        icon: Icon::KeySquare,
-        secret_label: "Private key (PEM or OpenSSH)",
-        editable: true,
+        kind: "password",
+        title: "Unattached passwords (from the ezTerm app)",
+        icon: Icon::Lock,
+        secret_label: "Password",
+        editable: false,
     },
     Group {
         kind: "key_passphrase",
-        title: "Key passphrases",
+        title: "Unattached key passphrases",
         icon: Icon::KeyRound,
         secret_label: "Passphrase",
-        editable: true,
+        editable: false,
     },
 ];
 
-const UNATTACHED: Group = Group {
-    kind: "password",
-    title: "Unattached passwords (from the ezTerm app)",
-    icon: Icon::Lock,
-    secret_label: "Password",
-    editable: false,
-};
+const PASSPHRASE_HINT: &str = "Passphrase (leave blank if the key has none)";
 
 enum RowEdit {
     Rename {
         id: i64,
         label: String,
     },
+    /// A new key with its own passphrase (blank: none).
     Replace {
         id: i64,
         secret: Zeroizing<String>,
+        passphrase: Zeroizing<String>,
+        shown: bool,
+    },
+    /// The same key, another passphrase.
+    Passphrase {
+        id: i64,
+        passphrase: Zeroizing<String>,
         shown: bool,
     },
 }
@@ -77,6 +91,7 @@ pub struct CredentialsDialog {
     add_kind: Option<&'static str>,
     add_label: String,
     add_secret: Zeroizing<String>,
+    add_passphrase: Zeroizing<String>,
     add_shown: bool,
     confirm_delete: Option<CredentialDetail>,
     /// A mutation is in flight; further ones are dropped.
@@ -97,6 +112,14 @@ impl CredentialsDialog {
         })
     }
 
+    /// Whether the listed credential `label` has a passphrase stored.
+    pub(crate) fn has_passphrase(&self, label: &str) -> Option<bool> {
+        self.items
+            .iter()
+            .find(|c| c.label == label)
+            .map(|c| c.has_passphrase)
+    }
+
     pub(crate) fn editing(&self) -> bool {
         self.edit.is_some() || self.add_kind.is_some()
     }
@@ -112,15 +135,23 @@ enum Op {
         id: i64,
         label: String,
     },
+    /// A new key and its passphrase (`None`: the key has none).
     Replace {
         id: i64,
         label: String,
         secret: String,
+        passphrase: Option<String>,
+    },
+    Passphrase {
+        id: i64,
+        label: String,
+        change: PassphraseChange,
     },
     Add {
         kind: &'static str,
         label: String,
         secret: String,
+        passphrase: Option<String>,
     },
     Delete {
         id: i64,
@@ -133,6 +164,7 @@ impl Op {
         match self {
             Op::Rename { .. } => "credential_update(label)",
             Op::Replace { .. } => "credential_update(secret)",
+            Op::Passphrase { .. } => "credential_update(passphrase)",
             Op::Add { .. } => "credential_create",
             Op::Delete { .. } => "credential_delete",
         }
@@ -183,16 +215,45 @@ fn run(app: &mut App, op: Op) {
             tracing::debug!(id, "credentials: rename");
             ("Credential renamed", None, |d| d.edit = None)
         }
-        Op::Replace { id, label, .. } => {
-            tracing::debug!(id, "credentials: replace secret");
-            ("Secret updated", Some(label.clone()), |d| d.edit = None)
+        Op::Replace {
+            id,
+            label,
+            passphrase,
+            ..
+        } => {
+            tracing::debug!(
+                id,
+                has_passphrase = passphrase.is_some(),
+                "credentials: replace key"
+            );
+            ("Key replaced", Some(label.clone()), |d| d.edit = None)
         }
-        Op::Add { kind, label, .. } => {
-            tracing::debug!(kind, "credentials: add");
+        Op::Passphrase { id, label, change } => {
+            let removed = matches!(change, PassphraseChange::Clear);
+            tracing::debug!(id, removed, "credentials: change passphrase");
+            let title = if removed {
+                "Passphrase removed"
+            } else {
+                "Passphrase updated"
+            };
+            (title, Some(label.clone()), |d| d.edit = None)
+        }
+        Op::Add {
+            kind,
+            label,
+            passphrase,
+            ..
+        } => {
+            tracing::debug!(
+                kind,
+                has_passphrase = passphrase.is_some(),
+                "credentials: add"
+            );
             ("Credential added", Some(label.clone()), |d| {
                 d.add_kind = None;
                 d.add_label.clear();
                 d.add_secret = Zeroizing::default();
+                d.add_passphrase = Zeroizing::default();
                 d.add_shown = false;
             })
         }
@@ -208,20 +269,43 @@ fn run(app: &mut App, op: Op) {
         move |st| async move {
             match op {
                 Op::Rename { id, label } => {
-                    api::credentials::credential_update(&st, id, Some(label), None).await
+                    api::credentials::credential_update(
+                        &st,
+                        id,
+                        Some(label),
+                        None,
+                        PassphraseChange::Keep,
+                    )
+                    .await
                 }
                 // label None: rotating never writes the label, so a stale
-                // list cannot revert a rename done elsewhere meanwhile.
-                Op::Replace { id, secret, .. } => {
-                    api::credentials::credential_update(&st, id, None, Some(secret)).await
+                // list cannot revert a rename done elsewhere meanwhile. A
+                // new key brings its own passphrase (or none).
+                Op::Replace {
+                    id,
+                    secret,
+                    passphrase,
+                    ..
+                } => {
+                    let change = match passphrase {
+                        Some(p) => PassphraseChange::Set(p),
+                        None => PassphraseChange::Clear,
+                    };
+                    api::credentials::credential_update(&st, id, None, Some(secret), change).await
+                }
+                Op::Passphrase { id, change, .. } => {
+                    api::credentials::credential_update(&st, id, None, None, change).await
                 }
                 Op::Add {
                     kind,
                     label,
                     secret,
-                } => api::credentials::credential_create(&st, kind.into(), label, secret)
-                    .await
-                    .map(|_| ()),
+                    passphrase,
+                } => {
+                    api::credentials::credential_create(&st, kind.into(), label, secret, passphrase)
+                        .await
+                        .map(|_| ())
+                }
                 Op::Delete { id, .. } => api::credentials::credential_delete(&st, id).await,
             }
         },
@@ -268,11 +352,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     Icon::Lock.show(ui, 14.0, t.muted);
                     form::hint(ui, "Session passwords are saved with each session: edit the session to change one.");
                 });
-                for g in &GROUPS {
-                    group(ui, &mut d, g, &mut ops);
-                }
-                if d.items.iter().any(|c| c.kind == UNATTACHED.kind) {
-                    group(ui, &mut d, &UNATTACHED, &mut ops);
+                group(ui, &mut d, &KEYS, &mut ops);
+                for g in &UNATTACHED {
+                    if d.items.iter().any(|c| c.kind == g.kind) {
+                        group(ui, &mut d, g, &mut ops);
+                    }
                 }
             }
             DialogPart::Footer => widgets::trailing(ui, |ui| {
@@ -378,6 +462,7 @@ fn group(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
                         d.add_kind = Some(g.kind);
                         d.add_label.clear();
                         d.add_secret = Zeroizing::default();
+                        d.add_passphrase = Zeroizing::default();
                         d.add_shown = false;
                         d.focus = true;
                     }
@@ -472,35 +557,37 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                 return;
             }
 
-            // Label, date and usage; the buttons show on hover or focus.
+            // Label, date, passphrase and usage; the buttons show on hover
+            // or focus.
             let (rect, _) =
                 ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
             let hovered = ui.rect_contains_pointer(rect);
-            let btns: Vec<(Icon, String, String)> = if g.editable {
-                vec![
-                    (
-                        Icon::Pencil,
-                        format!("Rename {}", c.label),
-                        "Rename".to_string(),
-                    ),
-                    (
-                        Icon::RefreshCw,
-                        format!("Replace secret for {}", c.label),
-                        format!("Replace {}", g.secret_label.to_lowercase()),
-                    ),
-                    (
-                        Icon::Trash,
-                        format!("Delete {}", c.label),
-                        "Delete".to_string(),
-                    ),
-                ]
-            } else {
-                vec![(
-                    Icon::Trash,
-                    format!("Delete {}", c.label),
-                    "Delete".to_string(),
-                )]
-            };
+            let key = g.kind == KEYS.kind;
+            let mut btns: Vec<(Icon, String, String)> = Vec::new();
+            if g.editable {
+                btns.push((
+                    Icon::Pencil,
+                    format!("Rename {}", c.label),
+                    "Rename".to_string(),
+                ));
+                btns.push((
+                    Icon::RefreshCw,
+                    format!("Replace secret for {}", c.label),
+                    format!("Replace {}", g.secret_label.to_lowercase()),
+                ));
+            }
+            if g.editable && key {
+                btns.push((
+                    Icon::KeyRound,
+                    format!("Change passphrase for {}", c.label),
+                    "Change passphrase".to_string(),
+                ));
+            }
+            btns.push((
+                Icon::Trash,
+                format!("Delete {}", c.label),
+                "Delete".to_string(),
+            ));
             let btns_left = rect.right() - 28.0 * btns.len() as f32;
             let text_w = btns_left - rect.left() - 8.0;
             widgets::paint_text(
@@ -515,7 +602,21 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                 Pos2::new(rect.left(), rect.top() + 18.0),
                 vec2(text_w, 18.0),
             );
-            let added_r = widgets::paint_text(ui, sub, &added, font(size::SM), t.muted);
+            let mut sub_r = widgets::paint_text(ui, sub, &added, font(size::SM), t.muted);
+            if key {
+                let pp = if c.has_passphrase {
+                    "· Passphrase saved"
+                } else {
+                    "· No passphrase"
+                };
+                sub_r = widgets::paint_text(
+                    ui,
+                    sub.with_min_x(sub_r.right() + 8.0),
+                    pp,
+                    font(size::SM),
+                    t.muted,
+                );
+            }
             let n = c.used_by.len();
             let usage = if n > 0 {
                 format!("· Used by {n} session{}", plural(n))
@@ -525,7 +626,7 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
             let usage_color = if n > 0 { t.muted } else { alpha(t.muted, 0.7) };
             let usage_r = widgets::paint_text(
                 ui,
-                sub.with_min_x(added_r.right() + 8.0),
+                sub.with_min_x(sub_r.right() + 8.0),
                 &usage,
                 font(size::SM),
                 usage_color,
@@ -567,6 +668,16 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
                             d.edit = Some(RowEdit::Replace {
                                 id: c.id,
                                 secret: Zeroizing::default(),
+                                passphrase: Zeroizing::default(),
+                                shown: false,
+                            });
+                            d.focus = true;
+                        }
+                        Icon::KeyRound => {
+                            d.add_kind = None;
+                            d.edit = Some(RowEdit::Passphrase {
+                                id: c.id,
+                                passphrase: Zeroizing::default(),
                                 shown: false,
                             });
                             d.focus = true;
@@ -578,68 +689,106 @@ fn row(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, c: &CredentialDetail, 
 
             if matches!(&d.edit, Some(RowEdit::Replace { id, .. }) if *id == c.id) {
                 let focus = std::mem::take(&mut d.focus);
-                let (mut save, mut cancel, mut secret_out) = (false, false, None);
-                if let Some(RowEdit::Replace { secret, shown, .. }) = &mut d.edit {
-                    let hint = format!("New {}", g.secret_label.to_lowercase());
-                    let (enter, field) = secret_input(
-                        ui,
-                        g.kind,
-                        &hint,
-                        secret,
-                        shown,
-                        &format!("New secret for {}", c.label),
-                    );
+                let (mut save, mut cancel, mut out) = (false, false, None);
+                if let Some(RowEdit::Replace {
+                    secret,
+                    passphrase,
+                    shown,
+                    ..
+                }) = &mut d.edit
+                {
+                    let field =
+                        form::textarea(ui, secret, "-----BEGIN OPENSSH PRIVATE KEY-----", 5, true)
+                            .accessible_name(format!("New secret for {}", c.label));
                     if focus {
                         field.request_focus();
                     }
-                    save |= enter;
+                    let pp = form::secret(ui, passphrase, PASSPHRASE_HINT, shown, None)
+                        .accessible_name(format!("New passphrase for {}", c.label));
+                    save |= crate::form::entered(ui, &pp);
                     widgets::button_row(ui, |ui| {
                         cancel = widgets::Button::secondary("Cancel")
                             .small()
                             .show(ui)
                             .clicked();
-                        save |= widgets::Button::primary("Replace secret")
+                        save |= widgets::Button::primary("Replace key")
                             .small()
                             .enabled(!busy && !secret.is_empty())
                             .show(ui)
                             .clicked();
                     });
                     if save && !secret.is_empty() {
-                        secret_out = Some((**secret).clone());
+                        out = Some((
+                            (**secret).clone(),
+                            (!passphrase.is_empty()).then(|| (**passphrase).clone()),
+                        ));
                     }
                 }
                 if cancel {
                     d.edit = None;
-                } else if let Some(secret) = secret_out {
+                } else if let Some((secret, passphrase)) = out {
                     ops.push(Op::Replace {
                         id: c.id,
                         label: c.label.clone(),
                         secret,
+                        passphrase,
+                    });
+                }
+            }
+
+            if matches!(&d.edit, Some(RowEdit::Passphrase { id, .. }) if *id == c.id) {
+                let focus = std::mem::take(&mut d.focus);
+                let (mut save, mut remove, mut cancel, mut out) = (false, false, false, None);
+                if let Some(RowEdit::Passphrase {
+                    passphrase, shown, ..
+                }) = &mut d.edit
+                {
+                    let hint = if c.has_passphrase {
+                        "New passphrase"
+                    } else {
+                        "Passphrase"
+                    };
+                    let field = form::secret(ui, passphrase, hint, shown, None)
+                        .accessible_name(format!("New passphrase for {}", c.label));
+                    if focus {
+                        field.request_focus();
+                    }
+                    save |= crate::form::entered(ui, &field);
+                    widgets::button_row(ui, |ui| {
+                        cancel = widgets::Button::secondary("Cancel")
+                            .small()
+                            .show(ui)
+                            .clicked();
+                        if c.has_passphrase {
+                            remove = widgets::Button::danger("Remove passphrase")
+                                .small()
+                                .enabled(!busy)
+                                .show(ui)
+                                .clicked();
+                        }
+                        save |= widgets::Button::primary("Save passphrase")
+                            .small()
+                            .enabled(!busy && !passphrase.is_empty())
+                            .show(ui)
+                            .clicked();
+                    });
+                    if save && !passphrase.is_empty() {
+                        out = Some(PassphraseChange::Set((**passphrase).clone()));
+                    } else if remove {
+                        out = Some(PassphraseChange::Clear);
+                    }
+                }
+                if cancel {
+                    d.edit = None;
+                } else if let Some(change) = out {
+                    ops.push(Op::Passphrase {
+                        id: c.id,
+                        label: c.label.clone(),
+                        change,
                     });
                 }
             }
         });
-}
-
-/// `SecretInput`: a textarea for private keys (Enter is a newline), else a
-/// password field with an eye toggle where Enter saves. Returns (Enter
-/// pressed, the field).
-fn secret_input(
-    ui: &mut Ui,
-    kind: &str,
-    hint: &str,
-    value: &mut String,
-    shown: &mut bool,
-    label: &str,
-) -> (bool, egui::Response) {
-    if kind == "private_key" {
-        let resp = form::textarea(ui, value, "-----BEGIN OPENSSH PRIVATE KEY-----", 5, true)
-            .accessible_name(label);
-        (false, resp)
-    } else {
-        let resp = form::secret(ui, value, hint, shown, None).accessible_name(label);
-        (crate::form::entered(ui, &resp), resp)
-    }
 }
 
 fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>) {
@@ -666,16 +815,24 @@ fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>
             if std::mem::take(&mut d.focus) {
                 label_resp.request_focus();
             }
-            let (secret_enter, _) = secret_input(
+            form::textarea(
                 ui,
-                g.kind,
-                g.secret_label,
                 &mut d.add_secret,
+                "-----BEGIN OPENSSH PRIVATE KEY-----",
+                5,
+                true,
+            )
+            .accessible_name(format!("New {} secret", g.title));
+            let pp = form::secret(
+                ui,
+                &mut d.add_passphrase,
+                PASSPHRASE_HINT,
                 &mut d.add_shown,
-                &format!("New {} secret", g.title),
-            );
+                None,
+            )
+            .accessible_name(format!("New {} passphrase", g.title));
             let ready = !d.add_label.trim().is_empty() && !d.add_secret.is_empty();
-            let mut save = crate::form::entered(ui, &label_resp) || secret_enter;
+            let mut save = crate::form::entered(ui, &label_resp) || crate::form::entered(ui, &pp);
             let mut cancel = false;
             widgets::button_row(ui, |ui| {
                 cancel = widgets::Button::secondary("Cancel")
@@ -695,6 +852,7 @@ fn add_form(ui: &mut Ui, d: &mut CredentialsDialog, g: &Group, ops: &mut Vec<Op>
                     kind: g.kind,
                     label: d.add_label.trim().to_string(),
                     secret: (*d.add_secret).clone(),
+                    passphrase: (!d.add_passphrase.is_empty()).then(|| (*d.add_passphrase).clone()),
                 });
             }
         });

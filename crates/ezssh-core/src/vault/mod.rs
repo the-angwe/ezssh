@@ -243,22 +243,41 @@ pub async fn change_password(
     // unreadable forever after.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
-    let cred_rows: Vec<(i64, Vec<u8>, Vec<u8>)> =
-        sqlx::query_as("SELECT id, nonce, ciphertext FROM credentials")
-            .fetch_all(&mut *tx)
-            .await?;
-    for (id, nonce, ct) in cred_rows {
+    type CredRow = (i64, Vec<u8>, Vec<u8>, Option<Vec<u8>>, Option<Vec<u8>>);
+    let cred_rows: Vec<CredRow> = sqlx::query_as(
+        "SELECT id, nonce, ciphertext, passphrase_nonce, passphrase_ciphertext FROM credentials",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for (id, nonce, ct, pp_nonce, pp_ct) in cred_rows {
         if nonce.len() != NONCE_LEN {
             return Err(AppError::Crypto);
         }
         let pt = old_aead.decrypt(&nonce, &ct)?;
         let (n2, c2) = new_aead.encrypt(&pt)?;
-        sqlx::query("UPDATE credentials SET nonce = ?, ciphertext = ? WHERE id = ?")
-            .bind(&n2)
-            .bind(&c2)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        // A private key's passphrase lives on its row: re-wrap it too.
+        let (pn2, pc2) = match (pp_nonce, pp_ct) {
+            (Some(pn), Some(pc)) => {
+                if pn.len() != NONCE_LEN {
+                    return Err(AppError::Crypto);
+                }
+                let pp = old_aead.decrypt(&pn, &pc)?;
+                let (a, b) = new_aead.encrypt(&pp)?;
+                (Some(a), Some(b))
+            }
+            _ => (None, None),
+        };
+        sqlx::query(
+            "UPDATE credentials SET nonce = ?, ciphertext = ?, \
+             passphrase_nonce = ?, passphrase_ciphertext = ? WHERE id = ?",
+        )
+        .bind(&n2)
+        .bind(&c2)
+        .bind(&pn2)
+        .bind(&pc2)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     for key in VAULT_BLOB_SETTING_KEYS {

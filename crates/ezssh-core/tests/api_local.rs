@@ -32,7 +32,6 @@ fn local_session(name: &str) -> SessionInput {
         username: String::new(),
         auth_type: "agent".into(),
         credential_id: None,
-        key_passphrase_credential_id: None,
         color: None,
         initial_command: None,
         scrollback_lines: 1000,

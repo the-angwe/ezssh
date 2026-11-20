@@ -15,7 +15,7 @@ use crate::app::App;
 use crate::style::Theme;
 
 /// An SSH session that cannot connect (nothing listens on port 1).
-fn ssh_input(name: &str, auth: &str, key: Option<i64>, passphrase: Option<i64>) -> SessionInput {
+fn ssh_input(name: &str, auth: &str, key: Option<i64>) -> SessionInput {
     SessionInput {
         folder_id: None,
         name: name.into(),
@@ -24,7 +24,6 @@ fn ssh_input(name: &str, auth: &str, key: Option<i64>, passphrase: Option<i64>) 
         username: "root".into(),
         auth_type: auth.into(),
         credential_id: key,
-        key_passphrase_credential_id: passphrase,
         color: None,
         initial_command: None,
         scrollback_lines: 1000,
@@ -52,7 +51,7 @@ fn create_credential(app: &App, kind: &str, label: &str, secret: &str) -> i64 {
     let (kind, label, secret) = (kind.to_string(), label.to_string(), secret.to_string());
     app.core
         .block_on(|st| async move {
-            api::credentials::credential_create(&st, kind, label, secret).await
+            api::credentials::credential_create(&st, kind, label, secret, None).await
         })
         .expect("credential_create")
         .id
@@ -162,6 +161,13 @@ fn field_value<S: 'static>(h: &Harness<'static, S>, label: &str) -> Option<Strin
         .and_then(|n| n.value())
 }
 
+fn passphrase_of(app: &App, label: &str) -> Option<bool> {
+    app.dialogs
+        .credentials
+        .as_ref()
+        .and_then(|d| d.has_passphrase(label))
+}
+
 #[test]
 fn credentials_manager_add_rename_rotate_delete() {
     let mut env: Env = start();
@@ -173,10 +179,9 @@ fn credentials_manager_add_rename_rotate_delete() {
         "Prod key",
         "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
     );
-    create_credential(h.state(), "key_passphrase", "Prod passphrase", "hunter2");
     // A leftover from the ezTerm app's password picker: unowned.
     create_credential(h.state(), "password", "Picker password", "pw");
-    create_session(h.state(), ssh_input("db-server", "key", Some(key), None));
+    create_session(h.state(), ssh_input("db-server", "key", Some(key)));
 
     open_manager(h);
     let names = listed(h.state());
@@ -184,15 +189,17 @@ fn credentials_manager_add_rename_rotate_delete() {
         names.contains(&("private_key".into(), "Prod key".into())),
         "{names:?}"
     );
-    assert!(names.contains(&("key_passphrase".into(), "Prod passphrase".into())));
+    assert!(h.query_by_label("Add SSH keys").is_some());
     assert!(
-        h.query_by_label("Add SSH keys").is_some()
-            && h.query_by_label("Add Key passphrases").is_some()
+        h.query_by_label("Add Key passphrases").is_none(),
+        "passphrases are part of their key"
     );
     assert!(
         h.query_by_label("Add Passwords").is_none(),
         "no password group to add to"
     );
+    assert!(h.query_by_label("Change passphrase for Prod key").is_some());
+    assert_eq!(passphrase_of(h.state(), "Prod key"), Some(false));
     // The unattached password: delete only.
     assert!(h.query_by_label("Delete Picker password").is_some());
     assert!(h.query_by_label("Rename Picker password").is_none());
@@ -202,27 +209,33 @@ fn credentials_manager_add_rename_rotate_delete() {
     );
     shot(h, "credentials-dark");
 
-    // Add a key (textarea secret).
+    // Add a key together with its passphrase.
     h.get_by_label("Add SSH keys").click();
     h.run_steps(3);
-    shot(h, "credentials-add");
     fill(h, "New SSH keys label", "Laptop key");
     fill(
         h,
         "New SSH keys secret",
         "-----BEGIN OPENSSH PRIVATE KEY-----\nxyz",
     );
+    fill(h, "New SSH keys passphrase", "s3cret pass");
+    shot(h, "credentials-add");
     h.get_by_label("Save credential").click();
     wait(h, 10, "key added", |a| has_label(a, "Laptop key"));
+    assert_eq!(passphrase_of(h.state(), "Laptop key"), Some(true));
     wait(h, 10, "shared cache reloaded", |a| {
-        a.creds.list.iter().any(|c| c.label == "Laptop key")
+        a.creds
+            .list
+            .iter()
+            .any(|c| c.label == "Laptop key" && c.has_passphrase)
     });
     assert!(
         !h.state()
             .creds
             .list
             .iter()
-            .any(|c| c.kind == "password" && c.label == "Laptop key")
+            .any(|c| c.kind != "private_key" && c.label.starts_with("Laptop")),
+        "one credential, no separate passphrase row"
     );
 
     // Rename with Enter.
@@ -242,19 +255,46 @@ fn credentials_manager_add_rename_rotate_delete() {
         a.creds.list.iter().any(|c| c.label == "Prod key 2")
     });
 
-    // Rotate a passphrase.
-    h.get_by_label("Replace secret for Prod passphrase").click();
+    // Give the existing key a passphrase, then remove it again.
+    h.get_by_label("Change passphrase for Prod key 2").click();
     h.run_steps(3);
-    fill(h, "New secret for Prod passphrase", "correct-horse");
-    shot(h, "credentials-rotate");
-    h.get_by_label("Replace secret").click();
-    wait(h, 10, "secret updated", |a| {
-        a.toasts.items().iter().any(|t| t.title == "Secret updated")
+    assert!(
+        h.query_by_label("Remove passphrase").is_none(),
+        "nothing to remove yet"
+    );
+    fill(h, "New passphrase for Prod key 2", "correct-horse");
+    shot(h, "credentials-passphrase");
+    h.get_by_label("Save passphrase").click();
+    wait(h, 10, "passphrase set", |a| {
+        passphrase_of(a, "Prod key 2") == Some(true)
     });
     assert!(
         !h.state().dialogs.credentials.as_ref().unwrap().editing(),
         "inline form closed after success"
     );
+    h.get_by_label("Change passphrase for Prod key 2").click();
+    h.run_steps(3);
+    h.get_by_label("Remove passphrase").click();
+    wait(h, 10, "passphrase removed", |a| {
+        passphrase_of(a, "Prod key 2") == Some(false)
+    });
+
+    // Replacing a key replaces its passphrase too (blank: none).
+    h.get_by_label("Replace secret for Laptop key").click();
+    h.run_steps(3);
+    fill(
+        h,
+        "New secret for Laptop key",
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nnew",
+    );
+    shot(h, "credentials-rotate");
+    h.get_by_label("Replace key").click();
+    wait(h, 10, "key replaced", |a| {
+        a.toasts.items().iter().any(|t| t.title == "Key replaced")
+    });
+    wait(h, 10, "list reloaded", |a| {
+        passphrase_of(a, "Laptop key") == Some(false)
+    });
 
     // Delete warns with the sessions that use it.
     h.get_by_label("Delete Prod key 2").click();
@@ -275,7 +315,7 @@ fn credentials_manager_add_rename_rotate_delete() {
     assert!(!h.state().dialogs.credentials.as_ref().unwrap().confirming());
 
     // Escape unwinds: the add form first, then the dialog.
-    h.get_by_label("Add Key passphrases").click();
+    h.get_by_label("Add SSH keys").click();
     h.run_steps(3);
     h.key_press(Key::Escape);
     h.run_steps(2);
@@ -320,7 +360,7 @@ fn forwards_pane_status_menu_and_dialog() {
     let mut env = start();
     unlock_fresh(&mut env);
     let h = &mut env.h;
-    let session = create_session(h.state(), ssh_input("tunnel-host", "agent", None, None));
+    let session = create_session(h.state(), ssh_input("tunnel-host", "agent", None));
     let pg = create_forward(
         h.state(),
         session.id,
@@ -611,7 +651,7 @@ fn session_tab_lists_adds_edits_deletes() {
         .block_on(|st| async move { api::vault::vault_init(&st, PASSWORD.into()).await })
         .expect("vault_init");
     app.on_unlocked();
-    let sid = create_session(app, ssh_input("tunnel-host", "agent", None, None)).id;
+    let sid = create_session(app, ssh_input("tunnel-host", "agent", None)).id;
     create_forward(
         app,
         sid,

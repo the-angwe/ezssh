@@ -30,7 +30,6 @@ fn ssh(name: &str, auth: &str, password: Option<&str>) -> SessionInput {
         username: "root".into(),
         auth_type: auth.into(),
         credential_id: None,
-        key_passphrase_credential_id: None,
         color: None,
         initial_command: None,
         scrollback_lines: 5000,
@@ -127,7 +126,14 @@ async fn password_lives_and_dies_with_its_session() {
         Err(AppError::NotFound)
     ));
     assert!(matches!(
-        api::credentials::credential_update(&st, own, Some("x".into()), None).await,
+        api::credentials::credential_update(
+            &st,
+            own,
+            Some("x".into()),
+            None,
+            api::credentials::PassphraseChange::Keep
+        )
+        .await,
         Err(AppError::NotFound)
     ));
 
@@ -190,6 +196,7 @@ async fn key_slots_take_shared_rows_only_and_password_sessions_ignore_credential
         "password".into(),
         "legacy".into(),
         "picked".into(),
+        None,
     )
     .await
     .unwrap();
@@ -231,10 +238,15 @@ async fn backup_round_trip_rebinds_passwords() {
     let s = api::sessions::session_create(&st, ssh("db", "password", Some("hunter2")))
         .await
         .unwrap();
-    let key =
-        api::credentials::credential_create(&st, "private_key".into(), "k".into(), "PEM".into())
-            .await
-            .unwrap();
+    let key = api::credentials::credential_create(
+        &st,
+        "private_key".into(),
+        "k".into(),
+        "PEM".into(),
+        None,
+    )
+    .await
+    .unwrap();
     let mut k = ssh("box", "key", None);
     k.credential_id = Some(key.id);
     let k = api::sessions::session_create(&st, k).await.unwrap();
@@ -315,6 +327,7 @@ async fn legacy_bundle_with_a_shared_password_gives_each_session_a_copy() {
             label: "shared".into(),
             secret_b64: B64.encode("s3cret"),
             session_id: None,
+            passphrase_b64: None,
         }],
         known_hosts: Vec::new(),
         settings: Vec::new(),

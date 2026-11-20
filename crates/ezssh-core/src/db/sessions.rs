@@ -13,6 +13,9 @@ pub struct Session {
     pub username: String,
     pub auth_type: String, // 'password' | 'key' | 'agent'
     pub credential_id: Option<i64>,
+    /// Legacy: the passphrase row an ezTerm-era session paired with its
+    /// key. Always `None` since migration `20261120120000` (a key's
+    /// passphrase is stored with the key); read from old backups only.
     pub key_passphrase_credential_id: Option<i64>,
     pub color: Option<String>,
     pub sort: i64,
@@ -54,7 +57,6 @@ pub struct SessionInput {
     pub username: String,
     pub auth_type: String,
     pub credential_id: Option<i64>,
-    pub key_passphrase_credential_id: Option<i64>,
     pub color: Option<String>,
     pub initial_command: Option<String>,
     pub scrollback_lines: i64,
@@ -173,11 +175,11 @@ pub async fn create_with(
     let mut tx = pool.begin().await?;
     let id = sqlx::query(
         "INSERT INTO sessions (folder_id, name, host, port, username, auth_type, \
-         credential_id, key_passphrase_credential_id, color, \
+         credential_id, color, \
          initial_command, scrollback_lines, font_size, font_family, cursor_style, \
          compression, keepalive_secs, connect_timeout_secs, session_kind, \
          forward_x11, starting_dir) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(input.folder_id)
     .bind(&input.name)
@@ -186,7 +188,6 @@ pub async fn create_with(
     .bind(&input.username)
     .bind(&input.auth_type)
     .bind(input.credential_id)
-    .bind(input.key_passphrase_credential_id)
     .bind(&input.color)
     .bind(&input.initial_command)
     .bind(input.scrollback_lines)
@@ -222,7 +223,7 @@ pub async fn update_with(
     let mut tx = pool.begin().await?;
     let n = sqlx::query(
         "UPDATE sessions SET folder_id = ?, name = ?, host = ?, port = ?, username = ?, \
-         auth_type = ?, credential_id = ?, key_passphrase_credential_id = ?, color = ?, \
+         auth_type = ?, credential_id = ?, key_passphrase_credential_id = NULL, color = ?, \
          initial_command = ?, scrollback_lines = ?, font_size = ?, font_family = ?, cursor_style = ?, \
          compression = ?, keepalive_secs = ?, connect_timeout_secs = ?, \
          session_kind = ?, forward_x11 = ?, starting_dir = ? \
@@ -235,7 +236,6 @@ pub async fn update_with(
     .bind(&input.username)
     .bind(&input.auth_type)
     .bind(input.credential_id)
-    .bind(input.key_passphrase_credential_id)
     .bind(&input.color)
     .bind(&input.initial_command)
     .bind(input.scrollback_lines)
@@ -276,10 +276,7 @@ async fn bind_password(
         .fetch_optional(&mut **tx)
         .await?;
     if input.auth_type != "password" {
-        for slot in [input.credential_id, input.key_passphrase_credential_id]
-            .into_iter()
-            .flatten()
-        {
+        if let Some(slot) = input.credential_id {
             let owner: Option<Option<i64>> =
                 sqlx::query_scalar("SELECT session_id FROM credentials WHERE id = ?")
                     .bind(slot)
@@ -407,7 +404,7 @@ pub async fn reorder(
 /// except `id` (auto), `name` (suffixed) and `sort` (left at its default so
 /// the copy lands at the end of its folder, like `create`).
 const DUPLICATE_COLS: &str = "folder_id, host, port, username, auth_type, \
-credential_id, key_passphrase_credential_id, color, \
+credential_id, color, \
 initial_command, scrollback_lines, font_size, font_family, cursor_style, compression, \
 keepalive_secs, connect_timeout_secs, session_kind, forward_x11, starting_dir";
 
@@ -490,7 +487,6 @@ mod tests {
             username: "root".into(),
             auth_type: "agent".into(),
             credential_id: None,
-            key_passphrase_credential_id: None,
             color: None,
             initial_command: None,
             scrollback_lines: 5000,

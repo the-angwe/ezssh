@@ -108,6 +108,23 @@ mod tests {
     use sqlx::AssertSqlSafe;
     use sqlx::sqlite::SqlitePoolOptions;
 
+    /// Apply every migration before `version` to `pool`; returns the
+    /// migration `version` itself, for the test to run on its data.
+    async fn migrate_up_to(pool: &SqlitePool, version: i64) -> &'static sqlx::migrate::Migration {
+        let mut target = None;
+        for m in MIGRATOR.iter() {
+            if m.version < version {
+                sqlx::raw_sql(AssertSqlSafe(m.sql.as_str()))
+                    .execute(pool)
+                    .await
+                    .unwrap();
+            } else if m.version == version {
+                target = Some(m);
+            }
+        }
+        target.expect("migration exists")
+    }
+
     /// `20261101120000_session_owned_passwords` on data written by older
     /// builds: shared passwords are split per session, unused ones dropped,
     /// keys and passphrases untouched.
@@ -122,15 +139,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let (older, newer): (Vec<_>, Vec<_>) =
-            MIGRATOR.iter().partition(|m| m.version < 20261101120000);
-        assert_eq!(newer.len(), 1, "update the test when migrations are added");
-        for m in older {
-            sqlx::raw_sql(AssertSqlSafe(m.sql.as_str()))
-                .execute(&pool)
-                .await
-                .unwrap();
-        }
+        let newer = migrate_up_to(&pool, 20261101120000).await;
         let q = |sql: &'static str| sqlx::query(sql);
         q(
             "INSERT INTO credentials (id, kind, label, nonce, ciphertext) VALUES \
@@ -153,7 +162,7 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(AssertSqlSafe(newer[0].sql.as_str()))
+        sqlx::raw_sql(AssertSqlSafe(newer.sql.as_str()))
             .execute(&pool)
             .await
             .unwrap();
@@ -200,5 +209,79 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 4);
+    }
+
+    /// `20261120120000_key_passphrase_on_key`: each key takes the
+    /// passphrase its first key session paired it with; folded passphrase
+    /// rows go, others stay; no session names a passphrase any more.
+    #[tokio::test]
+    async fn key_passphrase_migration_folds_into_keys() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let m = migrate_up_to(&pool, 20261120120000).await;
+        let q = |sql: &'static str| sqlx::query(sql);
+        q(
+            "INSERT INTO credentials (id, kind, label, nonce, ciphertext) VALUES \
+           (1, 'private_key', 'k1', x'01', x'A1'), \
+           (2, 'key_passphrase', 'p1', x'02', x'B1'), \
+           (3, 'key_passphrase', 'p1-other', x'03', x'B2'), \
+           (4, 'private_key', 'k2', x'04', x'A2'), \
+           (5, 'key_passphrase', 'never used', x'05', x'B3'), \
+           (6, 'private_key', 'k3', x'06', x'A3')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // k1: two sessions with different passphrases (lowest id wins);
+        // k2: no passphrase; k3: only a password session points at it.
+        q("INSERT INTO sessions (id, name, host, username, auth_type, credential_id, key_passphrase_credential_id) VALUES \
+           (10, 'a', 'h', 'u', 'key', 1, 2), \
+           (11, 'b', 'h', 'u', 'key', 1, 3), \
+           (12, 'c', 'h', 'u', 'key', 4, NULL), \
+           (13, 'd', 'h', 'u', 'password', NULL, 2)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(AssertSqlSafe(m.sql.as_str()))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        type Row = (i64, String, Option<Vec<u8>>, Option<Vec<u8>>);
+        let creds: Vec<Row> = sqlx::query_as(
+            "SELECT id, kind, passphrase_nonce, passphrase_ciphertext FROM credentials ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let ids: Vec<i64> = creds.iter().map(|c| c.0).collect();
+        assert_eq!(ids, vec![1, 3, 4, 5, 6], "only the folded passphrase went");
+        assert_eq!(
+            (creds[0].2.clone(), creds[0].3.clone()),
+            (Some(vec![0x02]), Some(vec![0xB1]))
+        );
+        assert!(creds[2].2.is_none() && creds[2].3.is_none(), "k2 has none");
+        assert!(creds[4].3.is_none(), "k3 has none");
+        let named: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sessions WHERE key_passphrase_credential_id IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(named, 0);
+        let keys: Vec<Option<i64>> =
+            sqlx::query_scalar("SELECT credential_id FROM sessions ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            keys,
+            vec![Some(1), Some(1), Some(4), None],
+            "key refs untouched"
+        );
     }
 }

@@ -70,6 +70,8 @@ pub struct CredentialPreview {
     pub id: i64,
     pub kind: String,
     pub label: String,
+    /// A private key restored together with its passphrase.
+    pub has_passphrase: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -239,11 +241,13 @@ async fn backup_preview_inner(
         credentials: bundle
             .credentials
             .iter()
-            .filter(|c| c.kind != "password")
+            // Passwords come with their sessions, passphrases with keys.
+            .filter(|c| !matches!(c.kind.as_str(), "password" | "key_passphrase"))
             .map(|c| CredentialPreview {
                 id: c.id,
                 kind: c.kind.clone(),
                 label: c.label.clone(),
+                has_passphrase: key_passphrase(&bundle, c).is_some(),
             })
             .collect(),
         known_hosts: bundle
@@ -302,20 +306,49 @@ async fn backup_restore_inner(
         .map(|c| c.label)
         .collect();
     for entry in &bundle.credentials {
-        // Passwords come with their sessions (step 3).
-        if entry.kind == "password" || !selection.credential_ids.contains(&entry.id) {
+        // Passwords come with their sessions (step 3); a passphrase comes
+        // with its key.
+        if matches!(entry.kind.as_str(), "password" | "key_passphrase")
+            || !selection.credential_ids.contains(&entry.id)
+        {
             continue;
         }
         let pt = B64
             .decode(&entry.secret_b64)
             .map_err(|_| AppError::Validation("credential plaintext not base64".into()))?;
-        let (nonce, ct) = {
+        let passphrase = match key_passphrase(&bundle, entry) {
+            Some(b64) => {
+                Some(zeroize::Zeroizing::new(B64.decode(b64).map_err(|_| {
+                    AppError::Validation("key passphrase not base64".into())
+                })?))
+            }
+            None => None,
+        };
+        let (nonce, ct, pp) = {
             let vs = state.vault.read().await;
-            vault::encrypt_with(&vs, &pt)?
+            let (n, c) = vault::encrypt_with(&vs, &pt)?;
+            let pp = passphrase
+                .as_ref()
+                .map(|p| vault::encrypt_with(&vs, p))
+                .transpose()?;
+            (n, c, pp)
         };
         let final_label = unique_name(&entry.label, &existing_labels, &mut result.renamed);
-        let new_id =
-            db::credentials::insert(&state.db, &entry.kind, &final_label, &nonce, &ct).await?;
+        tracing::debug!(
+            source = entry.id,
+            kind = %entry.kind,
+            has_passphrase = pp.is_some(),
+            "restore: credential"
+        );
+        let new_id = db::credentials::insert(
+            &state.db,
+            &entry.kind,
+            &final_label,
+            &nonce,
+            &ct,
+            pp.as_ref().map(|(n, c)| (n.as_slice(), c.as_slice())),
+        )
+        .await?;
         cred_id_map.insert(entry.id, new_id);
         result.credentials_created += 1;
     }
@@ -405,10 +438,6 @@ async fn backup_restore_inner(
                 .credential_id
                 .and_then(|c| cred_id_map.get(&c).copied())
         };
-        let remapped_pass = entry
-            .session
-            .key_passphrase_credential_id
-            .and_then(|c| cred_id_map.get(&c).copied());
         let input = db::sessions::SessionInput {
             folder_id: target_folder,
             name: final_name,
@@ -416,8 +445,8 @@ async fn backup_restore_inner(
             port: entry.session.port,
             username: entry.session.username.clone(),
             auth_type: entry.session.auth_type.clone(),
+            // A key's passphrase came along with the key (step 1).
             credential_id: remapped_cred,
-            key_passphrase_credential_id: remapped_pass,
             color: entry.session.color.clone(),
             initial_command: entry.session.initial_command.clone(),
             scrollback_lines: entry.session.scrollback_lines,
@@ -475,6 +504,34 @@ async fn backup_restore_inner(
 
     state.sync.trigger();
     Ok(result)
+}
+
+/// A private key entry's passphrase (base64): its own, or (bundles from
+/// before the passphrase moved onto its key) the `key_passphrase` entry
+/// that the lowest-id key session pairs it with.
+fn key_passphrase<'a>(bundle: &'a Bundle, key: &'a CredentialEntry) -> Option<&'a str> {
+    if key.kind != "private_key" {
+        return None;
+    }
+    if let Some(own) = &key.passphrase_b64 {
+        return Some(own);
+    }
+    let mut pairing: Vec<&db::sessions::Session> = bundle
+        .sessions
+        .iter()
+        .map(|e| &e.session)
+        .filter(|s| s.auth_type == "key" && s.credential_id == Some(key.id))
+        .filter(|s| s.key_passphrase_credential_id.is_some())
+        .collect();
+    pairing.sort_by_key(|s| s.id);
+    pairing.iter().find_map(|s| {
+        let pid = s.key_passphrase_credential_id?;
+        bundle
+            .credentials
+            .iter()
+            .find(|c| c.id == pid && c.kind == "key_passphrase")
+            .map(|c| c.secret_b64.as_str())
+    })
 }
 
 /// The password entry a password session uses: its own row, or (bundles

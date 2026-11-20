@@ -212,7 +212,11 @@ fn ssh_password_session_create_edit_and_switch_to_key() {
     h.run_steps(3);
     click(h, Role::RadioButton, "Private Key");
     let adds: Vec<_> = h.query_all_by_label("Add new").collect();
-    assert_eq!(adds.len(), 2, "key and passphrase pickers");
+    assert_eq!(adds.len(), 1, "one picker: the key carries its passphrase");
+    assert!(
+        h.query_by_label("Key passphrase (optional)").is_none(),
+        "no separate passphrase picker"
+    );
     h.get_all_by_label("Add new").next().unwrap().click();
     h.run_steps(3);
     fill(h, Role::TextInput, "New credential label", "prod key");
@@ -222,10 +226,38 @@ fn ssh_password_session_create_edit_and_switch_to_key() {
         "New credential secret",
         "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----",
     );
+    fill(
+        h,
+        Role::PasswordInput,
+        "New credential passphrase",
+        "key-pass",
+    );
+    h.run_steps(3);
     shot(h, "session-key-add");
+    // The form's buttons sit inside its panel, below the passphrase.
+    let panel_bottom = h
+        .get_all_by_label("New credential passphrase")
+        .next()
+        .unwrap()
+        .rect()
+        .max
+        .y;
+    let save_btn = h.get_by_label("Save credential").rect();
+    let cancel_btn = h
+        .query_all_by_label("Cancel")
+        .map(|n| n.rect())
+        .find(|r| (r.center().y - save_btn.center().y).abs() < 2.0)
+        .expect("the form's Cancel on the Save row");
+    assert!(
+        save_btn.min.y > panel_bottom && cancel_btn.max.x < save_btn.min.x,
+        "buttons below the fields, Cancel then Save: {cancel_btn:?} {save_btn:?} field bottom {panel_bottom}"
+    );
     click(h, Role::Button, "Save credential");
     wait(h, 10, "key created and selected", |a| {
-        a.creds.list.iter().any(|c| c.label == "prod key")
+        a.creds
+            .list
+            .iter()
+            .any(|c| c.label == "prod key" && c.has_passphrase)
             && a.dialogs
                 .session
                 .as_ref()
@@ -447,7 +479,6 @@ fn ssh_input(name: &str, password: Option<&str>) -> SessionInput {
         username: "root".into(),
         auth_type: "password".into(),
         credential_id: None,
-        key_passphrase_credential_id: None,
         color: None,
         initial_command: None,
         scrollback_lines: 1000,

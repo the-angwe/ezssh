@@ -4,7 +4,9 @@
 //! only, not window-wide.
 //!
 //! As in the session dialog, a password is typed (it belongs to the
-//! session); a blank field keeps the stored one.
+//! session); a blank field keeps the stored one. For a private key, a
+//! typed passphrase replaces the one stored with the picked key (it is
+//! part of the key credential, so every session using the key gets it).
 
 use egui::{Frame, Id, Key, Margin, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 use ezssh_core::db::sessions::{Session, SessionInput};
@@ -26,14 +28,15 @@ pub struct AuthFix {
     username: String,
     auth_type: String,
     credential_id: Option<i64>,
-    passphrase_id: Option<i64>,
     /// The typed password; wiped on drop.
     password: Zeroizing<String>,
     show_password: bool,
+    /// A new passphrase for the picked key; blank keeps the stored one.
+    passphrase: Zeroizing<String>,
+    show_passphrase: bool,
     busy: bool,
     err: Option<String>,
     key_picker: CredPicker,
-    pass_picker: CredPicker,
     focus_username: bool,
 }
 
@@ -50,13 +53,13 @@ impl AuthFix {
             } else {
                 session.credential_id
             },
-            passphrase_id: session.key_passphrase_credential_id,
             password: Zeroizing::new(String::new()),
             show_password: false,
+            passphrase: Zeroizing::new(String::new()),
+            show_passphrase: false,
             busy: false,
             err: None,
-            key_picker: CredPicker::new("private_key", ("auth-fix", tab)),
-            pass_picker: CredPicker::new("key_passphrase", ("auth-fix", tab)),
+            key_picker: CredPicker::new(("auth-fix", tab)),
             focus_username: true,
             session,
             message,
@@ -72,7 +75,9 @@ impl AuthFix {
         tracing::debug!(from = %self.auth_type, to = next, "auth_fix: method");
         self.auth_type = next.to_string();
         self.credential_id = None;
-        self.passphrase_id = None;
+        // Zeroizing only wipes on drop; overwrite the typed secrets now.
+        self.password = Zeroizing::new(String::new());
+        self.passphrase = Zeroizing::new(String::new());
     }
 
     fn validate(&self) -> Option<&'static str> {
@@ -96,7 +101,6 @@ impl AuthFix {
             username: self.username.trim().to_string(),
             auth_type: self.auth_type.clone(),
             credential_id: self.credential_id,
-            passphrase_id: self.passphrase_id,
             password: (self.auth_type == "password" && !self.password.is_empty())
                 .then(|| Secret::new(String::clone(&self.password))),
         }
@@ -123,7 +127,6 @@ struct AuthFields {
     username: String,
     auth_type: String,
     credential_id: Option<i64>,
-    passphrase_id: Option<i64>,
     password: Option<Secret>,
 }
 
@@ -141,7 +144,6 @@ impl AuthFields {
             username: self.username,
             auth_type: self.auth_type,
             credential_id: if key { self.credential_id } else { None },
-            key_passphrase_credential_id: if key { self.passphrase_id } else { None },
             color: s.color.clone(),
             initial_command: s.initial_command.clone(),
             scrollback_lines: s.scrollback_lines,
@@ -178,14 +180,32 @@ fn save(app: &mut App, fix: &mut AuthFix, tab: TabId) {
         username: fix.username.trim().to_string(),
         auth_type: fix.auth_type.clone(),
         credential_id: fix.credential_id,
-        passphrase_id: fix.passphrase_id,
         password: (fix.auth_type == "password" && !fix.password.is_empty())
             .then(|| Secret::new(String::clone(&fix.password))),
     };
-    tracing::debug!(tab, session = id, auth = %overlay.auth_type, new_password = overlay.password.is_some(), "auth_fix: saving");
+    // A typed passphrase goes onto the picked key (credential_update
+    // zeroizes its copy).
+    let new_passphrase = match (fix.auth_type.as_str(), fix.credential_id) {
+        ("key", Some(key)) if !fix.passphrase.is_empty() => {
+            Some((key, String::clone(&fix.passphrase)))
+        }
+        _ => None,
+    };
+    let passphrase_changed = new_passphrase.is_some();
+    tracing::debug!(tab, session = id, auth = %overlay.auth_type, new_password = overlay.password.is_some(), new_passphrase = passphrase_changed, "auth_fix: saving");
     app.core.call(
         "auth_fix save",
         move |st| async move {
+            if let Some((key, pp)) = new_passphrase {
+                api::credentials::credential_update(
+                    &st,
+                    key,
+                    None,
+                    None,
+                    api::credentials::PassphraseChange::Set(pp),
+                )
+                .await?;
+            }
             let base = api::sessions::session_get(&st, id).await?;
             let mut input = overlay.into_input(&base);
             input.env = api::sessions::session_env_get(&st, id).await?;
@@ -196,6 +216,9 @@ fn save(app: &mut App, fix: &mut AuthFix, tab: TabId) {
                 tracing::info!(tab, session = id, "auth_fix: saved, reconnecting");
                 // Other views (sidebar Edit) must not keep the old row.
                 app.sidebar.reload(&app.core);
+                if passphrase_changed {
+                    app.creds.reload(&app.core);
+                }
                 let Some(t) = app.tabs.get_mut(tab) else {
                     tracing::debug!(tab, "auth_fix: tab closed meanwhile");
                     return;
@@ -392,9 +415,18 @@ fn body_fields(app: &mut App, ui: &mut Ui, fix: &mut AuthFix) {
             form::field(ui, "Private key", None, |ui| {
                 fix.key_picker.show(app, ui, &mut fix.credential_id)
             });
-            form::field(ui, "Key passphrase (optional)", None, |ui| {
-                fix.pass_picker.show(app, ui, &mut fix.passphrase_id)
-            });
+            if fix.credential_id.is_some() {
+                form::field(ui, "Key passphrase", None, |ui| {
+                    let r = form::secret(
+                        ui,
+                        &mut fix.passphrase,
+                        "Leave blank to keep the key's saved passphrase",
+                        &mut fix.show_passphrase,
+                        None,
+                    );
+                    labelled(ui, &r, "Key passphrase");
+                });
+            }
         }
         _ => super::session_dialog::agent_hint(ui),
     }

@@ -201,12 +201,7 @@ fn dialogs_tab_in_visual_order() {
         (
             "credentials",
             |a| a.dialogs.credentials = Some(Default::default()),
-            &[
-                "Add SSH keys",
-                "Add Key passphrases",
-                "Close",
-                "Close dialog",
-            ],
+            &["Add SSH keys", "Close", "Close dialog"],
         ),
         (
             "change-password",
@@ -287,7 +282,6 @@ fn ssh_input(name: &str) -> ezssh_core::db::sessions::SessionInput {
         username: "root".into(),
         auth_type: "password".into(),
         credential_id: None,
-        key_passphrase_credential_id: None,
         color: None,
         initial_command: None,
         scrollback_lines: 1000,
@@ -323,6 +317,7 @@ fn data_dialogs_tab_in_visual_order() {
                 "private_key".into(),
                 "Prod key".into(),
                 "-----BEGIN OPENSSH PRIVATE KEY-----\nx\n".into(),
+                None,
             )
             .await
         })
@@ -336,8 +331,8 @@ fn data_dialogs_tab_in_visual_order() {
             "Add SSH keys",
             "Rename Prod key",
             "Replace secret for Prod key",
+            "Change passphrase for Prod key",
             "Delete Prod key",
-            "Add Key passphrases",
             "Close",
             "Close dialog"
         ]
@@ -349,8 +344,9 @@ fn data_dialogs_tab_in_visual_order() {
     let at = |s: &str| l.iter().position(|x| *x == s).unwrap_or(usize::MAX);
     assert!(
         at("New SSH keys label") < at("New SSH keys secret")
-            && at("New SSH keys secret") < at("Cancel")
-            && at("Cancel") < at("Add Key passphrases"),
+            && at("New SSH keys secret") < at("New SSH keys passphrase")
+            && at("New SSH keys passphrase") < at("Cancel")
+            && at("Cancel") < at("Close"),
         "credentials add form:{}",
         show(&c)
     );

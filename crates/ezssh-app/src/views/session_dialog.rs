@@ -4,8 +4,9 @@
 //!
 //! Passwords belong to their session: the Password method shows a
 //! password field instead of a credential picker. A new password session
-//! needs one; when editing, a blank field keeps the stored password. Keys
-//! and key passphrases stay shared and use [`CredPicker`].
+//! needs one; when editing, a blank field keeps the stored password.
+//! Private keys (each stored with its passphrase) stay shared and use
+//! [`CredPicker`].
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -53,7 +54,6 @@ struct Draft {
     username: String,
     auth_type: String,
     credential_id: Option<i64>,
-    key_passphrase_credential_id: Option<i64>,
     color: Option<String>,
     initial_command: String,
     scrollback_lines: i64,
@@ -81,7 +81,6 @@ impl Draft {
             username: String::new(),
             auth_type: "agent".into(),
             credential_id: None,
-            key_passphrase_credential_id: None,
             color: None,
             initial_command: String::new(),
             scrollback_lines: s.int("terminal.scrollback"),
@@ -113,7 +112,6 @@ impl Draft {
             } else {
                 s.credential_id
             },
-            key_passphrase_credential_id: s.key_passphrase_credential_id,
             color: s.color.clone(),
             initial_command: s.initial_command.clone().unwrap_or_default(),
             scrollback_lines: s.scrollback_lines,
@@ -176,11 +174,6 @@ impl Draft {
             // The core manages a password session's own row.
             credential_id: if ssh && self.auth_type == "key" {
                 self.credential_id
-            } else {
-                None
-            },
-            key_passphrase_credential_id: if ssh && self.auth_type == "key" {
-                self.key_passphrase_credential_id
             } else {
                 None
             },
@@ -282,7 +275,6 @@ pub struct SessionDialog {
     /// The font family picker shows the free-text field.
     font_custom: bool,
     key_picker: CredPicker,
-    pass_picker: CredPicker,
     focus_name: bool,
 }
 
@@ -307,8 +299,7 @@ impl SessionDialog {
             busy: false,
             shells: None,
             font_custom: false,
-            key_picker: CredPicker::new("private_key", ("session", serial)),
-            pass_picker: CredPicker::new("key_passphrase", ("session", serial)),
+            key_picker: CredPicker::new(("session", serial)),
             focus_name: true,
         }
     }
@@ -419,7 +410,6 @@ impl SessionDialog {
         if next != "ssh" {
             d.auth_type = "agent".into();
             d.credential_id = None;
-            d.key_passphrase_credential_id = None;
             if self.pane == Pane::Forwards {
                 self.pane = Pane::General;
             }
@@ -431,7 +421,6 @@ impl SessionDialog {
         tracing::debug!(from = %self.draft.auth_type, to = next, "session_dialog: auth method");
         self.draft.auth_type = next.to_string();
         self.draft.credential_id = None;
-        self.draft.key_passphrase_credential_id = None;
     }
 
     fn save(&mut self, app: &mut App) {
@@ -888,10 +877,6 @@ fn general(dlg: &mut SessionDialog, app: &mut App, ui: &mut Ui) {
                 "key" => {
                     form::field(ui, "Private key", None, |ui| {
                         dlg.key_picker.show(app, ui, &mut dlg.draft.credential_id)
-                    });
-                    form::field(ui, "Key passphrase (optional)", None, |ui| {
-                        dlg.pass_picker
-                            .show(app, ui, &mut dlg.draft.key_passphrase_credential_id);
                     });
                 }
                 _ => agent_hint(ui),

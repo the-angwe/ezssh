@@ -286,7 +286,6 @@ fn save(app: &mut App, tab: TabId, serial: u64, look: Look) {
                 auth_type: s.auth_type,
                 // A password session's own row: the core keeps it.
                 credential_id: s.credential_id,
-                key_passphrase_credential_id: s.key_passphrase_credential_id,
                 color: sent.color,
                 initial_command: s.initial_command,
                 scrollback_lines: sent.scrollback_lines,

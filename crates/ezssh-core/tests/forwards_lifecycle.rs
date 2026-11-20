@@ -89,7 +89,6 @@ fn named_session(name: &str, port: u16, keepalive_secs: i64) -> SessionInput {
         username: "u".into(),
         auth_type: "password".into(),
         credential_id: None,
-        key_passphrase_credential_id: None,
         color: None,
         initial_command: None,
         scrollback_lines: 1000,

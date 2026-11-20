@@ -90,7 +90,8 @@ pub struct App {
     pub(crate) strip: views::tabstrip::StripState,
     pub(crate) mdi: views::mdi::MdiState,
     pub(crate) dialogs: Dialogs,
-    /// Shared credentials (keys, passphrases) for pickers and the manager.
+    /// Shared credentials (private keys with their passphrases) for pickers
+    /// and the manager.
     pub(crate) creds: crate::creds::CredCache,
     /// The port-forward panes.
     pub(crate) forwards: views::forwards::ForwardsState,

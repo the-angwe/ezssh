@@ -13,7 +13,8 @@ Since 2.0 it is one native Rust process (egui/eframe 0.37 + alacritty_terminal 0
 - The database is ezTerm's: `ezterm.sqlite` under `ProjectDirs("com", "ZerosAndOnes", "ezTerm")`; the per-user VcXsrv under `ProjectDirs("com", "zerosandones", "ezterm")`. Do not rename these.
 - Backup magic `ezterm-backup`, sync object `ezterm-sync.json`, the vault verifier plaintext and the migration history are formats shared with ezTerm installs and old backups. Change them only with a migration path.
 - New migrations make the database unopenable for ezTerm v1 (sqlx refuses unknown applied migrations). That is accepted; say so in release notes when it matters.
-- **Session passwords belong to their session** (`credentials.session_id`, migration `20261101120000`): `SessionInput.password: Option<Secret>` sets or keeps it; the shared credentials list holds only private keys and key passphrases. Backups / sync carry the owner. Password sessions ignore `credential_id`; unowned password rows left by ezTerm are only listed (delete-only group in the credentials manager). §13.2 of the plan.
+- **Session passwords belong to their session** (`credentials.session_id`, migration `20261101120000`): `SessionInput.password: Option<Secret>` sets or keeps it; the shared credentials list holds only private keys. Backups / sync carry the owner. Password sessions ignore `credential_id`; unowned password rows left by ezTerm are only listed (delete-only group in the credentials manager). §13.2 of the plan.
+- **A private key and its passphrase are one credential** (migration `20261120120000`): the passphrase is stored on the key row (`credentials.passphrase_nonce` / `passphrase_ciphertext`, vault-encrypted, re-wrapped on a vault password change). `sessions.key_passphrase_credential_id` is legacy and always NULL; restore folds a passphrase that an old bundle paired with a key through a session into that key. Passphrase rows no key took are listed delete-only.
 
 ## Layout
 

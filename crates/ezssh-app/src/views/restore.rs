@@ -506,7 +506,7 @@ fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
         );
     }
 
-    // Credentials (keys and key passphrases).
+    // Credentials (private keys, each with its passphrase).
     let all = p.credentials.iter().map(|c| c.id);
     section(
         ui,
@@ -516,7 +516,8 @@ fn select_body(ui: &mut Ui, p: &BackupPreview, sel: &mut Selection) {
         all,
         |ui, set| {
             for c in &p.credentials {
-                row(ui, set, c.id, &c.label, Some(&c.kind), None);
+                let sub = credential_sub(c);
+                row(ui, set, c.id, &c.label, Some(&sub), None);
             }
         },
     );
@@ -734,6 +735,16 @@ fn pill(ui: &mut Ui, icon: Icon, text: &str, color: egui::Color32) {
         });
 }
 
+/// A credential row's second line: the kind, and for a private key
+/// whether its passphrase comes along.
+fn credential_sub(c: &ezssh_core::api::backup::CredentialPreview) -> String {
+    match (c.kind.as_str(), c.has_passphrase) {
+        ("private_key", true) => "private key · with passphrase".into(),
+        ("private_key", false) => "private key".into(),
+        (kind, _) => kind.into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -764,6 +775,7 @@ mod tests {
                 id: 7,
                 kind: "private_key".into(),
                 label: "id_ed25519".into(),
+                has_passphrase: true,
             }],
             known_hosts: vec![],
             setting_count: 3,

@@ -1,6 +1,7 @@
 //! A small SSH server for tests and manual checks of the file pane.
 //!
-//! - password auth against one user,
+//! - password auth against one user (and public-key auth when
+//!   [`Config::authorized_key`] is set),
 //! - a shell channel that echoes what it gets (`exit` closes it),
 //! - the `sftp` subsystem over a local folder: remote `/` is `root`,
 //! - and, separately, [`http::serve`] for updater tests.
@@ -38,6 +39,8 @@ pub struct Config {
     pub home: String,
     pub user: String,
     pub password: String,
+    /// A public key the user may log in with.
+    pub authorized_key: Option<russh::keys::PublicKey>,
     /// Sleep before every SFTP read and write, to watch progress bars.
     pub op_delay: Duration,
 }
@@ -49,6 +52,7 @@ impl Config {
             home: "/".into(),
             user: user.into(),
             password: password.into(),
+            authorized_key: None,
             op_delay: Duration::ZERO,
         }
     }
@@ -151,6 +155,21 @@ impl russh::server::Handler for SshHandler {
     async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         let ok = user == self.shared.cfg.user && password == self.shared.cfg.password;
         tracing::debug!(user, ok, "testsrv: password auth");
+        Ok(if ok { Auth::Accept } else { Auth::reject() })
+    }
+
+    async fn auth_publickey(
+        &mut self,
+        user: &str,
+        public_key: &russh::keys::PublicKey,
+    ) -> Result<Auth, Self::Error> {
+        let cfg = &self.shared.cfg;
+        let ok = user == cfg.user
+            && cfg
+                .authorized_key
+                .as_ref()
+                .is_some_and(|k| k.key_data() == public_key.key_data());
+        tracing::debug!(user, ok, "testsrv: public-key auth");
         Ok(if ok { Auth::Accept } else { Auth::reject() })
     }
 

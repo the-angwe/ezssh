@@ -1,5 +1,5 @@
-//! The shared credentials list (private keys and key passphrases; session
-//! passwords live on their session). The session dialog's pickers and the
+//! The shared credentials list (private keys, each with its passphrase;
+//! session passwords live on their session). The session dialog's pickers and the
 //! credentials manager read it; whoever changes a credential calls
 //! [`CredCache::reload`]: every picker sees the new list on the next frame.
 
